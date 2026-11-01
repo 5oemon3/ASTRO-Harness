@@ -2,7 +2,7 @@
 
 - Status: aceita
 - Data: 2026-11-01
-- Issue: a abrir (frente B)
+- Issue: #311 (fatia B.1 implementada: módulo + storage + aviso de plain em health/TUI)
 - Decisões relacionadas: D-03, D-21, I-03, I-07, ADR-0009, ADR-0017, ADR-0018
 
 ## Contexto

@@ -40,6 +40,9 @@ const REDACT_PREFIX = new RegExp(
   `(?:${GHP_PREFIX}|${XOX_PREFIX}[bp]-|${AIZA_PREFIX}|${AKIA_PREFIX}|${GL_PREFIX})[A-Za-z0-9_-]{8,}`,
   "g",
 );
+// Cofre (ADR-0019, #311): par `"secret": "..."` do vault.json é redacted inteiro (espaços, aspas escapadas).
+const REDACT_VAULT_SECRET = /("secret"\s*:\s*")((?:[^"\\]|\\.)*)(")/gi;
+
 // JSON `"apiKey":"..."`, env `TOKEN=...`/`x-api-key: ...` (aspas normais ou escapadas)
 const SECRET_KEY = "(?:[A-Za-z0-9_-]*(?:api[-_]?key|access[-_]?key|secret|password|token(?!s))[A-Za-z0-9_-]*)";
 const QUOTE = `(?:\\\\"|")`;
@@ -61,6 +64,7 @@ export function redactSecrets(text: string): string {
   return text
     .replace(REDACT_PEM, REDACTED)
     .replace(REDACT_JWT, REDACTED)
+    .replace(REDACT_VAULT_SECRET, `$1${REDACTED}$3`)
     .replace(REDACT_VALUE, REDACTED)
     .replace(REDACT_BEARER, `${BEARER_WORD} ${REDACTED}`)
     .replace(REDACT_NV, REDACTED)

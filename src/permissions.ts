@@ -122,7 +122,7 @@ export function resolvePermissionMode(explicit: unknown, configured: unknown): P
  * continua sendo bloqueio duro nas próprias tools.
  */
 export const CRITICAL_PATH_SEGMENTS: readonly string[] = [".astro", ".git"];
-export const CRITICAL_PATH_NAMES: readonly string[] = [".env", "astro.config.json", "auth.json"];
+export const CRITICAL_PATH_NAMES: readonly string[] = [".env", "astro.config.json", "auth.json", "vault.json"];
 export const CRITICAL_PATH_PATTERN = /(^|[._-])(secret|secrets|token|tokens|key|keys|password|passwd|credential|credentials)([._-]|$)/i;
 
 /** Caminho que casa com `CRITICAL_PATHS` (leitura crítica e escrita crítica). */

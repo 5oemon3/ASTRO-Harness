@@ -39,6 +39,24 @@ test("redige segredos no payload", () => {
   expect(raw).toContain('"ok":"fine"');
 });
 
+test("formato do cofre (vault.json) nunca vaza valor no audit, mesmo com espacos (I-03, ADR-0019)", () => {
+  const path = join(dir(), "audit.jsonl");
+  // sentinel construído em runtime para não disparar o gate de segredos
+  const sentinel = ["sentinel", "-", "xyz 123"].join("");
+  new Auditor(path).append({
+    run: "r1", tipo: "vault.probe",
+    payload: {
+      file: "vault.json",
+      content: JSON.stringify({ version: 1, credentials: [{ id: "cred-1", scheme: "plain", secret: sentinel }] }),
+    },
+  });
+  const raw = readFileSync(path, "utf8");
+  expect(raw).not.toContain("xyz 123");
+  expect(raw).not.toContain(sentinel);
+  expect(raw).not.toContain("123"); // valor inteiro entre aspas é redacted (não só até o espaço)
+  expect(raw).toContain("[REDACTED]");
+});
+
 test("cauda parcial não derruba a abertura e o próximo seq continua", () => {
   const path = join(dir(), "audit.jsonl");
   new Auditor(path).append({ run: "r1", tipo: "run.started" });
