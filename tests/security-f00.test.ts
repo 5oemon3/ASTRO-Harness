@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,9 +7,12 @@ import { ProviderError } from "../src/provider/types";
 import { runTask } from "../src/app";
 import { editTool } from "../src/tools/edit";
 import { readFileTool } from "../src/tools/read-file";
-import { runCommandTool } from "../src/tools/run-command";
+import { runCommandTool, configureRunCommand } from "../src/tools/run-command";
 import { writeFileTool } from "../src/tools/write-file";
 import type { ToolContext } from "../src/tools/types";
+
+// F-00 testa a sanitização do env no host: opt-out explícito do sandbox.
+beforeEach(() => configureRunCommand({ sandbox: false }));
 
 const dir = () => mkdtempSync(join(tmpdir(), "astro-sec-"));
 

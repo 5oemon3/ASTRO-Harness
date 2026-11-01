@@ -1,17 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createShellRunner } from "../src/tui/shell";
+import {
+  configureRunCommand,
+  detectDockerAvailable,
+  isRunCommandSandboxEnabled,
+} from "../src/tools/run-command";
 
-function config(tools: string[], credentialRef = "KEY", sandbox = false) {
+function config(tools: string[], credentialRef = "KEY", sandbox = false, withTools = true) {
   const cwd = mkdtempSync(join(tmpdir(), "astro-shell-"));
   const configPath = join(cwd, "astro.config.json");
   writeFileSync(configPath, JSON.stringify({
     providers: { p: { kind: "openai-compat", baseUrl: "http://127.0.0.1:1/v1", credentialRef } },
     models: [{ provider: "p", id: "m1", tags: ["writing-code"], context: 4096 }],
     agent: { model: "p/m1", maxSteps: 2, tools },
-    tools: { run_command: { sandbox } },
+    ...(withTools ? { tools: { run_command: { sandbox } } } : {}),
     paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
   }));
   return { cwd, configPath };
@@ -20,6 +25,26 @@ function config(tools: string[], credentialRef = "KEY", sandbox = false) {
 const slowCommand = process.platform === "win32" ? "ping -n 10 127.0.0.1" : "sleep 5";
 
 describe("!cmd da TUI (T2, #63)", () => {
+  afterEach(() => {
+    configureRunCommand({ sandbox: false });
+  });
+
+  test("sem seção tools na config: sandbox ligado por padrão (fail-closed, I-11)", async () => {
+    const { cwd, configPath } = config(["run_command"], "KEY", false, false);
+    const shell = createShellRunner({ configPath, cwd, env: process.env });
+    expect(shell.enabled).toBe(true);
+    expect(isRunCommandSandboxEnabled()).toBe(true);
+    const docker = await detectDockerAvailable();
+    const result = await shell.run("echo astro-shell-default");
+    if (!docker) {
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("sandbox");
+    } else {
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toContain("astro-shell-default");
+    }
+  });
+
   test("executa via run_command quando está na allowlist e audita", async () => {
     const { cwd, configPath } = config(["run_command"]);
     const shell = createShellRunner({ configPath, cwd, env: process.env });

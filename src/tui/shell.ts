@@ -7,7 +7,7 @@ import { effectiveOutputCap } from "../output-limit";
 import { loadEffectiveConfig } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
 import { ToolExecutor } from "../tools/executor";
-import { configureRunCommand, runCommandTool } from "../tools/run-command";
+import { configureRunCommand, resolveSandboxSetting, runCommandTool } from "../tools/run-command";
 
 export interface ShellResult {
   output: string;
@@ -47,7 +47,8 @@ export function createShellRunner(opts: ShellOptions): ShellRunner {
       run: async () => ({ output: "run_command não está na allowlist de agent.tools", isError: true }),
     };
   }
-  configureRunCommand({ sandbox: config.tools?.run_command?.sandbox ?? false });
+  // Fail-closed igual ao caminho do app (I-11): sandbox ligado salvo opt-out explícito.
+  configureRunCommand({ sandbox: resolveSandboxSetting(config.tools?.run_command?.sandbox) });
   const auditPath = resolve(opts.cwd, config.paths.audit);
   const secretEnvNames: string[] = [];
   for (const provider of Object.values(config.providers)) {
