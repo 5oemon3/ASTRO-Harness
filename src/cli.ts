@@ -36,6 +36,7 @@ import { createInterface } from "node:readline";
 import type { SwapApprover } from "./approval";
 import type { BudgetDecider } from "./budget";
 import { trustChoice, trustPrompt, type TrustAsk } from "./trust";
+import type { NoProgressDecider } from "./loop-guard";
 
 /** Aprovação interativa de troca (F-19); sem TTY retorna undefined (runtime nega/pending). */
 function ttyApprover(): SwapApprover | undefined {
@@ -94,6 +95,24 @@ function ttyTrustAsk(): TrustAsk | undefined {
         rl.once("close", () => resolve(""));
         rl.question(trustPrompt(cwd), resolve);
       }));
+    } finally {
+      rl.close();
+    }
+  };
+}
+
+/** Decisor TTY de não-progresso do loop (L6, #135); sem TTY retorna undefined (para seguro). */
+function ttyNoProgressDecider(): NoProgressDecider | undefined {
+  if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return undefined;
+  return async (info) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      // EOF (Ctrl-D) = não continuar
+      const answer = await new Promise<string>((resolve) => {
+        rl.once("close", () => resolve(""));
+        rl.question(`sem progresso por ${info.segments} segmentos (turno ${info.step}). continuar? [s/N] `, resolve);
+      });
+      return /^(s|sim|y|yes)$/i.test(answer.trim());
     } finally {
       rl.close();
     }
@@ -893,6 +912,7 @@ async function main(argv: string[]): Promise<number> {
         ...(o.cwd === undefined ? {} : { cwd: o.cwd }),
         approveSwap: ttyApprover(), onBudgetExceeded: ttyBudgetDecider(),
         trustAsk: ttyTrustAsk(),
+        onNoProgress: ttyNoProgressDecider(),
       });
       const fmtCost = (v: number | null): string => (v === null ? "n/d" : `US$ ${v.toFixed(6)}`);
       console.log(`replay do run ${result.runId}`);
@@ -923,6 +943,7 @@ async function main(argv: string[]): Promise<number> {
         ...(process.stdin.isTTY === true ? {} : { approveTool: nonInteractiveApprover() }),
         approveSwap: ttyApprover(), onBudgetExceeded: ttyBudgetDecider(),
         trustAsk: ttyTrustAsk(),
+        onNoProgress: ttyNoProgressDecider(),
       });
       console.log(`retomado ${report.resumedFrom ?? "?"} do run ${report.runId}`);
       console.log(report.final);
@@ -1156,6 +1177,7 @@ async function main(argv: string[]): Promise<number> {
       ...(process.stdin.isTTY === true ? {} : { approveTool: nonInteractiveApprover() }),
       approveSwap: ttyApprover(), onBudgetExceeded: ttyBudgetDecider(),
       trustAsk: ttyTrustAsk(),
+      onNoProgress: ttyNoProgressDecider(),
     });
     console.log(report.final);
     console.log("");

@@ -1,9 +1,11 @@
 /**
  * Guarda do loop de segmento (L5/L6, ADR-0014, #135): checkpoint na fração do
- * limite e detector de não-progresso. Funções puras — a fiação no loop da
- * sessão (`src/session.ts`) entra na fatia seguinte.
+ * limite e detector de não-progresso, com a persistência do checkpoint no
+ * store da sessão (ADR-0010) e a parada segura de não-progresso (I-19).
  */
-import { relative, resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { redactSecrets } from "./sanitize-external";
 import { resolveWithin } from "./tools/paths";
 
@@ -41,7 +43,8 @@ export function buildCheckpoint(draft: CheckpointDraft, cwd: string, now: Date =
   const changedFiles: string[] = [];
   for (const file of draft.changedFiles) {
     try {
-      changedFiles.push(relative(resolve(cwd), resolveWithin(cwd, file)));
+      // path vem de argumento de tool (controle do modelo): redige antes de gravar (I-03)
+      changedFiles.push(redactSecrets(relative(resolve(cwd), resolveWithin(cwd, file))));
     } catch {
       // fora do cwd (I-11): descarta em vez de gravar
     }
@@ -78,4 +81,71 @@ export class ProgressTracker {
     }
     return this.#streak >= this.#segments;
   }
+
+  /** Limpa a sequência (usado depois que o usuário escolhe continuar). */
+  reset(): void {
+    this.#lastHash = undefined;
+    this.#streak = 0;
+  }
 }
+
+const SAFE_ID = /^[A-Za-z0-9-]+$/;
+
+/** Caminho do checkpoint no store da sessão (ADR-0010): `.astro/sessions/<run>/<agent>/checkpoint.json`. */
+export function checkpointPath(cwd: string, run: string, agent: string): string {
+  // run/agent entram no path do arquivo: só id alfanumérico com hífen (sem separador, sem "..")
+  if (!SAFE_ID.test(run) || !SAFE_ID.test(agent)) {
+    throw new Error("identificador de run/agent inválido para o checkpoint");
+  }
+  return join(resolve(cwd), ".astro", "sessions", run, agent, "checkpoint.json");
+}
+
+/** Grava o checkpoint atômico (tmp + rename, modo 0600 no POSIX). */
+export function saveCheckpoint(checkpoint: CheckpointV1, path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(checkpoint, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    renameSync(tmp, path);
+  } catch (error) {
+    try { unlinkSync(tmp); } catch { /* tmp já não existe */ }
+    throw error;
+  }
+}
+
+/** Hash do segmento (L6): arquivos tocados (únicos, ordenados) + nº de erros de tool. */
+export function segmentHash(touchedFiles: readonly string[], errorCount: number): string {
+  const hash = createHash("sha256");
+  hash.update(JSON.stringify([...new Set(touchedFiles)].sort()));
+  hash.update(`\nerrors:${errorCount}`);
+  return hash.digest("hex");
+}
+
+/** Extrai `path` (string) dos argumentos JSON de uma tool call; inválido → undefined. */
+export function toolCallPath(argumentsJson: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(argumentsJson);
+    if (parsed !== null && typeof parsed === "object") {
+      const path = (parsed as { path?: unknown }).path;
+      if (typeof path === "string") return path;
+    }
+  } catch { /* não era JSON */ }
+  return undefined;
+}
+
+/** Parada segura por não-progresso (L6, I-19): jogada quando a sequência de segmentos iguais atinge o limite sem decisão de continuar. */
+export class NoProgressError extends Error {
+  readonly code = "no_progress";
+  constructor(readonly segments: number, readonly step: number) {
+    super(`sem progresso por ${segments} segmentos consecutivos (turno ${step}); parado em ponto seguro`);
+    this.name = "NoProgressError";
+  }
+}
+
+/** Decisor de não-progresso (L6): true continua (e reseta a sequência); false/ausente para seguro. */
+export type NoProgressDecider = (info: {
+  run: string;
+  agent: string;
+  step: number;
+  segments: number;
+}) => boolean | Promise<boolean>;

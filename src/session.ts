@@ -25,6 +25,18 @@ import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/e
 import { completeWithCompaction } from "./compaction/runtime";
 import { effectiveOutputCap, type OutputLimitConfig } from "./output-limit";
 import type { SpawnRegistry } from "./spawn";
+import {
+  buildCheckpoint,
+  budgetCheckpointDue,
+  checkpointPath,
+  NoProgressError,
+  ProgressTracker,
+  saveCheckpoint,
+  segmentHash,
+  toolCallPath,
+  turnCheckpointDue,
+  type NoProgressDecider,
+} from "./loop-guard";
 
 /** Identidade efetiva de quem atendeu o completion (F-31d). */
 export interface EffectiveIdentity {
@@ -88,6 +100,14 @@ export interface SessionOptions {
   signal?: AbortSignal;
   /** Histórico de conversa (T1): system + turnos anteriores; o user do turno é `task`. */
   history?: ChatMessage[];
+  /** Fração do limite de turnos/orçamento em que o checkpoint é gravado (L5, #135); ausente = sem checkpoint. */
+  checkpointAt?: number;
+  /** Segmentos consecutivos sem mudança que disparam a pausa (L6, #135); ausente = sem guarda. */
+  noProgressSegments?: number;
+  /** Decisor de não-progresso (L6); ausente = para seguro com `NoProgressError` (I-19). */
+  onNoProgress?: NoProgressDecider;
+  /** Hash da tarefa (nunca o prompt cru) para o resumo do checkpoint (L5, I-03/prompt não persistido). */
+  taskHash?: string;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -253,6 +273,10 @@ export async function runSession(
   /** Journal por sessão (F-03): dedup de calls idênticos no mesmo step. */
   const journal = new CallJournal();
   const knownAgents = opts.knownAgents ?? [];
+  // L5/L6 (#135): guarda do loop, só quando configurada (app.ts passa config.run)
+  const tracker = opts.noProgressSegments === undefined ? undefined : new ProgressTracker(opts.noProgressSegments);
+  let checkpointWritten = false;
+  const touchedFiles: string[] = [];
   let budgetWarned = false;
   /** Aviso B3: antes e depois de cada step (o último step também avisa). */
   const maybeWarnBudget = (agent: string): void => {
@@ -391,6 +415,28 @@ export async function runSession(
       maybeWarnBudget(opts.agent);
       checkCeiling(opts.agent);
 
+      // L5 (#135): checkpoint uma única vez ao atingir a fração do limite de turnos ou de budget
+      if (opts.checkpointAt !== undefined && !checkpointWritten) {
+        const spent = budgetSpent(opts.ledger, opts.run);
+        const limitUsd = opts.budget?.limitUsd ?? opts.budget?.hardCeilingUsd ?? undefined;
+        const turnDue = turnCheckpointDue(step, effectiveMaxSteps, opts.checkpointAt);
+        const budgetDue = limitUsd !== undefined && budgetCheckpointDue(spent.usd, limitUsd, opts.checkpointAt);
+        if (turnDue || budgetDue) {
+          checkpointWritten = true;
+          const checkpoint = buildCheckpoint({
+            // nunca o prompt cru: só taskHash (o prompt do usuário não é persistido)
+            summary: response.content.trim() === ""
+              ? (opts.taskHash === undefined ? "[tarefa não registrada]" : `tarefa #${opts.taskHash}`)
+              : response.content,
+            changedFiles: touchedFiles,
+            nextStep: `continuar a partir do turno ${step + 1}`,
+          }, opts.cwd);
+          saveCheckpoint(checkpoint, checkpointPath(opts.cwd, opts.run, opts.agent));
+          opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "loop.checkpoint",
+            payload: { step, trigger: turnDue ? "turns" : "budget" } });
+        }
+      }
+
       if (response.toolCalls.length === 0) {
         opts.ledger.recordState(opts.run, "completed", { agent: opts.agent });
         ensureAgentDestroyed(opts.ledger, opts.audit, opts.run, opts.agent, "completed");
@@ -405,6 +451,8 @@ export async function runSession(
         toolCalls: response.toolCalls,
       });
 
+      let toolErrors = 0;
+      const stepTouched: string[] = [];
       for (const call of response.toolCalls) {
         throwIfAborted(opts.signal); // ponto seguro: nenhuma tool nova após cancelamento (I-16)
         assertKnownTarget(call, knownAgents);
@@ -433,6 +481,13 @@ export async function runSession(
         );
         tracer?.end(toolSpan, { isError: result.isError === true });
         messages.push({ role: "tool", content: redactSecrets(result.output), toolCallId: call.id });
+        // L6 (#135): sinal do segmento = arquivos tocados pelas tools + erros
+        if (result.isError === true) toolErrors++;
+        const touched = toolCallPath(call.arguments);
+        if (touched !== undefined) {
+          stepTouched.push(touched);
+          touchedFiles.push(touched);
+        }
 
         // Detectar handoff no resultado
         const handoff = call.name === "handoff" ? isHandoffResult(result.output) : null;
@@ -456,6 +511,17 @@ export async function runSession(
           tracer?.end(rootSpan, { status: "handoff", to: redactSecrets(handoff.to) });
           throw { name: "HandoffSignal", to: handoff.to, artifact: entry.artifact, step };
         }
+      }
+      // L6 (#135): segmentos iguais consecutivos → audit + pergunta; sem "continuar", para seguro
+      if (tracker !== undefined && opts.noProgressSegments !== undefined
+          && tracker.record(segmentHash(stepTouched, toolErrors))) {
+        opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "loop.no_progress",
+          payload: { step, segments: opts.noProgressSegments } });
+        const proceed = opts.onNoProgress === undefined
+          ? false
+          : await opts.onNoProgress({ run: opts.run, agent: opts.agent, step, segments: opts.noProgressSegments });
+        if (!proceed) throw new NoProgressError(opts.noProgressSegments, step);
+        tracker.reset();
       }
       tracer?.end(stepSpan);
     }
@@ -515,6 +581,7 @@ function interruptReason(error: unknown, signal?: AbortSignal): string {
   if (error instanceof CompactionPausedError) return "compaction_paused";
   if (error instanceof SwapDeniedError) return "swap_denied";
   if (error instanceof BudgetExceededError) return "budget_exceeded";
+  if (error instanceof NoProgressError) return "no_progress";
   return error instanceof Error ? error.name : String(error);
 }
 

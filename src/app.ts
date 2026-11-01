@@ -52,6 +52,7 @@ import { configureRunCommand, resolveSandboxSetting } from "./tools/run-command"
 import type { Tool } from "./tools/types";
 import { resolvePermissionMode, type ActionClass, type PermissionMode } from "./permissions";
 import { ensureTrustedCwd, type TrustAsk } from "./trust";
+import type { NoProgressDecider } from "./loop-guard";
 
 export interface RunOptions {
   configPath: string;
@@ -76,6 +77,8 @@ export interface RunOptions {
   approveTool?: ToolApprover;
   /** Pergunta de trust da pasta no 1º open (I-11, #267); ausente = não interativo (prossegue sem persistir). */
   trustAsk?: TrustAsk;
+  /** Decisor TTY de não-progresso do loop (L6, #135); ausente = para seguro (NoProgressError). */
+  onNoProgress?: NoProgressDecider;
   /** Modo de permissão do run (CLI > config; #269). */
   permissionMode?: PermissionMode;
   /** Decisor TTY do esgotamento de budget (B4); ausente = não interativo (checkpoint e para). */
@@ -939,6 +942,11 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
           ledger,
           audit,
           maxSteps: sessionMaxSteps,
+          taskHash: shortTaskHash(opts.task),
+          ...(config.run === undefined
+            ? {}
+            : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
+          ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
           ...(opts.history === undefined ? {} : { history: opts.history }),
           ...(opts.onToken === undefined ? {} : { onToken: opts.onToken }),
           ...(baseProfile === undefined ? {} : { agentProfile: baseProfile }),

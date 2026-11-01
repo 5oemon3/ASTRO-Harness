@@ -9,6 +9,7 @@ import { Auditor } from "./audit";
 import type { SwapApprover } from "./approval";
 import type { BudgetDecider } from "./budget";
 import type { TrustAsk } from "./trust";
+import type { NoProgressDecider } from "./loop-guard";
 import { runTask } from "./app";
 
 /** Métricas do run original, extraídas do evento run.completed. */
@@ -73,6 +74,8 @@ export interface ReplayOptions {
   onBudgetExceeded?: BudgetDecider;
   /** Pergunta de trust da pasta (I-11, #267); ausente = não interativo. */
   trustAsk?: TrustAsk;
+  /** Decisor de não-progresso do loop (L6, #135); ausente = para seguro. */
+  onNoProgress?: NoProgressDecider;
 }
 
 /** Re-executa a tarefa do run e compara com as métricas originais. */
@@ -91,6 +94,7 @@ export async function replayRun(opts: ReplayOptions): Promise<ReplayResult> {
     ...(opts.approveSwap === undefined ? {} : { approveSwap: opts.approveSwap }),
     ...(opts.onBudgetExceeded === undefined ? {} : { onBudgetExceeded: opts.onBudgetExceeded }),
     ...(opts.trustAsk === undefined ? {} : { trustAsk: opts.trustAsk }),
+    ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
   });
 
   const costMatches =
