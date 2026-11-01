@@ -39,7 +39,7 @@ test("happy path: tarefa com tool roda ponta a ponta", async () => {
       : { choices: [{ message: { content: "criei hello.txt" } }], usage: { prompt_tokens: 20, completion_tokens: 8 } },
     async (baseUrl) => {
       const dir = mkdtempSync(join(tmpdir(), "astro-app-"));
-      const report = await runTask({ configPath: writeConfig(dir, baseUrl), task: "crie hello.txt", cwd: dir, env: { TEST_KEY: "test-key" } });
+      const report = await runTask({ approveTool: () => true, configPath: writeConfig(dir, baseUrl), task: "crie hello.txt", cwd: dir, env: { TEST_KEY: "test-key" } });
       expect(report.final).toBe("criei hello.txt");
       expect(report.tokensIn).toBe(30);
       expect(report.costUsd).toBeCloseTo(30 / 1e6 + 13 / 1e6, 10);
@@ -56,7 +56,7 @@ test("happy path: tarefa com tool roda ponta a ponta", async () => {
 
 test("chave ausente → mensagem clara e sem valor", async () => {
   const dir = mkdtempSync(join(tmpdir(), "astro-app-"));
-  const err = (await runTask({ configPath: writeConfig(dir, "http://127.0.0.1:1/v1"), task: "x", cwd: dir, env: {} }).catch((e) => e as Error)) as Error;
+  const err = (await runTask({ approveTool: () => true, configPath: writeConfig(dir, "http://127.0.0.1:1/v1"), task: "x", cwd: dir, env: {} }).catch((e) => e as Error)) as Error;
   expect(String(err.message)).toContain("TEST_KEY");
 });
 
@@ -66,7 +66,7 @@ test("tool desconhecida na config → erro claro", async () => {
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   cfg.agent.tools = ["ghost"];
   writeFileSync(cfgPath, JSON.stringify(cfg));
-  const err = (await runTask({ configPath: cfgPath, task: "x", cwd: dir, env: { TEST_KEY: "k" } }).catch((e) => e as Error)) as Error;
+  const err = (await runTask({ approveTool: () => true, configPath: cfgPath, task: "x", cwd: dir, env: { TEST_KEY: "k" } }).catch((e) => e as Error)) as Error;
   expect(String(err.message)).toContain("ghost");
 });
 
@@ -93,7 +93,7 @@ test("agent com profile: startup resolve o modelo da pool (F-29)", async () => {
       agent: { profile: "pro", maxSteps: 2, tools: [] },
       paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
     }));
-    const report = await runTask({ configPath: cfgPath, task: "x", cwd: dir, env: { TEST_KEY: "test-key" } });
+    const report = await runTask({ approveTool: () => true, configPath: cfgPath, task: "x", cwd: dir, env: { TEST_KEY: "test-key" } });
     expect(report.final).toBe("ok");
     expect(requested).toEqual(["mock-2"]); // profile substitui o model direto no startup
   } finally {

@@ -29,7 +29,7 @@ function setup(script: CompletionResponse[]) {
   const ledger = new Ledger(join(cwd, "ledger.jsonl"));
   const opts: SessionOptions = {
     run: "r1", agent: "default", credentialRef: "OPENAI_API_KEY", quotaDomain: "default",
-    cwd, provider, model, executor: new ToolExecutor({ tools: [], allow: [], audit }),
+    cwd, provider, model, executor: new ToolExecutor({ approveTool: () => true, tools: [], allow: [], audit }),
     ledger, audit, maxSteps: 5,
   };
   return { cwd, opts, requests, ledger };
@@ -49,7 +49,7 @@ test("um round de tool e depois resposta final", async () => {
     resp({ toolCalls: [{ id: "c1", name: "write_file", arguments: JSON.stringify({ path: "a.txt", content: "x" }) }] }),
     resp({ content: "feito" }),
   ]);
-  s.opts.executor = new ToolExecutor({ tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
+  s.opts.executor = new ToolExecutor({ approveTool: () => true, tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
   const r = await runSession(s.opts, "crie a.txt");
   expect(r.final).toBe("feito");
   expect(r.steps).toBe(2);
@@ -62,7 +62,7 @@ test("erro de tool volta ao modelo como mensagem e a sessão segue", async () =>
     resp({ toolCalls: [{ id: "c1", name: "read_file", arguments: "nao-json" }] }),
     resp({ content: "ok" }),
   ]);
-  s.opts.executor = new ToolExecutor({ tools: [readFileTool], allow: ["read_file"], audit: s.opts.audit });
+  s.opts.executor = new ToolExecutor({ approveTool: () => true, tools: [readFileTool], allow: ["read_file"], audit: s.opts.audit });
   const r = await runSession(s.opts, "leia");
   expect(r.final).toBe("ok");
   const last = s.requests[1].messages.at(-1)!;
@@ -74,7 +74,7 @@ test("erro de tool volta ao modelo como mensagem e a sessão segue", async () =>
 test("estoura maxSteps → MaxStepsError", async () => {
   const tc = resp({ toolCalls: [{ id: "c1", name: "write_file", arguments: JSON.stringify({ path: "a.txt", content: "x" }) }] });
   const s = setup([tc, tc]);
-  s.opts.executor = new ToolExecutor({ tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
+  s.opts.executor = new ToolExecutor({ approveTool: () => true, tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
   s.opts.maxSteps = 2;
   const err = await runSession(s.opts, "loop").catch((e) => e as Error);
   expect(err).toBeInstanceOf(MaxStepsError);
@@ -86,7 +86,7 @@ describe("estado de execução e callHashes no ledger (F-02)", () => {
       resp({ toolCalls: [{ id: "c1", name: "write_file", arguments: JSON.stringify({ path: "a.txt", content: "x" }) }] }),
       resp({ content: "feito" }),
     ]);
-    s.opts.executor = new ToolExecutor({ tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
+    s.opts.executor = new ToolExecutor({ approveTool: () => true, tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
     await runSession(s.opts, "crie a.txt");
     const usage = s.ledger.readAll();
     expect(usage[0].schemaVersion).toBe(LEDGER_SCHEMA_VERSION);
@@ -100,7 +100,7 @@ describe("estado de execução e callHashes no ledger (F-02)", () => {
   test("erro na sessão grava estado interrupted com reason", async () => {
     const tc = resp({ toolCalls: [{ id: "c1", name: "write_file", arguments: JSON.stringify({ path: "a.txt", content: "x" }) }] });
     const s = setup([tc, tc]);
-    s.opts.executor = new ToolExecutor({ tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
+    s.opts.executor = new ToolExecutor({ approveTool: () => true, tools: [writeFileTool], allow: ["write_file"], audit: s.opts.audit });
     s.opts.maxSteps = 2;
     await runSession(s.opts, "loop").catch(() => undefined);
     const st = s.ledger.lastState("r1")!;
@@ -112,7 +112,7 @@ describe("estado de execução e callHashes no ledger (F-02)", () => {
     const s = setup([
       resp({ toolCalls: [{ id: "c1", name: "handoff", arguments: JSON.stringify({ to: "planner", task: "t", objective: "o", decisions: [], constraints: [], next_steps: [] }) }] }),
     ]);
-    s.opts.executor = new ToolExecutor({ tools: [handoffTool], allow: ["handoff"], audit: s.opts.audit });
+    s.opts.executor = new ToolExecutor({ approveTool: () => true, tools: [handoffTool], allow: ["handoff"], audit: s.opts.audit });
     s.opts.knownAgents = ["planner"];
     const err = await runSession(s.opts, "transfira").then(() => null).catch((e: unknown) => e);
     expect((err as { name?: string }).name).toBe("HandoffSignal");

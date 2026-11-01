@@ -14,7 +14,7 @@ const dir = () => mkdtempSync(join(tmpdir(), "astro-tools-"));
 const ctx = (cwd: string) => ({ cwd, run: "r1", agent: "default" });
 const tools = [readFileTool, writeFileTool, runCommandTool];
 const mkExec = (cwd: string) =>
-  new ToolExecutor({ tools, allow: tools.map((t) => t.manifest.name), audit: new Auditor(join(cwd, ".astro", "audit.jsonl")) });
+  new ToolExecutor({ approveTool: () => true, tools, allow: tools.map((t) => t.manifest.name), audit: new Auditor(join(cwd, ".astro", "audit.jsonl")) });
 
 // Estes testes executam comandos locais de propósito: opt-out explícito do sandbox.
 beforeEach(() => configureRunCommand({ sandbox: false }));
@@ -41,7 +41,7 @@ test("tool desconhecida, args ilegíveis e fora do allow → erro, não crash", 
   const ex = mkExec(cwd);
   expect((await ex.run(ctx(cwd), { id: "1", name: "ghost", arguments: "{}" })).isError).toBe(true);
   expect((await ex.run(ctx(cwd), { id: "2", name: "read_file", arguments: "{quebrado" })).isError).toBe(true);
-  const denied = new ToolExecutor({ tools: [readFileTool], allow: [], audit: new Auditor(join(cwd, ".astro", "audit2.jsonl")) });
+  const denied = new ToolExecutor({ approveTool: () => true, tools: [readFileTool], allow: [], audit: new Auditor(join(cwd, ".astro", "audit2.jsonl")) });
   expect((await denied.run(ctx(cwd), { id: "3", name: "read_file", arguments: '{"path":"a.txt"}' })).isError).toBe(true);
 });
 
@@ -51,7 +51,7 @@ test("timeout devolve erro", async () => {
     manifest: { name: "slow", description: "x", parameters: {}, risk: "low", permission: "read", timeoutMs: 30, retryable: false, idempotent: true, sideEffects: "none" },
     execute: () => new Promise<ToolResult>(() => {}),
   };
-  const ex = new ToolExecutor({ tools: [slow], allow: ["slow"], audit: new Auditor(join(cwd, ".astro", "audit.jsonl")) });
+  const ex = new ToolExecutor({ approveTool: () => true, tools: [slow], allow: ["slow"], audit: new Auditor(join(cwd, ".astro", "audit.jsonl")) });
   const r = await ex.run(ctx(cwd), { id: "1", name: "slow", arguments: "{}" });
   expect(r.isError).toBe(true);
   expect(r.output.toLowerCase()).toContain("timeout");
@@ -70,5 +70,5 @@ test("emite tool.call e tool.result na auditoria", async () => {
   const ex = mkExec(cwd);
   await ex.run(ctx(cwd), { id: "1", name: "write_file", arguments: JSON.stringify({ path: "b.txt", content: "x" }) });
   const lines = readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  expect(lines.map((l) => l.tipo)).toEqual(["tool.call", "tool.result"]);
+  expect(lines.map((l) => l.tipo)).toEqual(["tool.call", "permission.decision", "tool.result"]);
 });

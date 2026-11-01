@@ -179,6 +179,8 @@ export async function runCase(golden: GoldenCase, opts: { mock: boolean }): Prom
       tools: [readFileTool, writeFileTool],
       allow: ["read_file", "write_file"],
       audit,
+      // Eval roda em modo ask sem TTY: aprovador automático determinístico.
+      approveTool: () => true,
     });
 
     // Modo mock (determinístico, sem credenciais): o provider aplica os arquivos

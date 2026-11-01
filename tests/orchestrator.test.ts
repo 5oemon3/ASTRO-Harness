@@ -24,7 +24,7 @@ const resp = (p: Partial<CompletionResponse>): CompletionResponse => ({
 });
 
 function makeExecutor(tools: Tool[], allow: string[], audit: Auditor) {
-  return new ToolExecutor({ tools, allow, audit });
+  return new ToolExecutor({ approveTool: () => true, tools, allow, audit });
 }
 
 function makeRegistry(agents: Record<string, AgentEntry>) {

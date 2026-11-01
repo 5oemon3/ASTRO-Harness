@@ -61,7 +61,7 @@ describe("tracing OTLP (F6-2)", () => {
     const opts: SessionOptions = {
       run: "r1", agent: "coder", credentialRef: "K", quotaDomain: "d",
       cwd, provider, model,
-      executor: new ToolExecutor({ tools: [writeFileTool], allow: ["write_file"], audit }),
+      executor: new ToolExecutor({ approveTool: () => true, tools: [writeFileTool], allow: ["write_file"], audit }),
       ledger, audit, maxSteps: 5, tracer,
     };
 
@@ -136,7 +136,7 @@ describe("tracing OTLP (F6-2)", () => {
     const opts: SessionOptions = {
       run: "r1", agent: "a", credentialRef: "K", quotaDomain: "d",
       cwd, provider, model,
-      executor: new ToolExecutor({ tools: [], allow: [], audit }),
+      executor: new ToolExecutor({ approveTool: () => true, tools: [], allow: [], audit }),
       ledger, audit, maxSteps: 3,
     };
     const result = await runSession(opts, "tarefa");

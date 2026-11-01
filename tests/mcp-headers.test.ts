@@ -193,7 +193,7 @@ test("runTask envia o header resolvido e não grava o valor no audit", async () 
       paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
     }));
 
-    const report = await runTask({ configPath, task: "eco", cwd: dir, env: { TEST_KEY: "test-key", MCP_TOKEN: "Bearer tok-123" } });
+    const report = await runTask({ approveTool: () => true, configPath, task: "eco", cwd: dir, env: { TEST_KEY: "test-key", MCP_TOKEN: "Bearer tok-123" } });
 
     expect(report.final).toBe("pronto");
     const audit = readFileSync(join(dir, ".astro", "audit.jsonl"), "utf8");
@@ -234,7 +234,7 @@ test("runTask não entrega ao run_command a variável referenciada por header", 
   }));
 
   try {
-    const report = await runTask({ configPath, task: "env", cwd: dir, env: { TEST_KEY: "test-key", MCP_HEADER: "tok-123" } });
+    const report = await runTask({ approveTool: () => true, configPath, task: "env", cwd: dir, env: { TEST_KEY: "test-key", MCP_HEADER: "tok-123" } });
     expect(report.final).toBe("pronto");
     const last = bodies.at(-1)?.messages.at(-1);
     expect(last?.role).toBe("tool");

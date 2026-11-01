@@ -36,7 +36,7 @@ import { redactSecrets } from "./sanitize-external";
 import { MCPRegistry } from "./mcp/registry";
 import { headerEnvNames } from "./mcp/headers";
 import { mcpTools } from "./mcp/tool";
-import { ToolExecutor } from "./tools/executor";
+import { ToolExecutor, type ToolApprover } from "./tools/executor";
 import { readFileTool } from "./tools/read-file";
 import { runCommandTool } from "./tools/run-command";
 import { writeFileTool } from "./tools/write-file";
@@ -70,6 +70,8 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Gate de aprovação de troca (F-19, I-08); sem ele o runtime nega (pending). Injetável para teste. */
   approveSwap?: SwapApprover;
+  /** Aprovador de tools no modo `ask` (PERM-01); ausente = fail-closed (deny). Injetável para teste/CLI. */
+  approveTool?: ToolApprover;
   /** Decisor TTY do esgotamento de budget (B4); ausente = não interativo (checkpoint e para). */
   onBudgetExceeded?: BudgetDecider;
   /** Run-id a retomar (F-22): reconstrói a árvore do ledger e continua do agente ativo. */
@@ -831,6 +833,8 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     tools: baseTools,
     allow: config.agent.tools,
     audit,
+    permissionMode: config.permissions.mode,
+    ...(opts.approveTool === undefined ? {} : { approveTool: opts.approveTool }),
   });
 
   const startedAt = Date.now();

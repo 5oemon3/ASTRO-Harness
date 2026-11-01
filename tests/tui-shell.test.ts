@@ -31,7 +31,8 @@ describe("!cmd da TUI (T2, #63)", () => {
 
   test("sem seção tools na config: sandbox ligado por padrão (fail-closed, I-11)", async () => {
     const { cwd, configPath } = config(["run_command"], "KEY", false, false);
-    const shell = createShellRunner({ configPath, cwd, env: process.env });
+    // approveTool permite atravessar o gate fail-closed (#259) e exercitar o sandbox
+    const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: process.env });
     expect(shell.enabled).toBe(true);
     expect(isRunCommandSandboxEnabled()).toBe(true);
     const docker = await detectDockerAvailable();
@@ -47,7 +48,7 @@ describe("!cmd da TUI (T2, #63)", () => {
 
   test("executa via run_command quando está na allowlist e audita", async () => {
     const { cwd, configPath } = config(["run_command"]);
-    const shell = createShellRunner({ configPath, cwd, env: process.env });
+    const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: process.env });
     expect(shell.enabled).toBe(true);
     const result = await shell.run("echo astro-shell");
     expect(result.isError).toBe(false);
@@ -57,7 +58,7 @@ describe("!cmd da TUI (T2, #63)", () => {
 
   test("sem allowlist fica desabilitado e não executa nada", async () => {
     const { cwd, configPath } = config(["read_file"]);
-    const shell = createShellRunner({ configPath, cwd, env: process.env });
+    const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: process.env });
     expect(shell.enabled).toBe(false);
     const result = await shell.run("echo x > denied.txt");
     expect(result.isError).toBe(true);
@@ -67,7 +68,7 @@ describe("!cmd da TUI (T2, #63)", () => {
 
   test("comando vazio e falha do shell viram erro sem quebrar", async () => {
     const { cwd, configPath } = config(["run_command"]);
-    const shell = createShellRunner({ configPath, cwd, env: process.env });
+    const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: process.env });
     expect(await shell.run("   ")).toMatchObject({ isError: true });
     const failed = await shell.run("comando-que-nao-existe-astro");
     expect(failed.isError).toBe(true);
@@ -76,7 +77,7 @@ describe("!cmd da TUI (T2, #63)", () => {
 
   test("não expõe credentialRef que não casa com SECRET_ENV", async () => {
     const { cwd, configPath } = config(["run_command"], "MY_API");
-    const shell = createShellRunner({ configPath, cwd, env: { ...process.env, MY_API: "hunter2-abc" } });
+    const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: { ...process.env, MY_API: "hunter2-abc" } });
     const command = process.platform === "win32" ? "echo %MY_API%" : "printenv MY_API";
     const result = await shell.run(command);
     expect(result.output).not.toContain("hunter2-abc");
@@ -84,7 +85,7 @@ describe("!cmd da TUI (T2, #63)", () => {
 
   test("abortar o sinal encerra o comando em vez de esperar o timeout", async () => {
     const { cwd, configPath } = config(["run_command"]);
-    const shell = createShellRunner({ configPath, cwd, env: process.env });
+    const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: process.env });
     const controller = new AbortController();
     const started = Date.now();
     setTimeout(() => controller.abort(), 50);
@@ -97,7 +98,7 @@ describe("!cmd da TUI (T2, #63)", () => {
 
 test("abortar mata o processo filho, não só o shell", async () => {
   const { cwd, configPath } = config(["run_command"]);
-  const shell = createShellRunner({ configPath, cwd, env: process.env });
+  const shell = createShellRunner({ approveTool: () => true, configPath, cwd, env: process.env });
   writeFileSync(join(cwd, "slow.js"), 'require("fs").writeFileSync("child.pid", String(process.pid)); setTimeout(() => {}, 30000);', "utf8");
   const controller = new AbortController();
   const pending = shell.run("bun slow.js", controller.signal);

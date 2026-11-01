@@ -108,7 +108,7 @@ describe("gate do executor: dedup só para idempotentes (F-10)", () => {
       },
     };
     const audit = new Auditor(join(mkdtempSync(join(tmpdir(), "astro-f10-")), "audit.jsonl"));
-    const executor = new ToolExecutor({ tools: [tool], allow: ["deploy"], audit });
+    const executor = new ToolExecutor({ approveTool: () => true, tools: [tool], allow: ["deploy"], audit });
     const journal = new CallJournal();
     const call = { id: "c1", name: "deploy", arguments: "{}" };
     const ctx = { cwd: ".", run: "r1", agent: "default", step: 1, journal };

@@ -25,7 +25,7 @@ describe("limite de saída no executor e na sessão (CMP-10)", () => {
   test("executor trunca acima do cap, grava artefato e sanitiza antes do contexto", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-output-exec-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
-    const executor = new ToolExecutor({ tools: [fakeTool(`sk-live-0123456789abcdef\n${big()}`)], allow: ["fake"], audit });
+    const executor = new ToolExecutor({ approveTool: () => true, tools: [fakeTool(`sk-live-0123456789abcdef\n${big()}`)], allow: ["fake"], audit });
 
     const result = await executor.run(
       { cwd, run: "r1", agent: "coder", outputLimitTokens: 100 },
@@ -43,7 +43,7 @@ describe("limite de saída no executor e na sessão (CMP-10)", () => {
   test("executor não trunca abaixo do cap", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-output-exec2-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
-    const executor = new ToolExecutor({ tools: [fakeTool("ok")], allow: ["fake"], audit });
+    const executor = new ToolExecutor({ approveTool: () => true, tools: [fakeTool("ok")], allow: ["fake"], audit });
 
     const result = await executor.run(
       { cwd, run: "r1", agent: "coder", outputLimitTokens: 100 },
@@ -56,7 +56,7 @@ describe("limite de saída no executor e na sessão (CMP-10)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-output-handoff-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
     const payload = JSON.stringify({ to: "coder", task: "t", objective: "o", decisions: ["d".repeat(2000)] });
-    const executor = new ToolExecutor({ tools: [fakeTool(payload, "handoff")], allow: ["handoff"], audit });
+    const executor = new ToolExecutor({ approveTool: () => true, tools: [fakeTool(payload, "handoff")], allow: ["handoff"], audit });
 
     const result = await executor.run(
       { cwd, run: "r1", agent: "planner", outputLimitTokens: 10 },
@@ -94,7 +94,7 @@ describe("limite de saída no executor e na sessão (CMP-10)", () => {
         paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
       }));
 
-      await runTask({ configPath, task: "x", cwd, env: { KEY: "k" } });
+      await runTask({ approveTool: () => true, configPath, task: "x", cwd, env: { KEY: "k" } });
       const toolMessage = bodies[1]!.messages?.find((message) => message.role === "tool")?.content ?? "";
       expect(toolMessage).toContain("[REDACTED]");
       expect(toolMessage).not.toContain(secret);
@@ -134,7 +134,7 @@ describe("limite de saída no executor e na sessão (CMP-10)", () => {
         paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
       }));
 
-      const report = await runTask({ configPath, task: "x", cwd, env: { KEY: "k" } });
+      const report = await runTask({ approveTool: () => true, configPath, task: "x", cwd, env: { KEY: "k" } });
       expect(report.final).toBe("ok");
 
       const toolMessage = bodies[1]!.messages?.find((message) => message.role === "tool")?.content ?? "";

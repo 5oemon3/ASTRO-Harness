@@ -45,7 +45,7 @@ describe("isolamento de tools por agent (F3-5)", () => {
     const audit = new Auditor(join(cwd, "audit.jsonl"));
 
     // Planner só tem read_file; tenta run_command
-    const executor = new ToolExecutor({
+    const executor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool, writeFileTool, runCommandTool],
       allow: ["read_file"], // planner: só read_file
       audit,
@@ -73,7 +73,7 @@ describe("isolamento de tools por agent (F3-5)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-iso-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
 
-    const executor = new ToolExecutor({
+    const executor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool, writeFileTool, runCommandTool],
       allow: ["read_file", "write_file", "run_command"], // coder: todas
       audit,
@@ -96,7 +96,7 @@ describe("isolamento de tools por agent (F3-5)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-iso-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
 
-    const executor = new ToolExecutor({
+    const executor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool],
       allow: ["read_file"],
       audit,
@@ -121,12 +121,12 @@ describe("isolamento de tools por agent (F3-5)", () => {
     const audit = new Auditor(join(cwd, "audit.jsonl"));
 
     // Dois executores com allowlists diferentes (como runMultiAgentSession cria)
-    const plannerExecutor = new ToolExecutor({
+    const plannerExecutor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool, writeFileTool, runCommandTool],
       allow: ["read_file"], // planner: só leitura
       audit,
     });
-    const coderExecutor = new ToolExecutor({
+    const coderExecutor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool, writeFileTool, runCommandTool],
       allow: ["read_file", "write_file", "run_command"], // coder: todas
       audit,
@@ -164,7 +164,7 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
     // Tool inicial
     const initialTool = makeTool("initial_tool");
 
-    const executor = new ToolExecutor({
+    const executor = new ToolExecutor({ approveTool: () => true,
       tools: [initialTool],
       allow: ["initial_tool"],
       audit,
@@ -172,7 +172,7 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
 
     // Registra uma NOVA tool APÓS criar o executor (simula registro dinâmico)
     const dynamicTool = makeTool("dynamic_tool");
-    const executorWithDynamic = new ToolExecutor({
+    const executorWithDynamic = new ToolExecutor({ approveTool: () => true,
       tools: [...executor.allTools, dynamicTool],
       allow: [...executor.allow, "dynamic_tool"],
       audit,
@@ -203,14 +203,14 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
     const audit = new Auditor(join(cwd, "audit.jsonl"));
 
     // Executor base (orchestrator)
-    const baseExecutor = new ToolExecutor({
+    const baseExecutor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool, makeTool("parent_only")],
       allow: ["read_file", "parent_only"],
       audit,
     });
 
     // Subagent tem seu próprio executor com tool exclusiva
-    const subExecutor = new ToolExecutor({
+    const subExecutor = new ToolExecutor({ approveTool: () => true,
       tools: [...baseExecutor.allTools, makeTool("sub_only")],
       allow: ["read_file", "sub_only"],
       audit,
@@ -249,7 +249,7 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
     const parentTools = [readFileTool, writeFileTool];
     const parentAllow = ["read_file", "write_file"];
 
-    const parentExecutor = new ToolExecutor({
+    const parentExecutor = new ToolExecutor({ approveTool: () => true,
       tools: parentTools,
       allow: parentAllow,
       audit,
@@ -257,7 +257,7 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
 
     // Subagent tenta ter run_command (que NÃO está no teto do parent)
     // O teto do subagent deve ser o allowlist do parent
-    const subExecutor = new ToolExecutor({
+    const subExecutor = new ToolExecutor({ approveTool: () => true,
       tools: [...parentTools, runCommandTool],
       allow: ["read_file", "write_file", "run_command"], // teto maior que o do pai
       ceiling: [...parentExecutor.allow], // mas o teto é o do pai
@@ -290,7 +290,7 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
     const mcpTool = makeTool("mcp__filesystem__read_file");
 
     // Executor inicial NÃO tem a tool MCP
-    const executor = new ToolExecutor({
+    const executor = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool],
       allow: ["read_file"],
       audit,
@@ -313,7 +313,7 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
     expect(denied).toBeDefined();
 
     // Agora registra a tool MCP explicitamente
-    const executorWithMcp = new ToolExecutor({
+    const executorWithMcp = new ToolExecutor({ approveTool: () => true,
       tools: [readFileTool, mcpTool],
       allow: ["read_file", "mcp__filesystem__read_file"],
       audit,

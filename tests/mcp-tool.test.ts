@@ -48,7 +48,7 @@ function mcpEvent(audit: Auditor) {
 }
 
 function executorFor(source: ReturnType<typeof fakeSource>["source"], audit: Auditor, allow: string[]): ToolExecutor {
-  return new ToolExecutor({ tools: mcpTools({ registry: source, servers: { fs: { transport: "stdio", command: "x", timeoutMs: 2000, enabled: true } }, audit, reserved: [] }), allow, audit });
+  return new ToolExecutor({ approveTool: () => true, tools: mcpTools({ registry: source, servers: { fs: { transport: "stdio", command: "x", timeoutMs: 2000, enabled: true } }, audit, reserved: [] }), allow, audit });
 }
 
 test("mcpTools executa pela allowlist e audita mcp.call sem argumentos", async () => {
@@ -221,7 +221,7 @@ test("timeout do executor cobre o retry do registry (4x o timeout do servidor)",
     audit,
     reserved: [],
   });
-  const executor = new ToolExecutor({ tools, allow: ["mcp__fs__read_file"], audit });
+  const executor = new ToolExecutor({ approveTool: () => true, tools, allow: ["mcp__fs__read_file"], audit });
 
   // 1400ms > timeout antigo (300+1000) e < 4*300+1000: o executor não pode preemptar o retry.
   const result = await executor.run(

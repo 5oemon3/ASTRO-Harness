@@ -21,7 +21,7 @@ function setup(content: string): { cwd: string; audit: Auditor; executor: ToolEx
   const cwd = mkdtempSync(join(tmpdir(), "astro-pipe-"));
   writeFileSync(join(cwd, "target.txt"), content);
   const audit = new Auditor(join(cwd, "audit.jsonl"));
-  const executor = new ToolExecutor({
+  const executor = new ToolExecutor({ approveTool: () => true,
     tools: ALL_TOOLS,
     allow: ["read_file", "write_file", "run_command", "grep", "edit", "pipeline"],
     audit,
@@ -140,7 +140,7 @@ describe("pipeline tool (F4-5)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-pipe-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
     // allowlist só tem pipeline e grep; edit NÃO
-    const executor = new ToolExecutor({
+    const executor = new ToolExecutor({ approveTool: () => true,
       tools: ALL_TOOLS,
       allow: ["pipeline", "grep"],
       audit,
@@ -228,6 +228,7 @@ describe("pipeline cancelamento (#260)", () => {
       tools: [first, second, pipelineTool],
       allow: ["first", "second", "pipeline"],
       audit,
+      approveTool: () => true,
     });
 
     const result = await executor.run(

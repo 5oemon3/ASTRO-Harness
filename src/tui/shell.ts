@@ -6,7 +6,7 @@ import { headerEnvNames } from "../mcp/headers";
 import { effectiveOutputCap } from "../output-limit";
 import { loadEffectiveConfig } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
-import { ToolExecutor } from "../tools/executor";
+import { ToolExecutor, type ToolApprover } from "../tools/executor";
 import { configureRunCommand, resolveSandboxSetting, runCommandTool } from "../tools/run-command";
 
 export interface ShellResult {
@@ -24,6 +24,8 @@ export interface ShellOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   allowMissingConfig?: boolean;
+  /** Aprovador do gate no modo ask; ausente = fail-closed (deny). */
+  approveTool?: ToolApprover;
 }
 
 /** Variáveis que o shell precisa manter mesmo se um MCP declarar o mesmo nome. */
@@ -75,6 +77,7 @@ export function createShellRunner(opts: ShellOptions): ShellRunner {
         tools: [runCommandTool],
         allow: ["run_command"],
         audit: new Auditor(auditPath),
+        ...(opts.approveTool === undefined ? {} : { approveTool: opts.approveTool }),
       });
       try {
         const result = await executor.run(
