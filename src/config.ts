@@ -160,9 +160,15 @@ export interface BudgetConfig {
   hardCeilingUsd?: number;
 }
 
-/** Seção `run` (Q-01/L2): teto de turnos por execução. */
+/** Seção `run` (Q-01/L1/L4/L5/L6, ADR-0014): teto de turnos e guardas do loop. */
 export interface RunConfig {
   maxTurns?: number | "unlimited";
+  /** Fração do limite de turnos/orçamento em que o checkpoint é gravado (L5); default 0.8. */
+  checkpointAt: number;
+  /** Segmentos consecutivos sem mudança que disparam a pausa (L6); default 3. */
+  noProgressSegments: number;
+  /** Judge do loop (L4): só "off" nesta versão; "on"/"auto" ficam para a v2 (#138). */
+  judge: "off";
 }
 
 /** Team features (F7-5): budget do projeto, quotas por agent, webhook de auditoria. */
@@ -919,11 +925,27 @@ function validateBudget(value: unknown): BudgetConfig {
   };
 }
 
-/** Valida a seção opcional `run` (Q-01): inteiro positivo ou "unlimited". */
+/** Valida a seção opcional `run` (Q-01/L1, ADR-0014): maxTurns, checkpointAt, noProgressSegments e judge. */
 function validateRun(value: unknown): RunConfig {
   const raw = expectObject(value, "run");
-  if (raw.maxTurns === undefined) return {};
-  return { maxTurns: raw.maxTurns === "unlimited" ? "unlimited" : expectPositiveInteger(raw.maxTurns, "run.maxTurns") };
+  const checkpointAt = raw.checkpointAt === undefined ? 0.8 : expectNonNegativeNumber(raw.checkpointAt, "run.checkpointAt");
+  if (checkpointAt <= 0 || checkpointAt >= 1) {
+    fail('config inválida: "run.checkpointAt" deve estar entre 0 e 1 (exclusivo)');
+  }
+  const noProgressSegments =
+    raw.noProgressSegments === undefined ? 3 : expectPositiveInteger(raw.noProgressSegments, "run.noProgressSegments");
+  const judge = raw.judge === undefined ? "off" : raw.judge;
+  if (judge !== "off") {
+    fail('config inválida: "run.judge" aceita só "off" nesta versão; "on"/"auto" chegam na v2 (#138)');
+  }
+  return {
+    ...(raw.maxTurns === undefined
+      ? {}
+      : { maxTurns: raw.maxTurns === "unlimited" ? "unlimited" : expectPositiveInteger(raw.maxTurns, "run.maxTurns") }),
+    checkpointAt,
+    noProgressSegments,
+    judge,
+  };
 }
 
 /** Valida a seção `handoff` (F-24); ausente aplica o default 30000ms (D-15). */

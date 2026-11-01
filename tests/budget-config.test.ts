@@ -75,6 +75,33 @@ describe("budget config (F-05, #132 parte 1)", () => {
     expect(() => withBudget({ scope: "use-as-you-go", limitUsd: null, hardCeilingUsd: 2 }, { run: { maxTurns: "unlimited" } }))
       .not.toThrow();
   });
+
+  test("run aplica defaults checkpointAt 0.8, noProgressSegments 3, judge off (L1/L4/L6, #135)", () => {
+    expect(withBudget(undefined, { run: { maxTurns: 5 } }).run)
+      .toEqual({ maxTurns: 5, checkpointAt: 0.8, noProgressSegments: 3, judge: "off" });
+  });
+
+  test("run.checkpointAt exige 0 < x < 1 (#135)", () => {
+    for (const bad of [0, 1, -0.5, 1.5, "0.8"]) {
+      expect(() => withBudget(undefined, { run: { checkpointAt: bad } })).toThrow(/run\.checkpointAt/);
+    }
+    expect(withBudget(undefined, { run: { checkpointAt: 0.5 } }).run?.checkpointAt).toBe(0.5);
+  });
+
+  test("run.noProgressSegments exige inteiro positivo (#135)", () => {
+    for (const bad of [0, -1, 2.5, "3"]) {
+      expect(() => withBudget(undefined, { run: { noProgressSegments: bad } })).toThrow(/run\.noProgressSegments/);
+    }
+    expect(withBudget(undefined, { run: { noProgressSegments: 5 } }).run?.noProgressSegments).toBe(5);
+  });
+
+  test('run.judge aceita só "off"; "on"/"auto" → ConfigError citando #138 (L4, #135)', () => {
+    expect(withBudget(undefined, { run: { judge: "off" } }).run?.judge).toBe("off");
+    for (const bad of ["on", "auto"]) {
+      expect(() => withBudget(undefined, { run: { judge: bad } })).toThrow(/run\.judge/);
+      expect(() => withBudget(undefined, { run: { judge: bad } })).toThrow(/#138/);
+    }
+  });
 });
 
 describe("run.maxTurns no runtime (F-05, #132 parte 1)", () => {
