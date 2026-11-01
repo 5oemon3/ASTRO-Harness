@@ -10,5 +10,6 @@ test("--help mostra os comandos com o binário astro", async () => {
   expect(code).toBe(0);
   expect(out).toContain("astro run");
   expect(out).toContain("astro tui");
+  expect(out).toContain("astro models");
   expect(out).not.toContain("bun src/cli.ts");
 });

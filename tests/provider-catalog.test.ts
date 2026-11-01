@@ -12,14 +12,22 @@ const asProfile = (entry: (typeof PROVIDER_CATALOG)[number]) => ({
   models: entry.models,
 });
 
-test("catálogo tem as cinco entradas esperadas", () => {
+test("catálogo tem as quatro entradas esperadas", () => {
   expect(PROVIDER_CATALOG.map((entry) => entry.key)).toEqual([
-    "openai", "openrouter", "nvidia", "ollama", "codex",
+    "nvidia", "codex", "openrouter", "openai-compatible",
   ]);
+});
+
+test("template openai-compatible não fixa endpoint nem chave", () => {
+  const entry = catalogEntry("openai-compatible");
+  expect(entry?.baseUrl).toBeUndefined();
+  expect(entry?.credentialRef).toBeUndefined();
+  expect(entry?.models).toEqual([]);
 });
 
 test("cada entrada é um perfil válido", () => {
   for (const entry of PROVIDER_CATALOG) {
+    if (entry.models.length === 0) continue;
     const store = validateProfileStore({ version: 1, profiles: [asProfile(entry)] });
     expect(store.profiles[0]!.models.length).toBeGreaterThan(0);
   }
@@ -31,12 +39,6 @@ test("entradas têm modelos com contexto positivo", () => {
       expect(model.context).toBeGreaterThan(0);
     }
   }
-});
-
-test("ollama é local e sem chave", () => {
-  const ollama = catalogEntry("ollama");
-  expect(ollama?.baseUrl).toBe("http://localhost:11434/v1");
-  expect(ollama?.credentialRef).toBeUndefined();
 });
 
 test("codex usa credentialsPath e nenhuma chave", () => {

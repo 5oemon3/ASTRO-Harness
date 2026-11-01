@@ -37,21 +37,21 @@ function fakeIO(answers: string[]) {
 test("add pelo catálogo grava, ativa e chama onUse", async () => {
   const { home, manager } = setup();
   const used: string[] = [];
-  const { io, out } = fakeIO(["openai", "OpenAI Work", "", "", "", "S", "S"]);
+  const { io, out } = fakeIO(["nvidia", "NVIDIA Work", "", "", "", "S", "S"]);
   const view = await runProviderWizard(io, manager, { mode: "add", onUse: (id) => used.push(id) });
-  expect(view?.id).toBe("openai-work");
-  expect(used).toEqual(["openai-work"]);
+  expect(view?.id).toBe("nvidia-work");
+  expect(used).toEqual(["nvidia-work"]);
   const store = loadProfileStore(join(home, "providers.json"));
-  expect(store.activeProfileId).toBe("openai-work");
-  expect(store.profiles[0]!.baseUrl).toBe("https://api.openai.com/v1");
-  expect(out.join(" ")).toContain("salvo: openai-work");
+  expect(store.activeProfileId).toBe("nvidia-work");
+  expect(store.profiles[0]!.baseUrl).toBe("https://integrate.api.nvidia.com/v1");
+  expect(out.join(" ")).toContain("salvo: nvidia-work");
 });
 
 test("add pelo catálogo persiste o quotaDomain da entrada", async () => {
   const { manager } = setup();
-  const { io } = fakeIO(["openai", "OpenAI Work", "", "", "", "S", "n"]);
+  const { io } = fakeIO(["nvidia", "NVIDIA Work", "", "", "", "S", "n"]);
   await runProviderWizard(io, manager, { mode: "add" });
-  expect(manager.list().find((item) => item.id === "openai-work")?.quotaDomain).toBe("openai");
+  expect(manager.list().find((item) => item.id === "nvidia-work")?.quotaDomain).toBe("nvidia");
 });
 
 test("add custom sem chave e sem ativar", async () => {

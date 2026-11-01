@@ -167,3 +167,22 @@ test("modelo sem metadados mostra contexto n/d em vez de zero", async () => {
     instance.unmount();
   }
 });
+
+test("seletor agrupa por provider com cabeçalho `provider · n`", async () => {
+  const session = new FakeSession();
+  session.listModelInfo = () => [
+    { ref: "nvidia/m1", provider: "nvidia", id: "m1", tags: ["writing-code"], context: 131072, status: "active" },
+    { ref: "codex/gpt", provider: "codex", id: "gpt", tags: ["reasoning"], context: 400000, status: "active" },
+  ];
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-picker-group-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await openPicker(instance);
+    const frame = instance.lastFrame() ?? "";
+    expect(frame).toContain("codex · 1");
+    expect(frame).toContain("nvidia · 1");
+    expect(frame.indexOf("codex · 1")).toBeLessThan(frame.indexOf("nvidia · 1"));
+  } finally {
+    instance.unmount();
+  }
+});

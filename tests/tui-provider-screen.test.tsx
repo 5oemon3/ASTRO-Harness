@@ -289,7 +289,7 @@ test("add pelo catálogo na TUI persiste quotaDomain", async () => {
   );
   await waitFor(() => instance.lastFrame()?.includes("De onde partir?") === true);
   instance.stdin.write("\u001B[B");
-  await waitFor(() => instance.lastFrame()?.includes("> openai") === true);
+  await waitFor(() => instance.lastFrame()?.includes("> nvidia") === true);
   instance.stdin.write("\r");
   await waitFor(() => instance.lastFrame()?.includes("Nome") === true);
   for (const label of ["Base URL", "Modelos", "Variável da chave", "Confirmar"]) {
@@ -297,8 +297,8 @@ test("add pelo catálogo na TUI persiste quotaDomain", async () => {
     await waitFor(() => instance.lastFrame()?.includes(label) === true);
   }
   instance.stdin.write("\r");
-  await waitFor(() => instance.lastFrame()?.includes("salvo: openai") === true);
-  expect(m.list().find((item) => item.id === "openai")?.quotaDomain).toBe("openai");
+  await waitFor(() => instance.lastFrame()?.includes("salvo: nvidia") === true);
+  expect(m.list().find((item) => item.id === "nvidia")?.quotaDomain).toBe("nvidia");
   instance.unmount();
 });
 

@@ -15,24 +15,6 @@ export interface CatalogEntry {
 
 export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
   {
-    key: "openai",
-    name: "OpenAI",
-    kind: "openai-compat",
-    baseUrl: "https://api.openai.com/v1",
-    credentialRef: "OPENAI_API_KEY",
-    quotaDomain: "openai",
-    models: [{ id: "gpt-4o", tags: ["writing-code", "tools"], context: 128000 }],
-  },
-  {
-    key: "openrouter",
-    name: "OpenRouter",
-    kind: "openai-compat",
-    baseUrl: "https://openrouter.ai/api/v1",
-    credentialRef: "OPENROUTER_API_KEY",
-    quotaDomain: "openrouter",
-    models: [{ id: "openai/gpt-4o-mini", tags: ["writing-code", "tools", "fast"], context: 128000 }],
-  },
-  {
     key: "nvidia",
     name: "NVIDIA",
     kind: "openai-compat",
@@ -46,20 +28,28 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     }],
   },
   {
-    key: "ollama",
-    name: "Ollama",
-    kind: "openai-compat",
-    baseUrl: "http://localhost:11434/v1",
-    quotaDomain: "ollama",
-    models: [{ id: "llama3.1", tags: ["writing-code", "tools"], context: 32768 }],
-  },
-  {
     key: "codex",
     name: "Codex",
     kind: "codex-oauth",
     credentialsPath: "~/.codex/auth.json",
     quotaDomain: "codex",
     models: [{ id: "gpt-5.5", tags: ["writing-code", "tools", "reasoning"], context: 400000 }],
+  },
+  {
+    key: "openrouter",
+    name: "OpenRouter",
+    kind: "openai-compat",
+    baseUrl: "https://openrouter.ai/api/v1",
+    credentialRef: "OPENROUTER_API_KEY",
+    quotaDomain: "openrouter",
+    models: [{ id: "openai/gpt-4o-mini", tags: ["writing-code", "tools", "fast"], context: 128000 }],
+  },
+  {
+    key: "openai-compatible",
+    name: "OpenAI Compatible",
+    kind: "openai-compat",
+    quotaDomain: "openai-compatible",
+    models: [],
   },
 ];
 

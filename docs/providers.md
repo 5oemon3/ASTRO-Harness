@@ -15,6 +15,19 @@ Objetivo: guia de configuração de providers, validação manual de credenciais
 
 Kinds de plugin são aceitos com `kind` custom e factory registrada por plugin (`src/plugins.ts`, `src/config.ts`).
 
+## Sementes do catálogo e `astro models list` (#307)
+
+`PROVIDER_CATALOG` (`src/provider/catalog.ts`) alimenta o wizard (`/provider add`) e `astro models list --seeds`:
+
+| Chave | Kind | Endpoint / credencial | Modelos |
+|---|---|---|---|
+| `nvidia` | `openai-compat` | `https://integrate.api.nvidia.com/v1` · `NVIDIA_API_KEY` | `meta/llama-3.3-70b-instruct` |
+| `codex` | `codex-oauth` | `~/.codex/auth.json` | `gpt-5.5` |
+| `openrouter` | `openai-compat` | `https://openrouter.ai/api/v1` · `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` |
+| `openai-compatible` | `openai-compat` | definido no wizard (sem endpoint nem chave fixos) | vazio (modelo custom) |
+
+`astro models list [--config <path>] [--seeds] [--json]` lista os modelos da config efetiva (união projeto/global/env; projeto vence na mesma `provider/id`) com origem, status, tags, contexto e preço, sem ler valor de credencial (I-03). `--seeds` acrescenta as quatro sementes; `--json` imprime um único payload `{ models, seeds? }`. A descoberta `GET /models` no endpoint é entrega separada, fora desta frente.
+
 ## Perfis globais e `--provider` (#201)
 
 Perfis vivem em `~/.astro/providers.json` (`ASTRO_HOME` sobrescreve), modo 0600, e nunca guardam segredo: só `credentialRef`. O schema rejeita campo desconhecido, header de autenticação e credencial embutida na `baseUrl`.

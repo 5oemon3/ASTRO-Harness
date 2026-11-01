@@ -13,6 +13,8 @@ import { formatCostByAgent } from "./team";
 import { Registry } from "./registry";
 import { formatPoolList } from "./pool";
 import { formatAgentsList } from "./agent-manager";
+import { buildModelCatalog, formatModelCatalog, formatSeedList } from "./model-catalog";
+import { PROVIDER_CATALOG } from "./provider/catalog";
 import { evalFailsThreshold, runEval, writeBaseline, type EvalReport } from "./eval/harness";
 import { runBenchmark, type BenchReport } from "./eval/bench";
 import { Metrics, startMetricsServer } from "./metrics";
@@ -95,6 +97,7 @@ const USAGE = `Uso:
   astro cost --by-agent [--config <path>]
   astro pool <list|health> [--config <path>]
   astro agents list [--config <path>]
+  astro models list [--config <path>] [--seeds] [--json]
   astro config <push|pull> <org/projeto> [--registry <owner/repo>] [--config <path>] [--token <t>] [--allow-plugins]
   astro skills <list|show|validate|install|remove|verify> [--user] [--force]
   astro mcp <list|test <server> <tool>> [--args <json>] [--config <path>]
@@ -199,6 +202,13 @@ interface AgentsCommand {
   configPath: string;
 }
 
+interface ModelsCommand {
+  action: "list";
+  configPath: string;
+  seeds: boolean;
+  json: boolean;
+}
+
 interface HandoffShowCommand {
   handoffId: string;
   configPath: string;
@@ -231,6 +241,7 @@ type ParsedCommand =
   | { kind: "providers"; options: ProvidersCommand }
   | { kind: "pool"; options: PoolCommand }
   | { kind: "agents"; options: AgentsCommand }
+  | { kind: "models"; options: ModelsCommand }
   | { kind: "handoff"; options: HandoffShowCommand }
   | { kind: "cost"; options: CostCommand }
   | { kind: "config"; options: ConfigShareCommand }
@@ -284,7 +295,7 @@ function parseArgs(argv: string[]): ParsedCommand {
   }
 
   const [command, ...rest] = argv;
-  const commands = ["run", "eval", "bench", "serve", "replay", "resume", "chat", "tui", "health", "providers", "handoff", "cost", "pool", "agents", "config", "skills", "mcp"];
+  const commands = ["run", "eval", "bench", "serve", "replay", "resume", "chat", "tui", "health", "providers", "handoff", "cost", "pool", "agents", "models", "config", "skills", "mcp"];
   if (command !== undefined && !commands.includes(command)) {
     throw new UsageError(`comando desconhecido: "${command}"`);
   }
@@ -503,6 +514,42 @@ function parseArgs(argv: string[]): ParsedCommand {
       throw new UsageError("use: agents list [--config <path>]");
     }
     return { kind: "agents", options: { action: "list", configPath } };
+  }
+
+  if (command === "models") {
+    let configPath = "astro.config.json";
+    let action: "list" | undefined;
+    let seeds = false;
+    let json = false;
+    for (let i = 0; i < rest.length; i++) {
+      const arg = rest[i] as string;
+      if (arg === "--config") {
+        const value = rest.at(i + 1);
+        if (value === undefined || value.startsWith("-")) {
+          throw new UsageError("falta o valor de --config");
+        }
+        i++;
+        configPath = value;
+        continue;
+      }
+      if (arg === "--seeds") {
+        seeds = true;
+        continue;
+      }
+      if (arg === "--json") {
+        json = true;
+        continue;
+      }
+      if (arg === "list" && action === undefined) {
+        action = "list";
+        continue;
+      }
+      throw new UsageError(`opção desconhecida: "${arg}"`);
+    }
+    if (action !== "list") {
+      throw new UsageError("use: models list [--config <path>] [--seeds] [--json]");
+    }
+    return { kind: "models", options: { action, configPath, seeds, json } };
   }
 
   if (command === "mcp") {
@@ -990,6 +1037,29 @@ async function main(argv: string[]): Promise<number> {
   // MCP (C2f): subcomandos e flags são validados em src/mcp/cli.ts.
   if (parsed.kind === "mcp") {
     return await runMcpCommand(parsed.args);
+  }
+
+  if (parsed.kind === "models") {
+    const o = parsed.options;
+    try {
+      const effective = loadEffectiveConfig(resolve(o.configPath));
+      const models = buildModelCatalog(effective);
+      if (o.json) {
+        // Um único payload JSON: com --seeds, as sementes vão no campo `seeds`.
+        console.log(JSON.stringify(o.seeds ? { models, seeds: PROVIDER_CATALOG } : { models }, null, 2));
+        return 0;
+      }
+      console.log(formatModelCatalog(models));
+      if (o.seeds) {
+        console.log("");
+        console.log(formatSeedList());
+      }
+      return 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`erro: ${message}`);
+      return 1;
+    }
   }
 
   if (parsed.kind === "agents") {

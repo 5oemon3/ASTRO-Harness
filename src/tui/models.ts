@@ -55,3 +55,21 @@ export function modelDetail(model: ModelOption): string {
   const tags = model.tags.length === 0 ? "tags: -" : `tags: ${model.tags.join(", ")}`;
   return `${model.ref} · ${model.status} · contexto ${model.context ?? "n/d"} · ${tags} · ${price}`;
 }
+
+export interface ModelGroup {
+  provider: string;
+  models: ModelOption[];
+}
+
+/** Agrupa por `provider` com cabeçalhos ordenados; preserva a ordem interna de cada grupo. */
+export function groupModels(models: readonly ModelOption[]): ModelGroup[] {
+  const byProvider = new Map<string, ModelOption[]>();
+  for (const model of models) {
+    const list = byProvider.get(model.provider);
+    if (list === undefined) byProvider.set(model.provider, [model]);
+    else list.push(model);
+  }
+  return [...byProvider.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([provider, list]) => ({ provider, models: list }));
+}

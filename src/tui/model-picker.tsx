@@ -1,7 +1,7 @@
 /** Seletor de modelos da TUI (#227): busca, favoritos, recentes e detalhe. */
 import { Box, Text, useInput } from "ink";
 import { useState, type ReactElement } from "react";
-import { filterModels, modelDetail, orderModels, toggleFavorite, type ModelOption } from "./models";
+import { filterModels, groupModels, modelDetail, orderModels, toggleFavorite, type ModelOption } from "./models";
 import type { ThemeColors } from "./theme";
 
 export interface ModelPickerProps {
@@ -24,6 +24,7 @@ export function ModelPicker({
   const found = ordered.findIndex((model) => model.ref === selectedRef);
   const selected = found < 0 ? 0 : found;
   const current = ordered[Math.min(selected, Math.max(ordered.length - 1, 0))];
+  const indexOfRef = new Map(ordered.map((model, index) => [model.ref, index]));
 
   const move = (delta: number): void => {
     if (ordered.length === 0) return;
@@ -73,12 +74,20 @@ export function ModelPicker({
       <Text bold>Modelos</Text>
       <Text>{query === "" ? "buscar: _" : `buscar: ${query}`}</Text>
       {ordered.length === 0 ? <Text dimColor>nenhum modelo</Text> : null}
-      {ordered.map((model, index) => (
-        <Text key={model.ref} color={index === selected ? colors.accent : undefined}>
-          {index === selected ? "> " : "  "}
-          {favorites.includes(model.ref) ? "* " : "  "}
-          {model.ref} {model.status} contexto {model.context ?? "n/d"}
-        </Text>
+      {groupModels(ordered).map((group) => (
+        <Box key={group.provider} flexDirection="column">
+          <Text bold>{group.provider} · {group.models.length}</Text>
+          {group.models.map((model) => {
+            const index = indexOfRef.get(model.ref) ?? -1;
+            return (
+              <Text key={model.ref} color={index === selected ? colors.accent : undefined}>
+                {index === selected ? "> " : "  "}
+                {favorites.includes(model.ref) ? "* " : "  "}
+                {model.ref} {model.status} contexto {model.context ?? "n/d"}
+              </Text>
+            );
+          })}
+        </Box>
       ))}
       {current === undefined ? null : <Text dimColor>{modelDetail(current)}</Text>}
       <Text dimColor>↑↓/tab mover · enter trocar · ctrl+f favorito · esc voltar</Text>
