@@ -118,5 +118,6 @@ describe("eval harness (F5-2)", () => {
     const report = await runEval({ goldenRoot: GOLDEN_ROOT, mock: true, baselinePath });
     expect(report.regressions).toEqual([]);
     expect(evalFailsThreshold(report, 0.85)).toBe(false);
-  });
+    // full-dataset mock eval: 4486ms on windows-latest CI at main (default cap 5000ms) — #312
+  }, 30000);
 });
