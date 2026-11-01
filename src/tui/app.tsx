@@ -11,6 +11,7 @@ import { runCommand, type CommandState, type Entry } from "./commands";
 import type { ApprovalBridge } from "./approvals";
 import type { ShellRunner } from "./shell";
 import { COMMANDS, applyCompletion, commandDescription, completionItems, suggestionWindow } from "./editor";
+import { Banner } from "./banner";
 import { indexFiles } from "./files";
 import { Markdown } from "./markdown";
 import { ModelPicker } from "./model-picker";
@@ -445,8 +446,12 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const selectedIndex = suggestions.length === 0 ? 0 : Math.min(selected, suggestions.length - 1);
   const win = suggestionWindow(suggestions.length, selectedIndex);
   const visibleSuggestions = suggestions.slice(win.start, win.end);
+  const providerId = session.providerName?.() ?? status.model.split("/")[0]!;
+  const endpoint = manager?.list().find((item) => item.id === providerId)?.baseUrl ?? "-";
+  const healthState = health?.provider === providerId ? health.state : "n/d";
   return (
     <Box flexDirection="column">
+      <Banner colors={colors} provider={providerId} model={status.model} endpoint={endpoint} state={healthState} />
       <Static items={entries}>
         {(entry, index) => <EntryLine key={index} entry={entry} colors={colors} />}
       </Static>
@@ -472,7 +477,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       })}
       {win.end < suggestions.length ? <Text dimColor>  …</Text> : null}
       <Text dimColor>
-        {place} · {status.model} · {status.turns} turno(s) · {status.tokensIn}/{status.tokensOut} tokens · {money(status.costUsd)} · {session.providerName?.() ?? status.model.split("/")[0]} · saúde: {health?.provider === (session.providerName?.() ?? status.model.split("/")[0]) ? health.state : "n/d"}
+        {place} · {status.model} · {status.turns} turno(s) · {status.tokensIn}/{status.tokensOut} tokens · {money(status.costUsd)} · {providerId} · saúde: {healthState}
       </Text>
     </Box>
   );
