@@ -2,6 +2,7 @@
 import type { SwapApprover, SwapRequest } from "../approval";
 import type { BudgetDecider, BudgetStatus } from "../budget";
 import type { PermissionApproval, ToolPermissionRequest } from "../permissions";
+import { trustChoice, trustPrompt, type TrustAsk } from "../trust";
 import type { ToolApprover } from "../tools/executor";
 import type { ReplIO } from "./repl";
 
@@ -51,12 +52,13 @@ export function toolChoice(answer: string | null): PermissionApproval {
 export function chatApprovers(
   io: ReplIO,
   interactive: boolean,
-): { approveSwap?: SwapApprover; onBudgetExceeded?: BudgetDecider; approveTool?: ToolApprover } {
+): { approveSwap?: SwapApprover; onBudgetExceeded?: BudgetDecider; approveTool?: ToolApprover; trustAsk?: TrustAsk } {
   if (!interactive) return {};
   const ask = (prompt: string): Promise<string | null> => (io.readFresh ?? io.read).call(io, prompt);
   return {
     approveSwap: async (request) => isYes(await ask(swapPrompt(request))),
     onBudgetExceeded: async (status) => budgetChoice(await ask(budgetPrompt(status))),
     approveTool: async (request) => toolChoice(await ask(toolPrompt(request))),
+    trustAsk: async (cwd) => trustChoice(await ask(trustPrompt(cwd))),
   };
 }

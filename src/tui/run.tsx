@@ -6,6 +6,7 @@ import { ConfigError, loadConfig } from "../config";
 import { ProfileManager } from "../provider/profile-manager";
 import { NoProviderError, NO_PROVIDER_MESSAGE } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
+import { trustChoice, trustPrompt } from "../trust";
 import { createApprovalBridge } from "./approvals";
 import { createShellRunner } from "./shell";
 import { getThemeColors, loadTuiConfig } from "./theme";
@@ -124,6 +125,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       approveSwap: approvals.approveSwap,
       onBudgetExceeded: approvals.onBudgetExceeded,
       approveTool: approvals.approveTool,
+      trustAsk: async (dir) => trustChoice(await approvals.askText(trustPrompt(dir))),
       ...(model === undefined ? {} : { model }),
     });
     // `--provider` explícito vence o último modelo salvo em .astro/tui.json.

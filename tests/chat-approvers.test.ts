@@ -95,3 +95,15 @@ describe("approveTool no REPL (PERM-04, #265)", () => {
     expect(chatApprovers(io([]), false).approveTool).toBeUndefined();
   });
 });
+
+describe("trustAsk no REPL (#267)", () => {
+  test("pergunta a pasta e mapeia s/n; sem TTY não injeta", async () => {
+    const prompts: string[] = [];
+    const capturing: ReplIO = { read: async (p: string) => { prompts.push(p); return "s"; }, write: () => {} };
+    expect(await chatApprovers(capturing, true).trustAsk!("/tmp/proj")).toBe(true);
+    expect(prompts[0]).toContain("/tmp/proj");
+    expect(await chatApprovers(io(["n"]), true).trustAsk!("/tmp/proj")).toBe(false);
+    expect(await chatApprovers(io([null]), true).trustAsk!("/tmp/proj")).toBe(false);
+    expect(chatApprovers(io([]), false).trustAsk).toBeUndefined();
+  });
+});

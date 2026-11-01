@@ -14,6 +14,8 @@ export interface ApprovalBridge {
   onBudgetExceeded: BudgetDecider;
   /** Aprovação de tool/file (PERM-04, #265): mesma pergunta do REPL, na linha da TUI. */
   approveTool: ToolApprover;
+  /** Pergunta crua (ex.: trust da pasta, #267): publica na linha da TUI e resolve com o texto digitado. */
+  askText(text: string): Promise<string>;
   /** Registra o ouvinte da pergunta pendente (chamado com undefined ao responder). */
   subscribe(listener: (question: ApprovalQuestion | undefined) => void): void;
   current(): ApprovalQuestion | undefined;
@@ -41,6 +43,7 @@ export function createApprovalBridge(): ApprovalBridge {
     approveSwap: async (request: SwapRequest) => isYes(await ask(swapPrompt(request))),
     onBudgetExceeded: async (status: BudgetStatus) => budgetChoice(await ask(budgetPrompt(status))),
     approveTool: async (request) => toolChoice(await ask(toolPrompt(request))),
+    askText: ask,
     subscribe: (fn) => {
       listener = fn;
       fn(pending);
