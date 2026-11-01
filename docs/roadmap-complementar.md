@@ -27,7 +27,7 @@ Status possíveis: `concluído`, `em andamento`, `planejado`, `bloqueado`.
 | F-03 | Idempotência de tool calls por `call_id` determinístico | concluído | #88 | F-02 | F-06, F-10, F-20, C2, C6 |
 | F-04 | Snapshots de escrita no write_file (ponte; deprecação via ADR) | planejado | — | F-02 | F-16 |
 | F-05 | Limites de execução por tarefa com corte físico (I-17) | planejado | — | F-02 | C4, C7 |
-| F-06 | Cancelamento consistente e retomada explícita (I-19) | planejado | — | F-02, F-03 | F-18, F-19, T2 |
+| F-06 | Cancelamento consistente e retomada explícita (I-19) | planejado | — | F-02, F-03 | F-19, T2 |
 | F-07 | Matriz de capability por modelo, consultada antes da escolha | concluído | #81 | F-02 | F-08, C4, C6, F-27 |
 | F-08 | Estratégia de context overflow com contagem por provider (D-22) | em andamento | #136, #134 | F-02, F-07 | T1 |
 | F-09 | Sanitização de conteúdo externo antes de logar e de entrar no contexto | concluído | #70 | — | C2, C3, F-11 |
@@ -38,7 +38,7 @@ Status possíveis: `concluído`, `em andamento`, `planejado`, `bloqueado`.
 | F-15 | `run_tests` (fonte do gate de conclusão) | planejado | — | F-11 | C5 |
 | F-16 | `apply_patch` multi-arquivo atômico (alvo do I-16) | planejado | — | F-04, F-09 | ADR de deprecação do write_file |
 | F-17 | `todo_write` (checkpoint de handoff) | planejado | — | F-02 | C4, T2 |
-| F-18 | `ask_user` (gate de confirmação) | planejado | — | F-06 | T2 |
+| F-18 | Gate de confirmação pelo approval bridge (sem `ask_user` model-facing) | concluído | #306 | — | — |
 | F-19 | Gate de aprovação de troca de credencial/provider/modelo (I-08, escada D-12) | planejado | — | F-02, F-06 | C6 |
 | F-20 | Microcompactação determinística de resultados de tool | planejado | — | F-02, F-03 | F-21 |
 | F-21 | Checkpoint de contexto com verificação de preservação de identificadores | planejado | — | F-17, F-20 | T4 |
@@ -60,7 +60,7 @@ Nota: F-13 (`glob`) ficou fora por não ser confirmado como lacuna dos diferenci
 | ID | Título | Status | Issue | Depende de | Bloqueia |
 |---|---|---|---|---|---|
 | T1 | REPL mínimo sem dependência nova | concluído | #62 | - | T2 |
-| T2 | TUI com biblioteca de terminal; perfis de confirmação; painel de tarefas | em andamento | #63 | F-06, F-12, F-17, F-18 | T3, T4 |
+| T2 | TUI com biblioteca de terminal; perfis de confirmação; painel de tarefas | em andamento | #63 | F-06, F-12, F-17 | T3, T4 |
 | T3 | Streaming, temas e diff viewer | planejado | #64 | T2, F-14 | — |
 | T4 | Sessões e memória com escopo definido | planejado | #65 | T2, F-21, F-22 | P-02, P-03 |
 
@@ -95,10 +95,10 @@ C4 inclui o blackboard entre agentes como sub-itens: entradas tipadas (`fact`, `
 | 2 | F-02 (após ADR-0002) |
 | 3 | F-03, F-07, F-10; F-27 (após F-07, ADR-0007) |
 | 4 | F-04, F-05, F-06, F-08, F-11; F-28 (após F-27) |
-| 5 | F-14, F-15, F-16, F-17, F-18 |
+| 5 | F-14, F-15, F-16, F-17 |
 | 6 | F-19, F-20, F-21, F-22; F-23 (após ADR-0006, de preferência após F-27 para from/to_profile); F-29 (após F-23..F-26, F-28); F-30 (após F-29) |
 | 7 | T1 em paralelo com a Camada 0; F-24 (após F-23, F-06), F-25 (após F-23, F-09), F-26 (após F-23, F-03) |
-| 8 | T2 (após F-06, F-12, F-17, F-18); T3 (após T2, F-14); T4 (após T2, F-21, F-22) |
+| 8 | T2 (após F-06, F-12, F-17); T3 (após T2, F-14); T4 (após T2, F-21, F-22) |
 | 9 | C1, C2, C3; C4, C6; C5; C7; F-31 (após C6, F-30) |
 | 10 | P-01 a P-04 (após C5, C6, C7) |
 

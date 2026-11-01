@@ -4,7 +4,7 @@ Objetivo: registrar o motivo de cada escolha com ID estável.
 
 | Cobre | Não cobre |
 |---|---|
-| Decisões D-01 a D-22 do repo e a correspondência com a trilha de planejamento | Invariantes (em `docs/invariants.md`) e ADRs (em `docs/adr/`) |
+| Decisões D-01 a D-25 do repo e a correspondência com a trilha de planejamento | Invariantes (em `docs/invariants.md`) e ADRs (em `docs/adr/`) |
 
 IDs estáveis; não renumerar.
 
@@ -12,7 +12,7 @@ IDs estáveis; não renumerar.
 |---|---|---|---|
 | D-01 | **Runtime: Bun + TypeScript strict** | Alternativas: Node + tsx, Deno. Bun dá startup rápido, APIs nativas (fetch, WebSocket, SQLite), bundler integrado. | Zero dependências de runtime; `bun test` e `bun run typecheck` são comandos nativos. |
 | D-02 | **Zero dependências de runtime** | Apenas stdlib (`node:fs`, `node:path`, `node:crypto`, `node:os`) + Bun globals. Nada de `npm install` para produção. Exceções: Ink/React carregados sob demanda só em `astro tui` (ADR-0001) e o runtime Bun empacotado na distribuição npm (ADR-0017, revisto pelo ADR-0018). | Runtime pinado pela release; binário único no caminho Bun; +~100 MB no install npm. |
-| D-03 | **CredentialRef pattern** — segredo só em variável de ambiente nomeada | Config guarda `credentialRef: "NVIDIA_API_KEY"`, nunca o valor. Codex lê `~/.codex/auth.json`; o login device da TUI grava esse arquivo (0600). | Segredo nunca entra em config, log, audit, ledger, erro ou prompt (I-03). |
+| D-03 | **Credencial por cofre local ou env** — segredo repousa no cofre local (`~/.astro/vault.json`, DPAPI no Windows ou 0600) quando há credencial ativa; senão em variável de ambiente nomeada. Codex OAuth continua em `~/.codex/auth.json` (0600). Config nunca guarda valor. | O cofre aceita chave digitada na TUI, permite N credenciais do mesmo provider e rotação sem editar config (ADR-0019). Precedência: cofre ativo > env. | Segredo nunca entra em config, log, audit, ledger, erro ou prompt (I-03); a origem (`vault`/`env`/`ausente`) fica visível sem o valor. |
 | D-04 | **Provider abstraction por `kind` discriminado** | `openai-compat` (NVIDIA NIM, OpenRouter) e `codex-oauth`. Interface `Provider` com `complete()`. | Adicionar provider = novo `kind` + factory em `createProvider()`. |
 | D-05 | **Model registry com tags de vocabulário fechado (D-17)** | `ROLE_TAGS` (planning, analysis, writing-code…) + `CAPACITY_TAGS` (tools, reasoning, long-context…). Tag desconhecida = config inválida. | Filtro semântico (`registry.list({tags})`), validação estática, evita tag soup. |
 | D-06 | **Tool manifest obrigatório (I-12)** | `ToolManifest`: name, description, parameters, risk (low/medium/high), permission, timeoutMs, retryable. | Allowlist por config (I-01), execução negada por default, auditoria de risco. |
@@ -34,6 +34,7 @@ IDs estáveis; não renumerar.
 | D-22 | **Contagem de tokens por provider** | Pura e determinística: tokenizer nativo registrado por provider; senão estimativa documentada de 4 chars/token; resultado marcado `measured`/`estimate` e nunca zero para texto não vazio. `src/tokens.ts`. | Compaction (S-17) e overflow retry usam a mesma contagem; sem chamada de provider e sem segredo (I-03). |
 | D-23 | **`cache.ttlHours = 0` desliga o cache** | Antes TTL zero significava "nunca expira", o oposto de quem quer desligar. `enabled: false` continua sendo o jeito declarativo; `ttlHours: 0` zera leitura e escrita. | `cachedProvider` devolve o provider puro e `CompletionCache.get` devolve `null`; config mantém `ttlHours >= 0`. |
 | D-24 | **Modos de permissão por chamada** | `bypass`/`allow-edits`/`ask`, default `ask`, resolvidos depois do allowlist; troca de identidade pede aprovação em todos os modos, inclusive `bypass`. `--permission-mode` vence a config (#269). | `src/permissions.ts` e gate no executor com evento `permission.decision`; `.astro/`/`protectedPaths`, redação e cwd são piso fixo. `ask` sem TTY (CLI não interativa) nega com `permission.pending` e para (#262); grants `once`/`session` ficam só em memória (`PermissionGrants`), nunca no disco (#266). |
+| D-25 | **Confirmação humana pelo approval bridge, sem `ask_user` model-facing** | O gate é da UI/camada de permissão: `src/permissions.ts` (classe de ação), `src/tui/approvals.ts` (linha de aprovação), `src/approval.ts`/`src/chat/approvers.ts` (troca, I-08) e `src/budget.ts` (orçamento). Pergunta que não é de permissão é prompt da TUI do comando que a precisa, não tool. | Não dá ao modelo canal de interrogatório fora da decisão de permissão; preserva I-18 e I-19; T2 (#63) consome o approval bridge sem allowlist, manifesto ou audit novo (#306). Se surgir pergunta livre real, exige tool própria com manifesto, allowlist e parada I-19, e ADR novo. |
 
 ---
 

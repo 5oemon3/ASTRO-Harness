@@ -25,7 +25,7 @@ ASTRO é um harness CLI local, em Bun + TypeScript strict, multi-provider, com f
 
 Detalhes e IDs em `docs/invariants.md`.
 
-- Segredo só entra por variável de ambiente nomeada. Nunca aparece em log, audit, ledger, erro ou prompt (I-03).
+- Segredo só entra pelo cofre local (ADR-0019) ou por variável de ambiente nomeada. Nunca aparece em log, audit, ledger, erro ou prompt (I-03).
 - Negar por padrão: tool fora da allowlist não executa (I-01).
 - Caminho de arquivo fica dentro do `cwd` salvo regra explícita (I-11).
 - Prompt do usuário não é persistido. Só `taskHash`.

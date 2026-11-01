@@ -15,6 +15,7 @@ Objetivo: apontar o documento certo para cada tarefa.
 | `docs/invariants.md` | Ao tocar em segredo, tool, caminho, custo, aprovação ou auditoria | ~50 |
 | `docs/decisions.md` | Ao precisar do motivo de uma escolha (D-xx) | ~100 |
 | `docs/adr/` | Decisão arquitetural nova ou revisão de uma antiga | 1 por arquivo |
+| `docs/superpowers/plans/` | Ao executar uma frente do planejamento | 1 por frente |
 | `docs/roadmap.md` | Histórico das fases concluídas (F0–F7) | ~70 |
 | `docs/roadmap-complementar.md` | Itens planejados das camadas 0–3 (F-xx, T, C, P) | ~120 |
 | `docs/providers.md` | Ao construir provider, validar credencial ou usar os SDKs | ~90 |
