@@ -206,7 +206,7 @@ describe("pipeline cancelamento (#260)", () => {
     const ran: string[] = [];
     const manifest = {
       description: "step", parameters: { type: "object", properties: {} },
-      risk: "low" as const, permission: "test", timeoutMs: 5_000, retryable: false,
+      risk: "low" as const, permission: "test", class: "read_common" as const, timeoutMs: 5_000, retryable: false,
       idempotent: false, sideEffects: "none" as const,
     };
     const first: Tool = {

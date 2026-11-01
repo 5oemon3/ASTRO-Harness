@@ -81,6 +81,8 @@ export function mcpTools(opts: McpToolsOptions): Tool[] {
         parameters: schemaObject(tool.inputSchema),
         risk: "high", // servidor MCP é código arbitrário (modelo de confiança)
         permission: `mcp:${server}`,
+        // Mesma classe que o main infere do sideEffects: stdio é processo (shell), rede é read_common.
+        class: config?.transport === "stdio" ? "shell" : "read_common",
         // Pior caso do registry após morte de transporte: call + initialize + tools/list + retry call.
         timeoutMs: (config?.timeoutMs ?? 30_000) * 4 + 1_000,
         // Tool opaca pode ter efeito colateral: não é seguro reenviar por conta própria.

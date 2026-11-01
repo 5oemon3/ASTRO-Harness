@@ -37,6 +37,8 @@ export const sqlTool = defineTool(
     },
     risk: "medium",
     permission: "execute",
+    // `execute` roda processo/SQL: jamais abaixo de `shell` no gate.
+    class: "shell",
     timeoutMs: 10_000,
     retryable: true,
     idempotent: true,

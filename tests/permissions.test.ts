@@ -69,6 +69,26 @@ describe("matriz de permissão (#259)", () => {
     expect(actionClassOf(runCommandTool, call("run_command", { command: "echo oi" }))).toBe("shell");
   });
 
+  test("classe declarada read_critical nunca é rebaixada pelo input (#264)", () => {
+    const vault: Tool = {
+      manifest: {
+        name: "vault_read", description: "lê um segredo do vault", parameters: { type: "object", properties: {} },
+        risk: "high", permission: "read", class: "read_critical", timeoutMs: 5_000,
+        retryable: false, idempotent: true, sideEffects: "none",
+      },
+      async execute() {
+        return { output: "" };
+      },
+    };
+    const call = (input: unknown) => ({ name: "vault_read", input });
+    // sem campo path (input usa outro nome) não pode virar read_common
+    expect(actionClassOf(vault, call({ secretName: "prod-db" }))).toBe("read_critical");
+    // caminho não-crítico também não rebaixa
+    expect(actionClassOf(vault, call({ path: "src/app.ts" }))).toBe("read_critical");
+    // caminho crítico continua read_critical
+    expect(actionClassOf(vault, call({ path: ".env" }))).toBe("read_critical");
+  });
+
   test("config aceita permissions.mode e rejeita valor inválido", () => {
     const base = {
       providers: { p: { kind: "openai-compat", baseUrl: "https://p.example/v1", credentialRef: "KEY" } },
@@ -121,7 +141,7 @@ describe("gate no executor (#259)", () => {
   test("ask + approver negando bloqueia a tool e audita", async () => {
     let ran = false;
     const write: Tool = {
-      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem" },
+      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem", class: "edit" },
       async execute() {
         ran = true;
         return { output: "ok" };
@@ -142,7 +162,7 @@ describe("gate no executor (#259)", () => {
   test("ask + approver permitindo executa", async () => {
     let ran = false;
     const write: Tool = {
-      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem" },
+      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem", class: "edit" },
       async execute() {
         ran = true;
         return { output: "ok" };
@@ -159,7 +179,7 @@ describe("gate no executor (#259)", () => {
   test("ask sem aprovador falha fechado: bloqueia e audita deny", async () => {
     let ran = false;
     const write: Tool = {
-      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem" },
+      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem", class: "edit" as const },
       async execute() {
         ran = true;
         return { output: "ok" };
@@ -196,6 +216,7 @@ describe("ask sem TTY (#262)", () => {
       manifest: {
         name: "write_probe", description: "x", parameters: { type: "object", properties: {} },
         risk: "low", permission: "write", timeoutMs: 5_000, retryable: false, idempotent: false, sideEffects: "filesystem",
+        class: "edit",
       },
       async execute() {
         ran = true;

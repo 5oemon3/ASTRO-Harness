@@ -32,6 +32,7 @@ function makeTool(name: string): Tool {
       retryable: false,
       idempotent: false,
       sideEffects: "none",
+      class: "read_common",
     },
     async execute() {
       return { output: `${name}-ok` };

@@ -22,6 +22,9 @@ export const handoffManifest: ToolManifest = {
   },
   risk: "medium",
   permission: "handoff",
+  // A troca de identidade é aprovada pelo gate de swap (F-19), não pela classe da tool:
+  // manter `read_common` preserva o pending do swap em vez de deny no gate de permissão.
+  class: "read_common",
   timeoutMs: 5000,
   retryable: false,
   idempotent: true,

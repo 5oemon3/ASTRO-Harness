@@ -204,6 +204,9 @@ export function createSpawnAgentTool(deps: SpawnToolDeps): Tool {
       parameters: SPAWN_PARAMETERS,
       risk: "medium",
       permission: "spawn_agent",
+      // Mesma classe que o main infere (sideEffects "none"): o spawn em si é orquestração;
+      // o filho roda com ceiling próprio.
+      class: "read_common",
       timeoutMs: 5000,
       retryable: false,
       idempotent: false,
