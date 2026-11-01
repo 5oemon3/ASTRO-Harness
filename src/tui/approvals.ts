@@ -1,7 +1,8 @@
 /** Ponte de aprovação para a TUI: pergunta vira linha da interface, resposta vem do Enter. */
 import type { SwapApprover, SwapRequest } from "../approval";
 import type { BudgetDecider, BudgetStatus } from "../budget";
-import { budgetChoice, budgetPrompt, isYes, swapPrompt } from "../chat/approvers";
+import { budgetChoice, budgetPrompt, isYes, swapPrompt, toolChoice, toolPrompt } from "../chat/approvers";
+import type { ToolApprover } from "../tools/executor";
 
 export interface ApprovalQuestion {
   text: string;
@@ -11,6 +12,8 @@ export interface ApprovalQuestion {
 export interface ApprovalBridge {
   approveSwap: SwapApprover;
   onBudgetExceeded: BudgetDecider;
+  /** Aprovação de tool/file (PERM-04, #265): mesma pergunta do REPL, na linha da TUI. */
+  approveTool: ToolApprover;
   /** Registra o ouvinte da pergunta pendente (chamado com undefined ao responder). */
   subscribe(listener: (question: ApprovalQuestion | undefined) => void): void;
   current(): ApprovalQuestion | undefined;
@@ -37,6 +40,7 @@ export function createApprovalBridge(): ApprovalBridge {
   return {
     approveSwap: async (request: SwapRequest) => isYes(await ask(swapPrompt(request))),
     onBudgetExceeded: async (status: BudgetStatus) => budgetChoice(await ask(budgetPrompt(status))),
+    approveTool: async (request) => toolChoice(await ask(toolPrompt(request))),
     subscribe: (fn) => {
       listener = fn;
       fn(pending);

@@ -7,6 +7,7 @@ import { throwIfAborted } from "../abort";
 import type { SwapApprover } from "../approval";
 import { Auditor } from "../audit";
 import type { BudgetDecider } from "../budget";
+import type { ToolApprover } from "../tools/executor";
 import type { AstroConfig } from "../config";
 import type { CodexLoginStart } from "../provider/codex-login";
 import { expandHomePath, saveCodexAuth, startCodexLogin } from "../provider/codex-login";
@@ -37,6 +38,8 @@ export interface AgentSessionOptions {
   /** Decisores interativos (TTY); ausentes mantêm pending/non-interactive. */
   approveSwap?: SwapApprover;
   onBudgetExceeded?: BudgetDecider;
+  /** Aprovação de tool/file no modo `ask` (PERM-04, #265); ausente = fail-closed. */
+  approveTool?: ToolApprover;
   /** Injeção para testes do login device (sem rede real). */
   fetchLike?: FetchLike;
 }
@@ -124,6 +127,7 @@ export class AgentSession {
   readonly #systemPrompt: string;
   readonly #approveSwap: SwapApprover | undefined;
   readonly #budgetDecider: BudgetDecider | undefined;
+  readonly #approveTool: ToolApprover | undefined;
   readonly #fetchLike: FetchLike | undefined;
   #modelRef: string;
   #messages: ChatMessage[];
@@ -162,6 +166,7 @@ export class AgentSession {
       : `${baseSystemPrompt}\n\n${projectInstructions}`;
     this.#approveSwap = opts.approveSwap;
     this.#budgetDecider = opts.onBudgetExceeded;
+    this.#approveTool = opts.approveTool;
     this.#fetchLike = opts.fetchLike;
     this.#modelRef = opts.model ?? this.#config.agent.model;
     const usedProvider = this.#registry.require(this.#modelRef).provider; // falha cedo com modelo inexistente
@@ -465,6 +470,7 @@ export class AgentSession {
           ...(onToken === undefined ? {} : { onToken }),
           ...(this.#approveSwap === undefined ? {} : { approveSwap: this.#approveSwap }),
           ...(this.#budgetDecider === undefined ? {} : { onBudgetExceeded: this.#budgetDecider }),
+          ...(this.#approveTool === undefined ? {} : { approveTool: this.#approveTool }),
         });
       } catch (error) {
         // Uso gasto antes da falha fica no ledger: contabiliza no acumulado da sessão

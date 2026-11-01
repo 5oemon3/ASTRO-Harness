@@ -69,3 +69,29 @@ describe("decisores interativos do chat", () => {
     expect(budgetIo.state.readFresh).toBe(1);
   });
 });
+
+describe("approveTool no REPL (PERM-04, #265)", () => {
+  const req = { name: "write_file", action: "edit" as const, mode: "ask" as const };
+
+  test("quatro opções: s=aprova (once), n/EOF=nega, S=sessão, o=só esta vez", async () => {
+    expect(await chatApprovers(io(["s"]), true).approveTool!(req)).toBe(true);
+    expect(await chatApprovers(io(["n"]), true).approveTool!(req)).toBe(false);
+    expect(await chatApprovers(io([null]), true).approveTool!(req)).toBe(false);
+    expect(await chatApprovers(io(["S"]), true).approveTool!(req)).toBe("session");
+    expect(await chatApprovers(io(["o"]), true).approveTool!(req)).toBe("once");
+  });
+
+  test("prompt cita a tool, a ação e as 4 opções", async () => {
+    const prompts: string[] = [];
+    const capturing: ReplIO = { read: async (p: string) => { prompts.push(p); return "s"; }, write: () => {} };
+    expect(await chatApprovers(capturing, true).approveTool!(req)).toBe(true);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("write_file");
+    expect(prompts[0]).toContain("edit");
+    expect(prompts[0]).toMatch(/\[s\].*\[n\].*\[S\].*\[o\]/);
+  });
+
+  test("sem TTY não injeta approveTool", () => {
+    expect(chatApprovers(io([]), false).approveTool).toBeUndefined();
+  });
+});

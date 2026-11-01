@@ -123,6 +123,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       allowMissingConfig: opts.allowMissingConfig === true,
       approveSwap: approvals.approveSwap,
       onBudgetExceeded: approvals.onBudgetExceeded,
+      approveTool: approvals.approveTool,
       ...(model === undefined ? {} : { model }),
     });
     // `--provider` explícito vence o último modelo salvo em .astro/tui.json.

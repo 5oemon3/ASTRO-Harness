@@ -27,7 +27,7 @@ function abortError(reason: unknown): Error {
 }
 
 /** Aprovador humano de uma chamada de tool no modo `ask` (PERM-01); `"session"` grava grant na sessão (#266). */
-export type ToolApprover = (request: ToolPermissionRequest) => PermissionApproval;
+export type ToolApprover = (request: ToolPermissionRequest) => PermissionApproval | Promise<PermissionApproval>;
 
 /** Nome de diretório seguro para o run id (nunca escapa do cwd). */
 function safeRunDir(run: string): string {
@@ -210,7 +210,7 @@ export class ToolExecutor {
       return failure(`argumentos ilegíveis para a tool "${call.name}": JSON inválido`);
     }
 
-    const blocked = this.permissionGate(ctx, tool, call, input);
+    const blocked = await this.permissionGate(ctx, tool, call, input);
     if (blocked !== undefined) return blocked;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -265,12 +265,12 @@ export class ToolExecutor {
    * O piso fixo (`.astro/`/`protectedPaths`, redação, confinamento) é aplicado
    * pelas próprias tools e não depende do modo.
    */
-  private permissionGate(
+  private async permissionGate(
     ctx: ToolContext,
     tool: Tool,
     call: ToolCall,
     input: unknown,
-  ): ToolResult | undefined {
+  ): Promise<ToolResult | undefined> {
     const action = actionClassOf(tool, { name: call.name, input });
     const decision = permissionDecision(this.mode, action);
     let effective: PermissionDecision = decision;
@@ -280,7 +280,7 @@ export class ToolExecutor {
       effective = "allow";
     } else if (decision === "ask") {
       try {
-        const approved = this.approveTool?.({ name: call.name, action, mode: this.mode });
+        const approved = await this.approveTool?.({ name: call.name, action, mode: this.mode });
         // Fail-closed: sem aprovador, `ask` vira deny (#262).
         if (approved === "session") {
           this.permissionGrants.grant(grantKey);

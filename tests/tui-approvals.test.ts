@@ -44,4 +44,33 @@ describe("ponte de aprovação da TUI (T2, #63)", () => {
     odd.answer("cancelar");
     expect(await cancelled).toBe("stop");
   });
+
+  test("approveTool publica a pergunta na TUI e mapeia as 4 opções (#265)", async () => {
+    const req = { name: "write_file", action: "edit" as const, mode: "ask" as const };
+    const bridge = createApprovalBridge();
+    const seen: Array<string | undefined> = [];
+    bridge.subscribe((question) => seen.push(question?.text));
+    const decision = bridge.approveTool(req);
+    expect(seen.at(-1)).toContain("write_file");
+    expect(seen.at(-1)).toMatch(/\[s\].*\[n\].*\[S\].*\[o\]/);
+    expect(bridge.current()?.text).toBe(seen.at(-1));
+    bridge.answer("S");
+    expect(await decision).toBe("session");
+    expect(bridge.current()).toBeUndefined();
+
+    const once = createApprovalBridge();
+    const dOnce = once.approveTool(req);
+    once.answer("o");
+    expect(await dOnce).toBe("once");
+
+    const yes = createApprovalBridge();
+    const dYes = yes.approveTool(req);
+    yes.answer("s");
+    expect(await dYes).toBe(true);
+
+    const no = createApprovalBridge();
+    const dNo = no.approveTool(req);
+    no.answer("n");
+    expect(await dNo).toBe(false);
+  });
 });

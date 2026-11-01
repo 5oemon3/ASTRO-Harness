@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
+import { chatApprovers } from "../src/chat/approvers";
+import type { ReplIO } from "../src/chat/repl";
 import { ConfigError, validateConfig } from "../src/config";
 import {
   actionClassOf,
@@ -345,5 +347,61 @@ describe("grants de sessão (#266)", () => {
 
     // Nenhum arquivo de grants: o único diretório é o do audit.
     expect(readdirSync(s.cwd)).toEqual([".astro"]);
+  });
+});
+
+describe("prompt de tool no REPL em modo ask (#265)", () => {
+  const manifest = {
+    name: "write_probe", description: "x", parameters: { type: "object", properties: {} },
+    risk: "low" as const, permission: "write", timeoutMs: 5_000, retryable: false,
+    idempotent: false, sideEffects: "filesystem" as const, class: "edit" as const,
+  };
+
+  test("ask dispara o prompt do chat, executa com 's' e audita decision sanitizado", async () => {
+    let ran = 0;
+    const tool: Tool = { manifest, async execute() { ran++; return { output: "ok" }; } };
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm265-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    const prompts: string[] = [];
+    const fakeSecret = ["s", "k", "-"].join("") + "live-abcdef12345";
+    const repl: ReplIO = { read: async (p: string) => { prompts.push(p); return "s"; }, write: () => {} };
+    const executor = new ToolExecutor({
+      tools: [tool], allow: ["write_probe"], audit, permissionMode: "ask",
+      approveTool: chatApprovers(repl, true).approveTool!,
+    });
+    const ctx = { cwd, run: "r1", agent: "a" };
+    const call = { id: "c1", name: "write_probe", arguments: JSON.stringify({ path: "x.ts", content: fakeSecret }) };
+
+    const result = await executor.run(ctx, call);
+    expect(result.isError).toBeFalsy();
+    expect(ran).toBe(1);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("write_probe");
+
+    const decisions = audit.readAll().filter((e) => e.tipo === "permission.decision");
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]!.payload).toMatchObject({ name: "write_probe", action: "edit", mode: "ask", decision: "allow" });
+    // I-03/I-04: audit não carrega argumentos da call (nem o segredo dentro deles)
+    expect(JSON.stringify(decisions[0]!.payload)).not.toContain(fakeSecret);
+    expect(JSON.stringify(decisions[0]!.payload)).not.toContain("x.ts");
+  });
+
+  test("resposta 'S' (sessão) não pergunta de novo na 2ª chamada", async () => {
+    let ran = 0;
+    const tool: Tool = { manifest, async execute() { ran++; return { output: "ok" }; } };
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm265b-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    const prompts: string[] = [];
+    const repl: ReplIO = { read: async (p: string) => { prompts.push(p); return "S"; }, write: () => {} };
+    const executor = new ToolExecutor({
+      tools: [tool], allow: ["write_probe"], audit, permissionMode: "ask",
+      approveTool: chatApprovers(repl, true).approveTool!,
+    });
+    const ctx = { cwd, run: "r1", agent: "a" };
+    const call = { id: "c1", name: "write_probe", arguments: "{}" };
+    expect((await executor.run(ctx, call)).isError).toBeFalsy();
+    expect((await executor.run(ctx, call)).isError).toBeFalsy();
+    expect(ran).toBe(2);
+    expect(prompts).toHaveLength(1); // grant de sessão reaproveitado
   });
 });
