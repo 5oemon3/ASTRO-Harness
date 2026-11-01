@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { runTask, type RunReport, createProvider } from "./app";
 import { installCancellation } from "./signal";
-import { nonInteractiveApprover } from "./permissions";
+import { isPermissionMode, nonInteractiveApprover, type PermissionMode } from "./permissions";
 import { defaultArgs, isInteractive } from "./cli-default";
 import { existsSync } from "node:fs";
 import { loadConfig, validateConfig } from "./config";
@@ -81,13 +81,13 @@ function ttyBudgetDecider(): BudgetDecider | undefined {
 }
 
 const USAGE = `Uso:
-  astro run "<pedido>" [--config <path>] [--cwd <dir>] [--provider <name>]
+  astro run "<pedido>" [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro eval [--threshold <0..1>] [--golden <dir>] [--report <path>] [--baseline <path>] [--write-baseline]
   astro bench [--config <path>] [--models <filtro>] [--runs <n>] [--out <dir>]
   astro serve [--port <n>]
   astro replay <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
-  astro chat [--config <path>] [--cwd <dir>] [--provider <name>]
-  astro tui [--config <path>] [--cwd <dir>] [--provider <name>]
+  astro chat [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
+  astro tui [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro resume <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
   astro health [--config <path>]
   astro providers <health|list|test> [--config <path>]
@@ -104,6 +104,7 @@ Opções:
   --config <path>  configuração do Astro (default: astro.config.json)
   --provider <name> provider ativo (default: store/env/agent.model)
   --cwd <dir>      diretório de trabalho do agente (default: diretório atual)
+  --permission-mode <bypass|allow-edits|ask>  modo do gate de tool (vence permissions.mode)
   --help           mostra este texto
 
 Eval:
@@ -130,6 +131,8 @@ interface RunCommand {
   configPath: string;
   cwd?: string;
   provider?: string;
+  /** `--permission-mode`: vence a config (CLI > config > ask). */
+  permissionMode?: PermissionMode;
 }
 
 interface EvalCommand {
@@ -165,6 +168,7 @@ interface ChatCommand {
   cwd?: string;
   provider?: string;
   configExplicit: boolean;
+  permissionMode?: PermissionMode;
 }
 
 interface TuiCommand {
@@ -172,6 +176,7 @@ interface TuiCommand {
   cwd?: string;
   provider?: string;
   configExplicit: boolean;
+  permissionMode?: PermissionMode;
 }
 
 interface HealthCommand {
@@ -259,6 +264,15 @@ function parseReplayLike(command: "replay" | "resume", rest: string[]): ReplayCo
   if (runId === undefined) throw new UsageError(`falta o run-id; use: ${command} <run-id> --task "<pedido>"`);
   if (task === undefined) throw new UsageError(`falta a tarefa; use: ${command} <run-id> --task "<pedido>"`);
   return { runId, task, configPath, ...(cwd === undefined ? {} : { cwd }) };
+}
+
+/** Valor de `--permission-mode` validado; vence a config (CLI > config > ask). */
+function permissionModeValue(arg: string, value: string | undefined): PermissionMode {
+  if (value === undefined || value.startsWith("-")) throw new UsageError(`falta o valor de ${arg}`);
+  if (!isPermissionMode(value)) {
+    throw new UsageError(`--permission-mode aceita "bypass", "allow-edits" ou "ask"`);
+  }
+  return value;
 }
 
 function parseArgs(argv: string[]): ParsedCommand {
@@ -509,15 +523,17 @@ function parseArgs(argv: string[]): ParsedCommand {
     let configPath = "astro.config.json";
     let cwd: string | undefined;
     let provider: string | undefined;
+    let permissionMode: PermissionMode | undefined;
     let configExplicit = false;
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i] as string;
-      if (arg === "--config" || arg === "--cwd" || arg === "--provider") {
+      if (arg === "--config" || arg === "--cwd" || arg === "--provider" || arg === "--permission-mode") {
         const value = rest.at(i + 1);
         if (value === undefined || value.startsWith("-")) throw new UsageError(`falta o valor de ${arg}`);
         i++;
         if (arg === "--config") { configPath = value; configExplicit = true; }
         else if (arg === "--cwd") cwd = value;
+        else if (arg === "--permission-mode") permissionMode = permissionModeValue(arg, value);
         else provider = value;
         continue;
       }
@@ -528,6 +544,7 @@ function parseArgs(argv: string[]): ParsedCommand {
       configExplicit,
       ...(cwd === undefined ? {} : { cwd }),
       ...(provider === undefined ? {} : { provider }),
+      ...(permissionMode === undefined ? {} : { permissionMode }),
     };
     return command === "chat" ? { kind: "chat", options } : { kind: "tui", options };
   }
@@ -588,6 +605,7 @@ function parseArgs(argv: string[]): ParsedCommand {
   let cwd: string | undefined;
   let task: string | undefined;
   let provider: string | undefined;
+  let permissionMode: PermissionMode | undefined;
 
   if (command === "eval") {
     let threshold = 0.85;
@@ -633,7 +651,7 @@ function parseArgs(argv: string[]): ParsedCommand {
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] as string;
 
-    if (arg === "--config" || arg === "--cwd" || arg === "--provider") {
+    if (arg === "--config" || arg === "--cwd" || arg === "--provider" || arg === "--permission-mode") {
       const value = rest.at(i + 1);
       if (value === undefined || value.startsWith("-")) {
         throw new UsageError(`falta o valor de ${arg}`);
@@ -643,6 +661,8 @@ function parseArgs(argv: string[]): ParsedCommand {
         configPath = value;
       } else if (arg === "--cwd") {
         cwd = value;
+      } else if (arg === "--permission-mode") {
+        permissionMode = permissionModeValue(arg, value);
       } else {
         provider = value;
       }
@@ -670,6 +690,7 @@ function parseArgs(argv: string[]): ParsedCommand {
       configPath,
       ...(cwd === undefined ? {} : { cwd }),
       ...(provider === undefined ? {} : { provider }),
+      ...(permissionMode === undefined ? {} : { permissionMode }),
     },
   };
 }
@@ -727,6 +748,12 @@ async function main(argv: string[]): Promise<number> {
     console.error(USAGE);
     return 1;
   }
+
+  // CLI > config (CLI-01): chat/tui leem o modo do ambiente do processo.
+  const modeOption = parsed.kind === "run" || parsed.kind === "chat" || parsed.kind === "tui"
+    ? parsed.options.permissionMode
+    : undefined;
+  if (modeOption !== undefined) process.env.ASTRO_PERMISSION_MODE = modeOption;
 
   if (parsed.kind === "help") {
     console.log(USAGE);
