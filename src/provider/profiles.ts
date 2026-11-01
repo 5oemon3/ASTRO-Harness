@@ -7,6 +7,7 @@ import { ConfigError, loadConfig, validateConfig, type AstroConfig, type ModelCo
 import { isKnownTag } from "../tags";
 import { isAuthHeader, looksLikeSecret } from "../secrets";
 import { outboundUrlProblem } from "../url-safety";
+import { vaultMeta, vaultPath, vaultPlainWarning } from "../vault";
 
 export interface ProfileModel {
   id: string;
@@ -350,6 +351,13 @@ export function resolveEffectiveConfig(input: {
 }): EffectiveConfig {
   const env = input.env ?? process.env;
   const warnings: string[] = [];
+  // Cofre em modo plain (fora do Windows) com credenciais avisa explícito (ADR-0019, #311)
+  try {
+    const vaultWarn = vaultPlainWarning(vaultMeta(vaultPath(env), process.platform));
+    if (vaultWarn !== undefined) warnings.push(vaultWarn);
+  } catch {
+    // cofre ilegível não quebra o start da sessão; `astro health` reporta o detalhe
+  }
   const project = input.project;
 
   const profiles = new Map(input.store.profiles.map((profile) => [profile.id, profile]));

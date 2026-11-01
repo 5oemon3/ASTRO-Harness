@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type OpenAICompatProviderConfig, type ProviderConfig } from "./config";
 import { DEFAULT_PRIORITY } from "./provider/fallback-provider";
 import { Registry } from "./registry";
+import { vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
 
 // Predicates: PluginProviderConfig (kind: string) sobrepõe os literais dos
 // built-ins e desativa a discriminação automática da união.
@@ -122,6 +123,23 @@ export async function runHealthCheck(
 
   // Check 1: config (já carregada com sucesso — registra como ok)
   checks.push({ name: "config", status: "ok", detail: `${Object.keys(config.providers).length} providers` });
+
+  // Cofre de credenciais (ADR-0019, #311): só metadados; fora do agregado `provider:`.
+  // Modo plain (fora do Windows) com cofre existente → aviso explícito no detail.
+  try {
+    const meta = vaultMeta(vaultPath(env), process.platform);
+    const warn = vaultPlainWarning(meta);
+    checks.push({
+      name: "vault",
+      status: "ok",
+      detail: !meta.exists
+        ? "sem cofre (nenhuma credencial em vault)"
+        : (warn ?? `${meta.credentials} credencial(is), ${meta.active} ativa(s), scheme "${meta.scheme}"`),
+    });
+  } catch (error) {
+    // store corrompido: erro cita só o caminho (I-03); não derruba os demais checks
+    checks.push({ name: "vault", status: "ok", detail: error instanceof Error ? error.message : String(error) });
+  }
 
   // Checks por provider
   for (const [name, provider] of Object.entries(config.providers)) {

@@ -212,3 +212,113 @@ export function vaultPlainWarning(meta: VaultMeta): string | undefined {
   return `aviso: cofre de credenciais em modo "plain" (sem cifra do SO) em ${meta.path} (arquivo 0600); no Windows o segredo é cifrado com DPAPI`;
 }
 
+/** Backend real da plataforma; injetável em testes via `Vault`. */
+export function defaultBackend(platform: NodeJS.Platform = process.platform): VaultBackend {
+  if (platform === "win32") return { scheme: "dpapi", protect: dpapiProtect, unprotect: dpapiUnprotect };
+  return { scheme: "plain", protect: (s) => s, unprotect: (s) => s };
+}
+
+/** Credencial resolvida: o valor (`value`) só existe em memória durante o uso (I-03). */
+export interface VaultEntry {
+  id: string;
+  providerId: string;
+  label: string;
+  scheme: VaultScheme;
+  value: string;
+}
+
+export class Vault {
+  constructor(
+    readonly path: string = vaultPath(),
+    readonly backend: VaultBackend = defaultBackend(),
+  ) {}
+
+  #load(): VaultStore {
+    return loadVault(this.path);
+  }
+
+  /** Listagem sem o campo secreto (seguro para TUI/log). */
+  list(): VaultPublic[] {
+    return this.#load().credentials.map(({ secret: _secret, ...rest }) => rest);
+  }
+
+  /** Cria credencial cifrada e a deixa ativa (desativa as demais do mesmo provider). */
+  create(input: { providerId: string; label: string; secret: string }, now: Date = new Date()): VaultPublic {
+    if (input.secret.trim() === "") throw new Error("segredo vazio não entra no cofre");
+    if (looksLikeSecret(input.label)) throw new Error(`"label" parece conter segredo; não é gravado (I-03)`);
+    const store = this.#load();
+    const ts = now.toISOString();
+    const cred: VaultCredential = {
+      id: `cred-${randomUUID()}`,
+      providerId: input.providerId,
+      label: input.label,
+      scheme: this.backend.scheme,
+      secret: this.backend.protect(input.secret),
+      createdAt: ts,
+      lastUsedAt: ts,
+      active: true,
+    };
+    for (const c of store.credentials) {
+      if (c.providerId === input.providerId) c.active = false;
+    }
+    store.credentials.push(cred);
+    saveVault(store, this.path);
+    const { secret: _secret, ...pub } = cred;
+    return pub;
+  }
+
+  /** Re-cifra o segredo de uma credencial existente. */
+  rotate(id: string, secret: string, now: Date = new Date()): void {
+    if (secret.trim() === "") throw new Error("segredo vazio não entra no cofre");
+    const store = this.#load();
+    const cred = store.credentials.find((c) => c.id === id);
+    if (cred === undefined) throw new Error("credencial não encontrada no cofre");
+    cred.scheme = this.backend.scheme;
+    cred.secret = this.backend.protect(secret);
+    cred.lastUsedAt = now.toISOString();
+    saveVault(store, this.path);
+  }
+
+  /** Deixa `id` ativa e desativa as demais do mesmo provider (uma ativa por provider). */
+  activate(id: string): void {
+    const store = this.#load();
+    const cred = store.credentials.find((c) => c.id === id);
+    if (cred === undefined) throw new Error("credencial não encontrada no cofre");
+    for (const c of store.credentials) {
+      if (c.providerId === cred.providerId) c.active = c.id === id;
+    }
+    saveVault(store, this.path);
+  }
+
+  /** Remove a credencial; retorna false se não existia. */
+  remove(id: string): boolean {
+    const store = this.#load();
+    const next = store.credentials.filter((c) => c.id !== id);
+    if (next.length === store.credentials.length) return false;
+    saveVault({ version: 1, credentials: next }, this.path);
+    return true;
+  }
+
+  /** Resolve a credencial ATIVA do provider; valor só em memória (I-03). */
+  resolve(providerId: string): VaultEntry | undefined {
+    const cred = this.#load().credentials.find((c) => c.providerId === providerId && c.active);
+    return cred === undefined ? undefined : this.#entry(cred);
+  }
+
+  /** Lê uma credencial por id; valor só em memória (I-03). */
+  read(id: string): VaultEntry | undefined {
+    const cred = this.#load().credentials.find((c) => c.id === id);
+    return cred === undefined ? undefined : this.#entry(cred);
+  }
+
+  #entry(cred: VaultCredential): VaultEntry {
+    return {
+      id: cred.id,
+      providerId: cred.providerId,
+      label: cred.label,
+      scheme: cred.scheme,
+      value: this.backend.unprotect(cred.secret),
+    };
+  }
+}
+

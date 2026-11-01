@@ -147,7 +147,9 @@ describe("vaultMeta/vaultPlainWarning (#311)", () => {
 });
 
 describe("DPAPI real (só win32) (#311)", () => {
-  test("protect/unprotect roundtrip e blob não contém o segredo", () => {
+  // 3 spawns de PowerShell: no runner windows-latest do CI cada spawn leva ~1.5s,
+  // estourando o default de 5s do bun test — timeout explícito de 30s.
+  test("protect/unprotect roundtrip e blob não contém o segredo", { timeout: 30_000 }, () => {
     if (process.platform !== "win32") return; // fora do Windows o backend é plain
     const blob = dpapiProtect(SENTINEL);
     expect(blob).not.toContain(SENTINEL);

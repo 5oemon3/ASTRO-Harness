@@ -44,6 +44,10 @@ Perfis vivem em `~/.astro/providers.json` (`ASTRO_HOME` sobrescreve), modo 0600,
 
 CRUD: `/provider add` (catálogo ou custom), `/provider edit <nome|id>`, `/provider remove <nome|id>` e `/provider use <nome|id>`. Na TUI, `/provider` abre a tela cheia (a adicionar, e editar, d remover, t testar, l login Codex, enter ativar, esc voltar); o teste pede confirmação, usa a mesma chamada mínima de `providers test` e mostra `ok`/erro/latência. Em um perfil `codex-oauth`, `l` inicia o device flow, mostra URL/código e grava só o arquivo de credenciais (0600). A status bar mostra o provider ativo e a saúde (`n/d` até o primeiro teste ou troca de provider). `/provider use <nome>` continua trocando inline. `●` marca o perfil ativo salvo e `em uso:` mostra o modelo da sessão — os dois podem divergir após um `/model`. Perfis do projeto e o perfil `env` são somente leitura; remover um perfil referenciado pelo projeto é recusado.
 
+## Cofre local de credenciais (ADR-0019, #311)
+
+O cofre vive em `~/.astro/vault.json` (`ASTRO_HOME` sobrescreve): diretório 0700, arquivo 0600, escrita atômica (`src/vault.ts`). No Windows o segredo é cifrado com DPAPI via PowerShell (segredo só por variável de ambiente do processo filho, nunca na linha de comando); fora do Windows o modo é `plain` 0600, aceito explicitamente com aviso em `astro health` e no start de `chat`/`tui` (`vaultPlainWarning`, fora do agregado de providers). Validação estrita rejeita campo desconhecido e erro cita só o caminho (I-03); `vault.json` é caminho crítico em `src/permissions.ts`; `redactSecrets` cobre o par `"secret": "..."` inteiro. A classe `Vault` (uma credencial ativa por provider) guarda o valor decifrado só em memória durante o uso — listagens e health nunca o expõem. Nesta fatia o cofre ainda não é referenciado por `credentialRef` (B.2/B.3).
+
 ## Custo e preço
 
 | Campo | Tipo | Comportamento |
