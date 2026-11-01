@@ -50,6 +50,7 @@ import { lspTool } from "./tools/lsp";
 import { pipelineTool } from "./tools/pipeline";
 import { configureRunCommand, resolveSandboxSetting } from "./tools/run-command";
 import type { Tool } from "./tools/types";
+import type { ActionClass, PermissionMode } from "./permissions";
 
 export interface RunOptions {
   configPath: string;

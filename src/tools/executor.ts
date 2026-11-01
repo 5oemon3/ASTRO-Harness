@@ -5,6 +5,7 @@ import {
   actionClassOf,
   permissionDecision,
   DEFAULT_PERMISSION_MODE,
+  PermissionPendingError,
   type ActionClass,
   type PermissionDecision,
   type PermissionMode,
@@ -250,7 +251,9 @@ export class ToolExecutor {
    * Gate por chamada depois do allowlist e do ceiling (PERM-01, I-01). `deny`
    * bloqueia; `ask` consulta o aprovador injetado pela TUI/REPL/CLI.
    * **Fail-closed**: sem aprovador, `ask` vira `deny` — a chamada nunca segue
-   * sem aprovação humana registrada.
+   * sem aprovação humana registrada. Aprovador que não pode perguntar (sem TTY,
+   * CLI não interativa, #262) lança `PermissionPendingError`: o gate audita
+   * `permission.pending` e relança, e o run para em ponto seguro (I-19).
    * O piso fixo (`.astro/`/`protectedPaths`, redação, confinamento) é aplicado
    * pelas próprias tools e não depende do modo.
    */
@@ -264,8 +267,21 @@ export class ToolExecutor {
     const decision = permissionDecision(this.mode, action);
     let effective: PermissionDecision = decision;
     if (decision === "ask") {
-      const approved = this.approveTool?.({ name: call.name, action, mode: this.mode });
-      effective = approved === undefined ? "deny" : approved ? "allow" : "deny";
+      try {
+        const approved = this.approveTool?.({ name: call.name, action, mode: this.mode });
+        effective = approved === undefined ? "deny" : approved ? "allow" : "deny";
+      } catch (error) {
+        // Sem TTY o aprovador não pode perguntar: pending, auditado e run para (I-08/I-19).
+        if (error instanceof PermissionPendingError) {
+          this.auditRef.append({
+            run: ctx.run,
+            agent: ctx.agent,
+            tipo: "permission.pending",
+            payload: { name: call.name, action, mode: this.mode },
+          });
+        }
+        throw error;
+      }
     }
     // `allow` automático não gera evento; só o que passou pelo gate fica auditado.
     if (decision !== "allow") {

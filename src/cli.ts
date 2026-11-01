@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { runTask, type RunReport, createProvider } from "./app";
 import { installCancellation } from "./signal";
+import { nonInteractiveApprover } from "./permissions";
 import { defaultArgs, isInteractive } from "./cli-default";
 import { existsSync } from "node:fs";
 import { loadConfig, validateConfig } from "./config";
@@ -825,6 +826,8 @@ async function main(argv: string[]): Promise<number> {
         ...(o.cwd === undefined ? {} : { cwd: o.cwd }),
         resume: o.runId,
         signal: cancellation.signal,
+        // Sem TTY não há como perguntar: `ask` nega e para (I-08/I-19).
+        ...(process.stdin.isTTY === true ? {} : { approveTool: nonInteractiveApprover() }),
         approveSwap: ttyApprover(), onBudgetExceeded: ttyBudgetDecider(),
       });
       console.log(`retomado ${report.resumedFrom ?? "?"} do run ${report.runId}`);
@@ -1032,6 +1035,8 @@ async function main(argv: string[]): Promise<number> {
     const report = await runTask({
       ...parsed.options,
       signal: cancellation.signal,
+      // Sem TTY não há como perguntar: `ask` nega e para (I-08/I-19).
+      ...(process.stdin.isTTY === true ? {} : { approveTool: nonInteractiveApprover() }),
       approveSwap: ttyApprover(), onBudgetExceeded: ttyBudgetDecider(),
     });
     console.log(report.final);
