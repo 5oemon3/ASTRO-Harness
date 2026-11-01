@@ -33,7 +33,7 @@ Timeout por requisição nos três: aborta só a própria pendência; o transpor
 - Namespace da tool vista pelo modelo: `mcp__<server>__<tool>`; colisão com builtin/plugin ou outra tool MCP é ignorada com warn (builtin nunca é sobrescrita).
 - `connectAll` com isolamento: falha individual vira warn + `failed`, não derruba os demais.
 - `call`: erro de tool (protocolo, transporte vivo) propaga cru, **sem reexecução**; morte de transporte reconecta **uma vez** (dedup por servidor; concorrentes compartilham a tentativa) e reenvia o `tools/call` — a tool pode executar duas vezes (at-least-once).
-- Backoff: falha de conexão entra em cooldown exponencial (`retryBackoffMs × 2^(falhas−1)`, teto 30s); durante o cooldown, `call` falha rápido com `nova tentativa em <ms>` e **não spawna**. Sucesso zera o backoff.
+- Backoff: falha de conexão entra em cooldown exponencial (`retryBackoffMs × 2^(falhas−1)`, teto 30s); durante o cooldown, `call` falha rápido com `nova tentativa em <ms>` e **não spawna**. Sucesso zera o backoff. A falha é contada **uma vez por tentativa de reconexão compartilhada**, não por chamador concorrente (#148).
 - `close` é terminal: `call`/`connectAll` pós-`close` rejeitam "registro MCP fechado" e nada spawna depois.
 - Ciclo de vida sem órfãos: todo cliente descartado é fechado antes; reconexão em voo respeta `close()`.
 
@@ -59,7 +59,7 @@ Servidor MCP stdio é **código arbitrário**: roda com env sanitizado e o `comm
 
 - `astro mcp list`: conecta os habilitados e lista as tools descobertas; servidor caído vira `indisponível` e não derruba o comando.
 - `astro mcp test <server> <tool> [--args '<json>']`: executa a tool via adaptador (audit `mcp.call` sem argumentos/resposta, I-03); `isError` sai com código 1.
-- `--config <path>`: config alternativa (default: `astro.config.json`); flag repetida é rejeitada.
+- `--config <path>`: config alternativa (default: `astro.config.json`); flag repetida é rejeitada — a guarda de duplicidade vale para `--config` **e** para `--args`.
 - `--args` vale só em `test` e é validado antes de conectar; `list` rejeita argumentos demais.
 
 ## Limitações e pendências

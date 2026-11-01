@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Auditor } from "../audit";
 import { loadEffectiveConfig } from "../provider/profiles";
-import { MCPRegistry } from "./registry";
+import { MCPRegistry, mcpToolName } from "./registry";
 import { mcpTools } from "./tool";
 
 const USAGE_MCP = `uso: mcp <subcomando> [--config <caminho>]
@@ -129,7 +129,8 @@ export async function runMcpCommand(argv: string[], opts: McpCliOptions = {}): P
             : failedOf.has(name) ? `indisponível: ${failedOf.get(name)}` : "habilitado";
           out(`Servidor: ${name} — ${serverConfig.transport}, ${state}`);
           if (serverConfig.enabled === false) continue;
-          const mine = tools.filter((entry) => entry.manifest.name.startsWith(`mcp__${name}__`));
+          const namespace = mcpToolName(name, ""); // prefixo `mcp__<server>__` do contrato (#56)
+          const mine = tools.filter((entry) => entry.manifest.name.startsWith(namespace));
           if (mine.length === 0) out("  (nenhuma tool descoberta)");
           for (const entry of mine) out(`  ${entry.manifest.name}  ${entry.manifest.description}`);
         }
@@ -146,7 +147,7 @@ export async function runMcpCommand(argv: string[], opts: McpCliOptions = {}): P
         reserved: [],
         warn: (message) => out(`aviso: ${message}`),
       });
-      const wanted = `mcp__${server}__${tool}`;
+      const wanted = mcpToolName(server!, tool!); // garantidos pelo check de "test" acima
       const found = tools.find((entry) => entry.manifest.name === wanted);
       if (found === undefined) {
         out(`erro: tool "${wanted}" não encontrada`);

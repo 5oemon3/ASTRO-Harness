@@ -76,9 +76,8 @@ export class MCPRegistry {
         connected.push({ server: name, name: state.client!.serverInfo.name });
       } catch (error) {
         if (this.#closed) throw new MCPError("registro MCP fechado");
-        this.#fail(name, state, error);
-        this.#cooldown(name, state);
-        failed.push({ server: name, error: state.failed! });
+        // #fail/#cooldown já rodaram dentro da tentativa compartilhada (#148).
+        failed.push({ server: name, error: state.failed ?? (error instanceof Error ? error.message : String(error)) });
       }
     }
     return { connected, failed };
@@ -106,20 +105,31 @@ export class MCPRegistry {
     return out;
   }
 
-  /** Reconexão única por servidor: concorrentes compartilham a tentativa; respeta close(). */
+  /**
+   * Reconexão única por servidor: concorrentes compartilham a tentativa; respeta close().
+   * Falha de conexão é marcada (#fail/#cooldown) uma vez por tentativa compartilhada,
+   * não por chamador (#148).
+   */
   #reconnect(server: string, state: ServerState): Promise<void> {
     const inFlight = this.#reconnecting.get(server);
     if (inFlight !== undefined) return inFlight;
     const attempt = (async () => {
       if (state.client !== undefined && !state.client.closed) return; // outra chamada já reconectou
       state.client?.close();
-      const client = await MCPClient.connect(this.#servers[server]!, this.#env, this.#headerEnvNames);
-      if (this.#closed) { client.close(); throw new MCPError("registro MCP fechado"); }
-      state.client = client;
-      state.tools = await client.listTools();
-      state.failed = undefined;
-      state.failures = 0;
-      state.nextRetryAt = 0;
+      try {
+        const client = await MCPClient.connect(this.#servers[server]!, this.#env, this.#headerEnvNames);
+        if (this.#closed) { client.close(); throw new MCPError("registro MCP fechado"); }
+        state.client = client;
+        state.tools = await client.listTools();
+        state.failed = undefined;
+        state.failures = 0;
+        state.nextRetryAt = 0;
+      } catch (error) {
+        if (this.#closed) throw new MCPError("registro MCP fechado");
+        this.#fail(server, state, error);
+        this.#cooldown(server, state);
+        throw error instanceof Error ? error : new MCPError(String(error));
+      }
     })();
     this.#reconnecting.set(server, attempt);
     return attempt.finally(() => this.#reconnecting.delete(server));
@@ -139,9 +149,8 @@ export class MCPRegistry {
       try { await this.#reconnect(server, state); }
       catch (error) {
         if (this.#closed) throw new MCPError("registro MCP fechado");
-        this.#fail(server, state, error);
-        this.#cooldown(server, state);
-        throw new MCPError(`servidor MCP "${server}" indisponível: ${state.failed}`);
+        // #fail/#cooldown já rodaram dentro da tentativa compartilhada (#148).
+        throw new MCPError(`servidor MCP "${server}" indisponível: ${state.failed ?? (error instanceof Error ? error.message : String(error))}`);
       }
     }
     // Referência desta chamada: irmãos concorrentes podem trocar/anular state.client no meio.
@@ -151,15 +160,12 @@ export class MCPRegistry {
     } catch (error) {
       if (!client.closed) throw error; // transporte vivo: erro da tool, sem reconexão/reexecução
       const detail = error instanceof Error ? error.message : String(error);
-      if (state.client === client) this.#fail(server, state, error); // só a primeira a falhar avisa
       try {
-        await this.#reconnect(server, state);
+        await this.#reconnect(server, state); // falha marcada 1x dentro da tentativa compartilhada (#148)
         if (this.#closed) throw new MCPError("registro MCP fechado");
         return await state.client!.callTool(tool, args);
       } catch (retry) {
         if (this.#closed) throw new MCPError("registro MCP fechado");
-        if (state.client !== undefined && state.client.closed) this.#fail(server, state, retry);
-        else if (state.client === undefined) this.#cooldown(server, state); // reconexão falhou: backoff
         throw new MCPError(`servidor MCP "${server}" indisponível: ${detail}`);
       }
     }

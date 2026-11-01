@@ -220,6 +220,34 @@ test("reconexão com backoff exponencial: falha rápido no cooldown, dobra e res
   } finally {
     registry.close();
   }
+}, 15000); // 5 spawns de processo bun; no win32 cada spawn leva ~1s
+
+test("3 calls concorrentes na mesma reconexão quebrada contam 1 falha e 1 warn (#148)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "astro-mcpreg-"));
+  const clock = { now: 0 };
+  const warnings: string[] = [];
+  const registry = new MCPRegistry({
+    servers: {
+      morto: { transport: "stdio", command: "bun", args: [join(dir, "nao-existe.js")], timeoutMs: 3000, enabled: true, retryBackoffMs: 100 },
+    },
+    warn: (message) => warnings.push(message),
+    now: () => clock.now,
+  });
+  const failure = (promise: Promise<unknown>) => promise.then(() => "ok", (error: Error) => error.message);
+  try {
+    const results = await Promise.allSettled([
+      registry.call("morto", "echo", {}),
+      registry.call("morto", "echo", {}),
+      registry.call("morto", "echo", {}),
+    ]);
+    for (const result of results) expect(result.status).toBe("rejected");
+    expect(warnings).toHaveLength(1); // 1 warn por tentativa compartilhada, não 3
+    // próxima espera == base (100ms); com contagem por chamador seria 100 * 2^2 = 400ms
+    const cooling = await failure(registry.call("morto", "echo", {}));
+    expect(cooling).toMatch(/nova tentativa em 100ms/);
+  } finally {
+    registry.close();
+  }
 });
 
 test("http com sessão expirada reconecta e recupera", async () => {
