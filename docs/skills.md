@@ -8,7 +8,7 @@ Skills reutilizáveis no formato `SKILL.md` (C1, #55): carregamento, instalaçã
 
 - Raízes: `project` = `<cwd>/.astro/skills/`, `user` = `~/.astro/skills/`. Cada skill é `<raiz>/<nome>/SKILL.md`, com chave `fonte/nome` (`project/commit`); nome puro só resolve quando único. Links (symlink/junction) de diretório ou de `SKILL.md` não são seguidos (I-03).
 - Frontmatter: `name` (`^[a-z0-9][a-z0-9_-]*$`), `description`, `version` e o prompt (após `---`) obrigatórios; `permissions` com defaults deny (`tools: []`, `network: false`, `filesystem: none`); `scripts` opcional. Teto de 1MB por SKILL.md na leitura e na instalação; download remoto corta o stream ao passar do teto (não bufferiza o corpo inteiro) e a origem passa por `outboundUrlProblem` (#256).
-- Parser: mapas, listas em bloco (ambos estilos), escalares e arrays inline, sem dependência. Limitações: sem block scalar/escapes; chave duplicada usa a última; primeira chave de item com valor em bloco é rejeitada; sequência de sequências vira escalar; chave over-indentada em mapa pode sobrescrever campo (#112); nomes reservados do Windows (`con`, `nul`) passam no regex; fonte-arquivo dentro do destino não toca a guarda de sobreposição.
+- Parser: mapas, listas em bloco (ambos estilos), escalares e arrays inline, sem dependência. Limitações: sem block scalar/escapes; chave duplicada usa a última; primeira chave de item com valor em bloco é rejeitada; sequência de sequências vira escalar; chave ou item over-indentado (indent maior que o primeiro filho do frame e divergente) é rejeitado com `frontmatter inválido: indentação inconsistente` (#112); nomes reservados do Windows (`con`, `nul`) passam no regex; fonte-arquivo dentro do destino não toca a guarda de sobreposição.
 
 ```
 ---

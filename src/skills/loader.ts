@@ -43,6 +43,8 @@ interface YamlFrame {
   /** Indent da chave que abriu a lista (igual a `indent` em mapas). */
   keyIndent: number;
   value: YamlMap | unknown[];
+  /** Indent do primeiro filho válido neste frame; depois, só esse indent é aceito (#112). */
+  childIndent?: number;
 }
 
 function nextContentLine(lines: readonly string[], start: number): { indent: number; trimmed: string } | undefined {
@@ -80,7 +82,16 @@ function parseYaml(text: string): YamlMap {
     const frame = stack.at(-1)!;
 
     if (item) {
-      if (!Array.isArray(frame.value)) throw new SkillError("frontmatter inválido: lista sem chave");
+      if (!Array.isArray(frame.value)) {
+        if (indent > frame.indent) {
+          throw new SkillError(`frontmatter inválido: indentação inconsistente em "${trimmed}"`);
+        }
+        throw new SkillError("frontmatter inválido: lista sem chave");
+      }
+      // Item mais fundo que o 1º item da lista: fundir em silêncio corromperia o array (#112).
+      if (indent > frame.indent) {
+        throw new SkillError(`frontmatter inválido: indentação inconsistente em "${trimmed}"`);
+      }
       const text = trimmed.slice(2).trim();
       const colon = text.indexOf(":");
       if (colon >= 0) {
@@ -100,6 +111,15 @@ function parseYaml(text: string): YamlMap {
     if (key === "") throw new SkillError("frontmatter inválido: chave vazia");
     if (key === "__proto__") throw new SkillError('frontmatter inválido: chave "__proto__" não permitida');
     if (!isRecord(frame.value)) throw new SkillError(`frontmatter inválido: "${key}" dentro de lista`);
+
+    // Chave com indent maior que o frame só é válida se for o primeiro filho
+    // (define childIndent) ou se bater com o childIndent já definido (#112).
+    if (indent > frame.indent) {
+      if (frame.childIndent === undefined) frame.childIndent = indent;
+      else if (indent !== frame.childIndent) {
+        throw new SkillError(`frontmatter inválido: indentação inconsistente em "${trimmed}"`);
+      }
+    }
 
     const rawValue = trimmed.slice(colon + 1).trim();
     if (rawValue !== "") { frame.value[key] = parseScalar(rawValue); continue; }

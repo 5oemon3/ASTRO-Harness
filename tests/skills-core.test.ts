@@ -94,3 +94,34 @@ test("chave dedentada ao indent dos itens não sobrescreve o root", () => {
   const stray = SKILL.replace("  - name: check\n    command: git status --short", "  - name: check\n    command: git status --short\n  version: 9.9.9");
   expect(() => parseSkill(stray, "project", "/p/SKILL.md")).toThrow(/indentação/);
 });
+
+test("chave over-indentada no root é rejeitada em vez de sobrescrever campo (#112)", () => {
+  const over = SKILL.replace("version: 1.0.0", "version: 1.0.0\n  version: 9.9.9");
+  expect(() => parseSkill(over, "project", "/p/SKILL.md")).toThrow(/frontmatter inválido: indentação inconsistente/);
+  const overDesc = SKILL.replace("description: Cria um commit com a mudança atual", "description: Cria um commit com a mudança atual\n  description: evil");
+  expect(() => parseSkill(overDesc, "project", "/p/SKILL.md")).toThrow(/indentação inconsistente/);
+  const overName = SKILL.replace("name: commit", "name: commit\n  name: evil");
+  expect(() => parseSkill(overName, "project", "/p/SKILL.md")).toThrow(/indentação inconsistente/);
+});
+
+test("item over-indentado dentro do objeto do item é rejeitado (#112)", () => {
+  const overItem = SKILL.replace("  - name: check\n    command: git status --short", "  - name: check\n    command: git status --short\n      - stray");
+  expect(() => parseSkill(overItem, "project", "/p/SKILL.md")).toThrow(/indentação inconsistente/);
+});
+
+test("item over-indentado em lista de escalares é rejeitado em vez de fundido (#112)", () => {
+  const overList = SKILL.replace("  tools: [read_file, run_command]", "  tools:\n    - read_file\n      - evil_tool");
+  expect(() => parseSkill(overList, "project", "/p/SKILL.md")).toThrow(/frontmatter inválido: indentação inconsistente/);
+});
+
+test("chave over-indentada dentro do objeto do item é rejeitada (#112)", () => {
+  const overKey = SKILL.replace("  - name: check\n    command: git status --short", "  - name: check\n    command: git status --short\n      extra: evil");
+  expect(() => parseSkill(overKey, "project", "/p/SKILL.md")).toThrow(/indentação inconsistente/);
+});
+
+test("over-indent com CRLF e BOM também é rejeitado (#112)", () => {
+  const crlf = SKILL.replace("version: 1.0.0", "version: 1.0.0\r\n  version: 9.9.9").replace(/\n/g, "\r\n");
+  expect(() => parseSkill(crlf, "project", "/p/SKILL.md")).toThrow(/indentação inconsistente/);
+  const bom = "﻿" + SKILL.replace("version: 1.0.0", "version: 1.0.0\n  version: 9.9.9");
+  expect(() => parseSkill(bom, "project", "/p/SKILL.md")).toThrow(/indentação inconsistente/);
+});
