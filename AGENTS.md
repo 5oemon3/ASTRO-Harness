@@ -33,14 +33,17 @@ Detalhes e IDs em `docs/invariants.md`.
 
 ## Fluxo (resumo)
 
-Detalhe completo em `docs/workflow.md`.
+**Agente implementando uma issue? Leia `docs/implementation-guide.md` primeiro** — tem o passo a passo completo (TDD, branch, PR, revisão dupla, merge).
+
+Detalhe do fluxo em `docs/workflow.md`; checklist de revisão em `docs/review-checklist.md`.
 
 1. Toda mudança tem issue (`#n`). Critério de aceite na issue.
 2. Branch a partir de `main` atualizada: `<tipo>/<n>-<slug>`, por exemplo `feat/14-pool-placement`.
-3. Commits no formato `tipo: resumo`, com rodapé `Refs #n`.
-4. PR pelo template, com `Closes #n`. Alvo de até 200 linhas alteradas, teto de 400.
-5. Revisão obrigatória antes do merge, feita por quem não escreveu o código. Ver `docs/review-checklist.md`.
-6. Squash merge. `main` nunca recebe commit direto.
+3. TDD obrigatório: RED (`test:`) antes de GREEN (`feat:`/`fix:`), commits separados, RED no corpo do PR.
+4. Commits no formato `tipo: resumo`, com rodapé `Refs #n`.
+5. PR pelo template, com `Closes #n`. Alvo de até 200 linhas alteradas, teto de 400.
+6. Revisão dupla obrigatória antes do merge: revisor A (segurança: I-03/I-01/I-11, bloqueia sempre) + revisor B (correctness/contrato), em paralelo e contexto fresco. Ver `docs/review-checklist.md`.
+7. Squash merge. `main` nunca recebe commit direto.
 
 ## Revisão de PR (obrigatória)
 

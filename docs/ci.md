@@ -24,7 +24,7 @@ A matriz `test` roda nos dois SOs de propósito: há regressões específicas de
 
 ## Política de merge
 
-- PR só entra com `test` verde nos **dois** sistemas, `eval` e `secrets` verdes, mais `Revisão: APPROVE` (`docs/workflow.md` §6).
+- PR só entra com `test` verde nos **dois** sistemas, `eval` e `secrets` verdes, mais **2 veredictos `Revisão: APPROVE`** no PR (A segurança + B correctness) (`docs/workflow.md` §6).
 - Não usar `--admin` para contornar check vermelho. Exceção por causa externa (billing, runner) é registrada no PR com justificativa e issue de correção.
 - Falha intermitente: reexecutar o job; se repetir, abrir issue com o link do run.
 

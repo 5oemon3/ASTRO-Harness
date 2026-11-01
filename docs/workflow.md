@@ -34,7 +34,7 @@ Resumo obrigatório em `AGENTS.md`. Este arquivo tem o detalhe.
 
 ## 5. Revisão
 
-- Obrigatória antes do merge. Checklist em `docs/review-checklist.md`.
+- Obrigatória e **dupla** antes do merge: revisor A (segurança) + revisor B (correctness), em paralelo e contexto fresco. Checklist em `docs/review-checklist.md`.
 - Revisor não é o autor: subagente ou sessão nova, recebendo o diff e o checklist, sem o raciocínio que produziu o código.
 - Veredito como comentário no PR, na primeira linha: `Revisão: APPROVE` ou `Revisão: REQUEST_CHANGES`, seguido de itens numerados.
 - Item bloqueante exige `arquivo:linha` e um cenário concreto de falha.
@@ -43,7 +43,7 @@ Resumo obrigatório em `AGENTS.md`. Este arquivo tem o detalhe.
 
 ## 6. Merge
 
-- Pré-condições: CI verde, `Revisão: APPROVE` no PR, docs atualizados, checklist marcado.
+- Pré-condições: CI verde, **2 veredictos `Revisão: APPROVE`** no PR (A segurança + B correctness — detalhe em `docs/implementation-guide.md` §5), docs atualizados, checklist marcado.
 - Squash merge. Título do PR vira a mensagem, com `(#PR)` no fim.
 - Branch apagada automaticamente após o merge (configuração do repo).
 
@@ -78,4 +78,4 @@ Proteção da `main` (arquivo `.github/branch-protection.json`):
 gh api -X PUT repos/UmTioAii/ASTRO/branches/main/protection --input .github/branch-protection.json
 ```
 
-Observação: o GitHub não deixa o autor aprovar o próprio PR. Com conta solo, `required_approving_review_count` fica em `0`, e a revisão obrigatória é garantida pelo veredito no PR (`Revisão: APPROVE`) e pela regra deste documento. Quando houver um segundo revisor humano, suba para `1`.
+Observação: o GitHub não deixa o autor aprovar o próprio PR. Com conta solo, `required_approving_review_count` fica em `0`, e a revisão dupla obrigatória é garantida pelos 2 veredictos no PR (`Revisão: APPROVE` de A e de B) e pela regra deste documento. Quando houver um segundo revisor humano, suba para `1`.
