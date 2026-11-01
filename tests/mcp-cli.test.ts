@@ -177,6 +177,8 @@ test("bun src/cli.ts mcp list executa o wiring real do comando", async () => {
     cwd: root,
     stdout: "pipe",
     stderr: "pipe",
+    // Bun.spawn não herda process.env; o opt-in de dev precisa chegar no filho.
+    env: { ...process.env, ASTRO_ALLOW_PRIVATE_URLS: "1" },
   });
   const exit = await proc.exited;
   const stdout = await new Response(proc.stdout).text();

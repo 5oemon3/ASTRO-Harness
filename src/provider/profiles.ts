@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { ConfigError, loadConfig, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../config";
 import { isKnownTag } from "../tags";
 import { isAuthHeader, looksLikeSecret } from "../secrets";
-import { urlProblem } from "../url-safety";
+import { outboundUrlProblem } from "../url-safety";
 
 export interface ProfileModel {
   id: string;
@@ -99,7 +99,7 @@ function validateModel(raw: unknown, field: string): ProfileModel {
 
 function validateBaseUrl(value: unknown, field: string): string {
   const raw = asString(value, field);
-  const problem = urlProblem(raw);
+  const problem = outboundUrlProblem(raw);
   if (problem !== undefined) fail(`"${field}" ${problem}`);
   return raw;
 }
