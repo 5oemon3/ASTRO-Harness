@@ -62,7 +62,7 @@ export async function runCommand(
       }
     }
     case "providers":
-      return { entries: [{ kind: "info", text: providerLines(session) }] };
+      return { entries: [], openProviders: { mode: "list" } };
     case "provider": {
       if (command.action === "use") {
         if (command.target === undefined) {
@@ -168,11 +168,5 @@ export async function runCommand(
       }
     }
   }
-}
-
-function providerLines(session: ChatSession): string {
-  const providers = session.listProviders();
-  if (providers.length === 0) return "nenhum provider configurado";
-  return providers.map(providerLine).join("\n");
 }
 
