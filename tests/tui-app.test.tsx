@@ -678,3 +678,63 @@ test("/usage na TUI imprime uso da sessão e budget no painel (#63)", async () =
     instance.unmount();
   }
 });
+
+test("editor multi-linha: linefeed (\n) quebra linha, enter (\r) envia o texto inteiro (#63)", async () => {
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    expect(frameHas(instance, "shift+enter")).toBe(true); // dica visível no editor
+    instance.stdin.write("linha1");
+    instance.stdin.write("\n"); // shift+enter em terminal legado
+    instance.stdin.write("linha2");
+    // as duas linhas aparecem no editor e nada foi enviado ainda
+    await waitFor(() => {
+      const frame = instance.lastFrame() ?? "";
+      return frame.includes("linha1") && frame.includes("linha2");
+    });
+    expect(session.sent).toEqual([]);
+    instance.stdin.write("\r");
+    await waitFor(() => session.sent.length === 1);
+    expect(session.sent).toEqual(["linha1\nlinha2"]);
+    await waitFor(() => frameHas(instance, "eco:linha1"));
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("editor multi-linha: shift+enter via protocolo kitty (CSI 13;2u) quebra linha (#63)", async () => {
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("a");
+    instance.stdin.write("\u001b[13;2u"); // shift+enter (kitty)
+    instance.stdin.write("b");
+    await new Promise((resolve) => setTimeout(resolve, 50)); // assenta o frame antes do enter
+    expect(session.sent).toEqual([]);
+    instance.stdin.write("\r");
+    await waitFor(() => session.sent.length === 1);
+    expect(session.sent).toEqual(["a\nb"]);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("texto multi-linha que começa com / vai como prompt, não como comando (#63)", async () => {
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/usage");
+    instance.stdin.write("\n");
+    instance.stdin.write("pergunta");
+    instance.stdin.write("\r");
+    await waitFor(() => session.sent.length === 1);
+    // parseCommand quebraria em \n e rodaria /usage descartando "pergunta";
+    // multi-linha é sempre prompt, nada é descartado silenciosamente
+    expect(session.sent).toEqual(["/usage\npergunta"]);
+  } finally {
+    instance.unmount();
+  }
+});

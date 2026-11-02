@@ -1,7 +1,7 @@
 /** TUI (T2): conversa, entrada e status bar. Consome apenas a ChatSession. */
 import { Box, Static, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { parseCommand } from "../chat/commands";
+import { parseCommand, type ReplCommand } from "../chat/commands";
 import { statusLine, type ChatSession } from "../chat/repl";
 import type { SessionStore } from "../chat/store";
 import type { SessionSnapshot } from "../chat/agent-session";
@@ -220,7 +220,9 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       }
       return;
     }
-    const command = parseCommand(text);
+    // Texto com quebra de linha nunca é comando de barra: parseCommand separa
+    // em \n e executaria o comando descartando o resto silenciosamente (#63)
+    const command: ReplCommand = text.includes("\n") ? { kind: "prompt", text } : parseCommand(text);
     if (command.kind === "empty") return;
     if (command.kind === "exit") {
       finish();
@@ -354,6 +356,18 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         setSelected((selectedIndex + 1) % suggestions.length);
         return;
       }
+    }
+    if (key.return && key.shift) {
+      // shift+enter (protocolo kitty, CSI 13;2u): quebra linha no editor (#63)
+      setInput((current) => `${current}\n`);
+      setSelected(0);
+      return;
+    }
+    if (value === "\n") {
+      // linefeed legado (shift+enter em terminal sem kitty) também quebra linha (#63)
+      setInput((current) => `${current}\n`);
+      setSelected(0);
+      return;
     }
     if (key.return) {
       void submit();
@@ -498,6 +512,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const providerId = session.providerName?.() ?? status.model.split("/")[0]!;
   const endpoint = manager?.list().find((item) => item.id === providerId)?.baseUrl ?? "-";
   const healthState = health?.provider === providerId ? health.state : "n/d";
+  const inputLines = input.split("\n");
   // Modo de permissão sempre visível (#270); bypass em cor de alerta
   const mode = session.permissionMode?.() ?? DEFAULT_PERMISSION_MODE;
   return (
@@ -509,11 +524,16 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       {busy ? <Text color={colors.warning}>pensando…</Text> : null}
       {partial === undefined ? null : <Text>{partial}</Text>}
       {question === undefined ? null : <Text color={colors.warning}>{question}</Text>}
-      <Box marginTop={1} borderStyle="round" borderColor={colors.accent} paddingX={1}>
-        <Text color={colors.accent}>{"> "}</Text>
-        <Text>{input}</Text>
-        <Text inverse> </Text>
+      <Box marginTop={1} borderStyle="round" borderColor={colors.accent} paddingX={1} flexDirection="column">
+        {inputLines.map((line, index) => (
+          <Box key={index}>
+            <Text color={colors.accent}>{index === 0 ? "> " : "  "}</Text>
+            <Text>{line}</Text>
+            {index === inputLines.length - 1 ? <Text inverse> </Text> : null}
+          </Box>
+        ))}
       </Box>
+      {question === undefined ? <Text dimColor>  enter envia · shift+enter nova linha</Text> : null}
       {win.start > 0 ? <Text dimColor>  …</Text> : null}
       {visibleSuggestions.map((item, offset) => {
         const index = win.start + offset;
