@@ -74,6 +74,17 @@ describe("ponte de aprovação da TUI (T2, #63)", () => {
     expect(await dNo).toBe(false);
   });
 
+  test("approveTool com diff publica a pergunta com o anexo para o overlay (#64 D2)", async () => {
+    const bridge = createApprovalBridge();
+    const diff = { path: "a.ts", content: "@@ -1 +1 @@\n-x\n+y\n" };
+    const decision = bridge.approveTool({ name: "edit", action: "edit", mode: "ask", diff });
+    expect(bridge.current()?.text).toContain("edit");
+    expect(bridge.current()?.diff).toEqual(diff);
+    bridge.answer("s");
+    expect(await decision).toBe(true);
+    expect(bridge.current()).toBeUndefined();
+  });
+
   test("askText publica a pergunta crua na TUI e resolve com a resposta (#267)", async () => {
     const bridge = createApprovalBridge();
     const seen: Array<string | undefined> = [];

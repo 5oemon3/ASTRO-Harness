@@ -6,6 +6,8 @@ import type { ToolApprover } from "../tools/executor";
 
 export interface ApprovalQuestion {
   text: string;
+  /** Anexo do diff da tool `edit` para o overlay da TUI (#64); já chega redacted (I-03). */
+  diff?: { path: string; content: string };
   resolve(answer: string): void;
 }
 
@@ -27,9 +29,10 @@ export function createApprovalBridge(): ApprovalBridge {
   let pending: ApprovalQuestion | undefined;
   let listener: ((question: ApprovalQuestion | undefined) => void) | undefined;
 
-  const ask = (text: string): Promise<string> => new Promise((resolve) => {
+  const ask = (text: string, diff?: { path: string; content: string }): Promise<string> => new Promise((resolve) => {
     pending = {
       text,
+      ...(diff === undefined ? {} : { diff }),
       resolve: (answer: string) => {
         pending = undefined;
         listener?.(undefined);
@@ -42,7 +45,7 @@ export function createApprovalBridge(): ApprovalBridge {
   return {
     approveSwap: async (request: SwapRequest) => isYes(await ask(swapPrompt(request))),
     onBudgetExceeded: async (status: BudgetStatus) => budgetChoice(await ask(budgetPrompt(status))),
-    approveTool: async (request) => toolChoice(await ask(toolPrompt(request))),
+    approveTool: async (request) => toolChoice(await ask(toolPrompt(request), request.diff)),
     askText: ask,
     subscribe: (fn) => {
       listener = fn;

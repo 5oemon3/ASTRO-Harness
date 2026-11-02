@@ -9,7 +9,8 @@ import { isFatalSessionError } from "../chat/session-errors";
 import { DEFAULT_PERMISSION_MODE } from "../permissions";
 import { redactSecrets } from "../sanitize-external";
 import { runCommand, type CommandState, type Entry } from "./commands";
-import type { ApprovalBridge } from "./approvals";
+import type { ApprovalBridge, ApprovalQuestion } from "./approvals";
+import { DiffViewer } from "./diff-viewer";
 import type { ShellRunner } from "./shell";
 import { COMMANDS, applyCompletion, commandDescription, completionItems, suggestionWindow } from "./editor";
 import { Banner, modeColor } from "./banner";
@@ -101,7 +102,7 @@ export function activateProvider(
 
 export function TuiApp({ session, cwd, branch, store, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS }: TuiAppProps): ReactElement {
   const [entries, setEntries] = useState<Entry[]>([{ kind: "info", text: WELCOME }]);
-  const [question, setQuestion] = useState<string | undefined>(() => approvals?.current()?.text);
+  const [question, setQuestion] = useState<ApprovalQuestion | undefined>(() => approvals?.current());
   const [files, setFiles] = useState<string[]>([]);
   const [selected, setSelected] = useState(0);
   const [input, setInputState] = useState("");
@@ -145,6 +146,8 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const [configOpen, setConfigOpen] = useState(false); // tela `/config` (#273)
   const [modelPicker, setModelPicker] = useState(false);
   const [sessionPicker, setSessionPicker] = useState(false); // modal `/sessions` (#64)
+  const [diffOpen, setDiffOpen] = useState(false); // overlay de diff da aprovação (#64 D2)
+  const diffOpenRef = useRef(false);
   const [sessionList, setSessionList] = useState<SessionSummary[]>([]);
   const [favorites, setFavorites] = useState<string[]>(initialConfig.favoriteModels ?? []);
   const [recents, setRecents] = useState<string[]>(initialConfig.recentModels ?? []);
@@ -176,7 +179,15 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   }, [toasts.length, toastTtlMs]);
 
   useEffect(() => {
-    approvals?.subscribe((pendingQuestion) => setQuestion(pendingQuestion?.text));
+    approvals?.subscribe((pendingQuestion) => {
+      setQuestion(pendingQuestion);
+      if (pendingQuestion === undefined || pendingQuestion.diff === undefined) {
+        // resposta dada ou pergunta nova sem diff: o overlay não fica aberto
+        // (alinha o guarda do useInput com a condição de render do overlay)
+        diffOpenRef.current = false;
+        setDiffOpen(false);
+      }
+    });
   }, [approvals]);
 
   useEffect(() => {
@@ -346,13 +357,19 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
   };
 
-  useInput((value, key) => {    if (screen !== undefined || modelPicker || configOpen || sessionPicker) return; const ctrl = key.ctrl === true;
+  useInput((value, key) => {    if (screen !== undefined || modelPicker || configOpen || sessionPicker || diffOpen) return; const ctrl = key.ctrl === true;
     if (ctrl && (value === "c" || value === "d")) {
       approvals?.answer("");
       finish();
       return;
     }
     if (question !== undefined) {
+      if (key.tab && question.diff !== undefined && !diffOpenRef.current) {
+        // tab abre o overlay de diff da tool edit sem engolir a linha de resposta (#64 D2)
+        diffOpenRef.current = true;
+        setDiffOpen(true);
+        return;
+      }
       if (key.return) {
         const answer = inputRef.current;
         setInput(() => "");
@@ -452,6 +469,20 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
     budgetAlarm.current = high;
   }, [budget]);
+
+  if (diffOpen && question?.diff !== undefined) {
+    return (
+      <DiffViewer
+        path={question.diff.path}
+        diff={question.diff.content}
+        colors={colors}
+        onClose={() => {
+          diffOpenRef.current = false;
+          setDiffOpen(false);
+        }}
+      />
+    );
+  }
 
   if (sessionPicker) {
     return (
@@ -621,7 +652,12 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       </Static>
       {busy ? <Text color={colors.warning}>pensando…</Text> : null}
       {partial === undefined ? null : <Text>{partial}</Text>}
-      {question === undefined ? null : <Text color={colors.warning}>{question}</Text>}
+      {question === undefined ? null : (
+        <Text color={colors.warning}>
+          {question.text}
+          {question.diff === undefined ? null : " · tab ver diff"}
+        </Text>
+      )}
       {toasts.map((toast) => (
         <Text key={toast.id} color={toast.kind === "error" ? colors.error : toast.kind === "warning" ? colors.warning : colors.accent}>
           {toastLine(toast)}

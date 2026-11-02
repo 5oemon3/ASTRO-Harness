@@ -17,7 +17,9 @@ import {
   type ActionClass,
   type PermissionDecision,
   type PermissionMode,
+  type ToolPermissionRequest,
 } from "../src/permissions";
+import { editTool } from "../src/tools/edit";
 import { ToolExecutor } from "../src/tools/executor";
 import { readFileTool } from "../src/tools/read-file";
 import { configureRunCommand, runCommandTool } from "../src/tools/run-command";
@@ -176,6 +178,80 @@ describe("gate no executor (#259)", () => {
 
     expect(ran).toBe(true);
     expect(result.isError).toBeFalsy();
+  });
+
+  test("gate anexa o diff da tool edit (redacted) ao pedido de aprovação (#64 D2)", async () => {
+    const secret = "sk-live-abcdef12345";
+    const diff = `@@ -1 +1 @@\n-const a = 1;\n+const k = "${secret}";\n`;
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm-edit-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    let captured: ToolPermissionRequest | undefined;
+    const executor = new ToolExecutor({
+      tools: [editTool],
+      allow: ["edit"],
+      audit,
+      permissionMode: "ask",
+      approveTool: (request) => {
+        captured = request;
+        return false; // deny: a tool não executa e não precisa de arquivo em disco
+      },
+    });
+    const result = await executor.run({ cwd, run: "r1", agent: "a", env: {} },
+      { id: "c1", name: "edit", arguments: JSON.stringify({ path: "a.ts", diff }) });
+
+    expect(result.isError).toBe(true);
+    expect(captured?.name).toBe("edit");
+    expect(captured?.diff?.path).toBe("a.ts");
+    expect(captured?.diff?.content).toContain("+const k = \"[REDACTED]\";");
+    expect(captured?.diff?.content).not.toContain(secret);
+    // o diff nunca vai para a trilha de auditoria (I-03)
+    expect(JSON.stringify(audit.readAll())).not.toContain(secret);
+  });
+
+  test("pedido de aprovação de tool que não é edit não traz diff (#64 D2)", async () => {
+    const write: Tool = {
+      manifest: { ...manifest, name: "write_probe", permission: "write", sideEffects: "filesystem", class: "edit" },
+      async execute() {
+        return { output: "ok" };
+      },
+    };
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm-nodiff-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    let captured: ToolPermissionRequest | undefined;
+    const executor = new ToolExecutor({
+      tools: [write],
+      allow: ["write_probe"],
+      audit,
+      permissionMode: "ask",
+      approveTool: (request) => {
+        captured = request;
+        return true;
+      },
+    });
+    await executor.run({ cwd, run: "r1", agent: "a", env: {} },
+      { id: "c1", name: "write_probe", arguments: "{}" });
+    expect(captured?.diff).toBeUndefined();
+  });
+
+  test("edit com input que não é objeto não traz anexo e não quebra o gate (#64 D2)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm-edit-nonobj-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    let captured: ToolPermissionRequest | undefined;
+    const executor = new ToolExecutor({
+      tools: [editTool],
+      allow: ["edit"],
+      audit,
+      permissionMode: "ask",
+      approveTool: (request) => {
+        captured = request;
+        return false;
+      },
+    });
+    const result = await executor.run({ cwd, run: "r1", agent: "a", env: {} },
+      { id: "c1", name: "edit", arguments: '"só texto"' });
+    expect(result.isError).toBe(true);
+    expect(captured?.name).toBe("edit");
+    expect(captured?.diff).toBeUndefined();
   });
 
   test("ask sem aprovador falha fechado: bloqueia e audita deny", async () => {

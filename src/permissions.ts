@@ -61,6 +61,11 @@ export interface ToolPermissionRequest {
   name: string;
   action: ActionClass;
   mode: PermissionMode;
+  /**
+   * Anexo estruturado para a UI revisar antes de aprovar (ex.: diff da tool
+   * `edit`, #64). Deve chegar aqui JÁ redacted (I-03) e nunca é auditado.
+   */
+  diff?: { path: string; content: string };
 }
 
 /** Pedido de aprovação sem canal humano (sem TTY/approver): nega e para (I-08/I-19). */

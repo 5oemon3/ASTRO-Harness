@@ -1,6 +1,7 @@
 import type { Auditor } from "../audit";
 import { callId } from "../call-id";
 import { limitToolOutput } from "../output-limit";
+import { redactSecrets } from "../sanitize-external";
 import {
   actionClassOf,
   permissionDecision,
@@ -37,6 +38,19 @@ function safeRunDir(run: string): string {
 
 function failure(message: string): ToolResult {
   return { output: message, isError: true };
+}
+
+/**
+ * Anexo de diff para a UI de aprovação (#64): só a tool `edit`, com `path` e
+ * `diff` string no input. O conteúdo passa por `redactSecrets` antes de sair
+ * do executor (I-03) e o anexo nunca é auditado.
+ */
+function editDiffAnnex(call: ToolCall, input: unknown): { path: string; content: string } | undefined {
+  if (call.name !== "edit") return undefined;
+  if (typeof input !== "object" || input === null) return undefined;
+  const raw: { path?: unknown; diff?: unknown } = input;
+  if (typeof raw.path !== "string" || typeof raw.diff !== "string") return undefined;
+  return { path: redactSecrets(raw.path), content: redactSecrets(raw.diff) };
 }
 
 /** Executa tools com allowlist, teto de escopo (ceiling), timeout e auditoria; erros voltam como resultado de tool. */
@@ -280,7 +294,13 @@ export class ToolExecutor {
       effective = "allow";
     } else if (decision === "ask") {
       try {
-        const approved = await this.approveTool?.({ name: call.name, action, mode: this.mode });
+        const annex = editDiffAnnex(call, input);
+        const approved = await this.approveTool?.({
+          name: call.name,
+          action,
+          mode: this.mode,
+          ...(annex === undefined ? {} : { diff: annex }),
+        });
         // Fail-closed: sem aprovador, `ask` vira deny (#262).
         if (approved === "session") {
           this.permissionGrants.grant(grantKey);
