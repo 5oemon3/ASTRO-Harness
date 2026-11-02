@@ -29,7 +29,7 @@ export const HELP_TEXT = [
   "  /help           esta ajuda",
   "  /model [alvo]   lista (REPL) ou abre o seletor (TUI); com alvo, troca",
   "  /mode [modo]    lista os modos e o ativo; /mode <modo> troca (bypass exige \"confirm\")",
-  "  /config         mostra o resumo da configuração (REPL)",
+  "  /config         tela de configuração (TUI) ou resumo da config (REPL)",
   "  /providers      lista providers (kind, credencial, quota, modelos)",
   "  /provider       lista perfis (projeto, globais, env) e o ativo",
   "  /provider add   cria um perfil (catálogo ou custom)",

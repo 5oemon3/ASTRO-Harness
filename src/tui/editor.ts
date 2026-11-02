@@ -10,6 +10,7 @@ export const COMMANDS: readonly CommandInfo[] = [
   { name: "/help", description: "mostra esta ajuda" },
   { name: "/model", description: "lista ou troca o modelo" },
   { name: "/mode", description: "lista ou troca o modo de permissão (bypass pede confirm)" },
+  { name: "/config", description: "abre a tela de configuração do harness" },
   { name: "/providers", description: "lista os providers configurados" },
   { name: "/provider", description: "gerencia perfis (add/edit/remove/use)" },
   { name: "/session", description: "resumo da sessão atual" },

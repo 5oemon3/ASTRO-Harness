@@ -21,6 +21,8 @@ import { providerHealth } from "./health";
 import { loadTuiConfig, saveTuiConfig, getThemeColors, type Theme, type ThemeColors } from "./theme";
 import { LEADER, runKeybind } from "./keybinds";
 import { ProviderScreen } from "./provider-screen";
+import { ConfigScreen } from "./config-screen";
+import { loadTrustedStore, trustedPath } from "../trust";
 import type { ProfileManager } from "../provider/profile-manager";
 
 export interface TuiAppProps {
@@ -134,6 +136,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
   };
   const [screen, setScreen] = useState<{ mode: "list" | "add" | "edit" | "remove"; target?: string } | undefined>(undefined);
+  const [configOpen, setConfigOpen] = useState(false); // tela `/config` (#273)
   const [modelPicker, setModelPicker] = useState(false);
   const [favorites, setFavorites] = useState<string[]>(initialConfig.favoriteModels ?? []);
   const [recents, setRecents] = useState<string[]>(initialConfig.recentModels ?? []);
@@ -237,6 +240,14 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         setScreen(outcome.openProviders);
         return;
       }
+      if (outcome.openConfig === true) {
+        if (session.configSummary === undefined) {
+          setEntries((current) => [...current, { kind: "error", text: "tela de configuração indisponível nesta sessão" }]);
+          return;
+        }
+        setConfigOpen(true);
+        return;
+      }
       if (outcome.lastFile !== undefined) commandState.current.lastFile = outcome.lastFile ?? undefined;
       const added = [...outcome.entries];
       const modelChanged = (command.kind === "model" && command.model !== undefined)
@@ -288,7 +299,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
   };
 
-  useInput((value, key) => {    if (screen !== undefined || modelPicker) return; const ctrl = key.ctrl === true;
+  useInput((value, key) => {    if (screen !== undefined || modelPicker || configOpen) return; const ctrl = key.ctrl === true;
     if (ctrl && (value === "c" || value === "d")) {
       approvals?.answer("");
       finish();
@@ -396,6 +407,32 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
           } catch (error) {
             setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
           }
+        }}
+      />
+    );
+  }
+
+  if (configOpen) {
+    const summary = session.configSummary?.();
+    if (summary === undefined) {
+      return <Text color={colors.error}>tela de configuração indisponível nesta sessão</Text>;
+    }
+    let trusted: readonly string[] = [];
+    try {
+      trusted = loadTrustedStore(trustedPath()).folders;
+    } catch {
+      trusted = []; // store de trust inválido não impede ver a config
+    }
+    return (
+      <ConfigScreen
+        colors={colors}
+        summary={summary}
+        trustedFolders={trusted}
+        onClose={() => setConfigOpen(false)}
+        onSaveMode={(mode) => {
+          if (session.savePermissionMode === undefined) throw new Error("esta sessão não aceita trocar o modo");
+          session.savePermissionMode(mode); // persiste na config + troca em runtime (#273)
+          setEntries((current) => [...current, { kind: "info", text: `modo: ${mode} (salvo na config)` }]);
         }}
       />
     );

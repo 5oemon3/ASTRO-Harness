@@ -266,3 +266,12 @@ describe("/mode na TUI (#271)", () => {
     expect(nope.entries[0]!.text).toContain("não aceita trocar");
   });
 });
+
+describe("/config na TUI (#273)", () => {
+  test("/config pede para abrir a tela de configuração, sem texto (#273)", async () => {
+    const session = new FakeSession();
+    const outcome = await runCommand({ kind: "config" }, session, {});
+    expect(outcome.openConfig).toBe(true);
+    expect(outcome.entries).toEqual([]);
+  });
+});

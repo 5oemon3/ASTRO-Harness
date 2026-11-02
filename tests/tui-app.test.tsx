@@ -7,6 +7,7 @@ import { TuiApp } from "../src/tui/app";
 import { SessionStore } from "../src/chat/store";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
+import type { ConfigSummary } from "../src/chat/config-summary";
 import { BudgetExceededError } from "../src/budget";
 import type { PermissionMode } from "../src/permissions";
 import { createApprovalBridge } from "../src/tui/approvals";
@@ -559,6 +560,70 @@ test("mostra deltas e substitui pela resposta final", async () => {
     await waitFor(() => instance.lastFrame()?.includes("parcial") === true);
     await waitFor(() => instance.lastFrame()?.includes("eco:olá") === true);
     expect(instance.lastFrame()).not.toContain("parcial");
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("/config abre a tela de configuração e trocar o modo atualiza o footer (#273)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-config-"));
+  class ConfigSession extends FakeSession {
+    mode: PermissionMode = "ask";
+    readonly saved: PermissionMode[] = [];
+    permissionMode(): PermissionMode {
+      return this.mode;
+    }
+    configSummary(): ConfigSummary {
+      return {
+        configPath: join(cwd, "astro.config.json"),
+        maxTurns: "12",
+        permissionMode: this.mode,
+        costs: [{ ref: "p/m1", inputPerM: 1, outputPerM: 2 }],
+        budget: "sem budget",
+      };
+    }
+    savePermissionMode(mode: PermissionMode): PermissionMode {
+      this.saved.push(mode);
+      this.mode = mode;
+      return this.mode;
+    }
+  }
+  const session = new ConfigSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "modo: ask"));
+    instance.stdin.write("/config");
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes("Configuração") === true);
+    // a tela nova é montada por update: o useEffect que assina o input roda depois do
+    // frame — assentamos antes da primeira tecla para não perdê-la
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(instance.lastFrame()).toContain("run.maxTurns: 12");
+    expect(instance.lastFrame()).toContain("permissions.mode: ask");
+    instance.stdin.write("m"); // abre o seletor de modo dentro da tela
+    await waitFor(() => instance.lastFrame()?.includes("↑/↓") === true);
+    instance.stdin.write("\u001b[A"); // ask -> allow-edits
+    await waitFor(() => instance.lastFrame()?.includes("→ allow-edits") === true);
+    instance.stdin.write("\r"); // aplica
+    await waitFor(() => session.saved.length === 1);
+    expect(session.saved).toEqual(["allow-edits"]);
+    await waitFor(() => instance.lastFrame()?.includes("permissions.mode: allow-edits") === true);
+    instance.stdin.write("\u001b"); // esc fecha a tela
+    await waitFor(() => (instance.lastFrame() ?? "").includes("Configuração") === false);
+    await waitFor(() => frameHas(instance, "modo: allow-edits")); // footer reflete o modo novo
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("/config sem configSummary na sessão mostra erro e não abre tela (#273)", async () => {
+  const session = new FakeSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-config-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    instance.stdin.write("/config");
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes("configuração indisponível") === true);
   } finally {
     instance.unmount();
   }
