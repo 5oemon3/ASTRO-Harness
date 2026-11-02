@@ -17,7 +17,7 @@ import type { ChatMessage } from "../provider/types";
 import type { FetchLike } from "../provider/types";
 import { Registry, type ModelEntry } from "../registry";
 import { Ledger } from "../ledger";
-import { resolvePermissionMode, type PermissionMode } from "../permissions";
+import { isPermissionMode, resolvePermissionMode, type PermissionMode } from "../permissions";
 import { readAgentsMd } from "../spawn";
 import { forceCompaction, recordCompactionSuccess } from "../compaction/breaker";
 import { assertWithinQuota } from "../quota";
@@ -135,6 +135,7 @@ export class AgentSession {
   readonly #trustAsk: TrustAsk | undefined;
   readonly #fetchLike: FetchLike | undefined;
   #modelRef: string;
+  #permissionMode: PermissionMode;
   #messages: ChatMessage[];
   #turns = 0;
   #steps = 0;
@@ -175,6 +176,9 @@ export class AgentSession {
     this.#trustAsk = opts.trustAsk;
     this.#fetchLike = opts.fetchLike;
     this.#modelRef = opts.model ?? this.#config.agent.model;
+    // Modo inicial idêntico ao do run (app.ts lê só process.env, nunca o env injetado):
+    // process.env.ASTRO_PERMISSION_MODE > config > ask (D-24, #270); /mode troca depois (#271).
+    this.#permissionMode = resolvePermissionMode(process.env.ASTRO_PERMISSION_MODE, this.#config.permissions.mode);
     const usedProvider = this.#registry.require(this.#modelRef).provider; // falha cedo com modelo inexistente
     const identity = providerIdentityFor(effective, usedProvider);
     this.#providerSource = identity.providerSource;
@@ -202,13 +206,31 @@ export class AgentSession {
   }
 
   /**
-   * Modo de permissão ativo — exatamente o mesmo que o run usa (app.ts lê só
-   * `process.env.ASTRO_PERMISSION_MODE`, nunca o `env` injetado na sessão):
-   * `process.env.ASTRO_PERMISSION_MODE` > config > ask (D-24). A TUI mostra no
-   * footer/banner (#270); divergir aqui mostraria um modo que não é o do run.
+   * Modo de permissão ativo da sessão. Inicializado como o run (app.ts lê só
+   * `process.env.ASTRO_PERMISSION_MODE`, nunca o `env` injetado): process.env >
+   * config > ask (D-24). A TUI mostra no footer/banner (#270); `setPermissionMode`
+   * troca em runtime e o próximo `send` usa o modo novo (#271) — o indicador e o
+   * run nunca divergem.
    */
   permissionMode(): PermissionMode {
-    return resolvePermissionMode(process.env.ASTRO_PERMISSION_MODE, this.#config.permissions.mode);
+    return this.#permissionMode;
+  }
+
+  /**
+   * Troca o modo de permissão em runtime (`/mode`, #271): valida, audita
+   * `mode.changed` (só quando muda) e o próximo `send` passa o modo ao run.
+   */
+  setPermissionMode(mode: PermissionMode): PermissionMode {
+    if (!isPermissionMode(mode)) {
+      throw new Error(`modo inválido: ${String(mode)} (use bypass, allow-edits ou ask)`);
+    }
+    if (this.#closed || this.#fatal) throw new Error("sessão de chat encerrada");
+    if (mode !== this.#permissionMode) {
+      const previous = this.#permissionMode;
+      this.#permissionMode = mode;
+      this.#append("mode.changed", { previous, mode });
+    }
+    return this.#permissionMode;
   }
 
   get providerSource(): ProviderSource {
@@ -480,6 +502,7 @@ export class AgentSession {
           ...(signal === undefined ? {} : { signal }),
           runId: this.id,
           model: this.#modelRef,
+          permissionMode: this.#permissionMode, // /mode em runtime (#271) vale no próximo turno
           suppressRunEvents: true,
           ...(this.#allowMissing ? { allowMissingConfig: true } : {}),
           history,

@@ -1,4 +1,6 @@
 /** Comandos de barra do REPL do chat (T1): parser puro, sem I/O. */
+import { isPermissionMode, PERMISSION_MODES, type PermissionMode } from "../permissions";
+
 export type ProviderAction = "list" | "add" | "edit" | "remove" | "use";
 
 export type ReplCommand =
@@ -8,6 +10,7 @@ export type ReplCommand =
   | { kind: "exit" }
   | { kind: "clear" }
   | { kind: "model"; model?: string }
+  | { kind: "mode"; mode?: string; confirm?: boolean }
   | { kind: "providers" }
   | { kind: "provider"; action: ProviderAction; target?: string }
   | { kind: "session" }
@@ -24,6 +27,7 @@ export const HELP_TEXT = [
   "Comandos:",
   "  /help           esta ajuda",
   "  /model [alvo]   lista (REPL) ou abre o seletor (TUI); com alvo, troca",
+  "  /mode [modo]    lista os modos e o ativo; /mode <modo> troca (bypass exige \"confirm\")",
   "  /providers      lista providers (kind, credencial, quota, modelos)",
   "  /provider       lista perfis (projeto, globais, env) e o ativo",
   "  /provider add   cria um perfil (catálogo ou custom)",
@@ -46,9 +50,40 @@ export const HELP_TEXT = [
 
 /** Nomes de comando (sem a barra), com aliases, na ordem do /help. */
 export const COMMAND_NAMES = [
-  "help", "model", "providers", "provider", "session", "details", "compact", "summarize",
+  "help", "model", "mode", "providers", "provider", "session", "details", "compact", "summarize",
   "save", "sessions", "resume", "export", "init", "clear", "new", "exit", "quit", "q",
 ] as const;
+
+/** O que o comando `/mode` manda fazer (puro; compartilhado por REPL e TUI, #271). */
+export type ModeCommandAction =
+  | { kind: "list"; current: PermissionMode }
+  | { kind: "switch"; mode: PermissionMode }
+  | { kind: "invalid"; mode: string }
+  | { kind: "needs-confirm" }
+  | { kind: "unsupported" };
+
+/**
+ * Decide a ação do `/mode` sem I/O (#271): listar, trocar, recusar modo inválido,
+ * exigir `confirm` para entrar em `bypass` (perigoso) ou avisar que a sessão não
+ * aceita troca (`canSet` false).
+ */
+export function resolveModeCommand(
+  command: { mode?: string; confirm?: boolean },
+  current: PermissionMode,
+  canSet: boolean,
+): ModeCommandAction {
+  if (command.mode === undefined) return { kind: "list", current };
+  if (!isPermissionMode(command.mode)) return { kind: "invalid", mode: command.mode };
+  if (command.mode === "bypass" && command.confirm !== true) return { kind: "needs-confirm" };
+  if (!canSet) return { kind: "unsupported" };
+  return { kind: "switch", mode: command.mode };
+}
+
+/** Texto da listagem de modos com o ativo marcado (`→`). */
+export function modeListText(current: PermissionMode): string {
+  const lines = PERMISSION_MODES.map((mode) => `${mode === current ? "→" : " "} ${mode}`);
+  return `${lines.join("\n")}\nativo: ${current}`;
+}
 
 function editDistance(a: string, b: string): number {
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -125,6 +160,14 @@ export function parseCommand(line: string): ReplCommand {
       return { kind: "clear" };
     case "model":
       return { kind: "model", ...(arg === "" ? {} : { model: arg }) };
+    case "mode": {
+      const [first, second] = arg.split(/\s+/).filter((part) => part !== "");
+      return {
+        kind: "mode",
+        ...(first === undefined ? {} : { mode: first.toLowerCase() }),
+        ...(second !== undefined && second.toLowerCase() === "confirm" ? { confirm: true } : {}),
+      };
+    }
     case "providers":
       return { kind: "providers" };
     case "provider":

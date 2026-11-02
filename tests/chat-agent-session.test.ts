@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { AgentSession } from "../src/chat/agent-session";
+import type { PermissionMode } from "../src/permissions";
 import type { ChatMessage } from "../src/provider/types";
 import { Ledger } from "../src/ledger";
 
@@ -383,6 +384,38 @@ describe("AgentSession.permissionMode (#270)", () => {
     } finally {
       if (savedEnv === undefined) delete process.env.ASTRO_PERMISSION_MODE;
       else process.env.ASTRO_PERMISSION_MODE = savedEnv;
+      stop();
+    }
+  });
+});
+
+describe("AgentSession.setPermissionMode (#271)", () => {
+  test("troca o modo em runtime, audita mode.changed e o próximo run usa o modo novo", async () => {
+    const { cwd, session, stop } = setup();
+    const saved = process.env.ASTRO_PERMISSION_MODE;
+    try {
+      delete process.env.ASTRO_PERMISSION_MODE;
+      const chat = session();
+      expect(chat.permissionMode()).toBe("ask");
+      await chat.send("antes");
+      expect(chat.setPermissionMode("bypass")).toBe("bypass");
+      expect(chat.permissionMode()).toBe("bypass");
+      expect(() => chat.setPermissionMode("yolo" as PermissionMode)).toThrow(/modo inválido/);
+      await chat.send("depois");
+      chat.setPermissionMode("bypass"); // mesmo modo: não audita de novo
+      const events = new Auditor(join(cwd, ".astro", "audit.jsonl")).readAll();
+      const modes = events
+        .filter((e) => e.tipo === "mode.changed")
+        .map((e) => e.payload as { mode?: string; previous?: string });
+      // runTask audita o modo de cada run (app.ts): ask no 1º turno, bypass no 2º
+      expect(modes.filter((p) => p.previous === undefined).map((p) => p.mode)).toEqual(["ask", "bypass"]);
+      // a sessão audita só a troca explícita
+      expect(modes.filter((p) => p.previous !== undefined)).toEqual([{ previous: "ask", mode: "bypass" }]);
+      chat.close();
+      expect(() => chat.setPermissionMode("ask")).toThrow(/encerrada/);
+    } finally {
+      if (saved === undefined) delete process.env.ASTRO_PERMISSION_MODE;
+      else process.env.ASTRO_PERMISSION_MODE = saved;
       stop();
     }
   });

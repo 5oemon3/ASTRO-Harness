@@ -9,6 +9,7 @@ export interface CommandInfo {
 export const COMMANDS: readonly CommandInfo[] = [
   { name: "/help", description: "mostra esta ajuda" },
   { name: "/model", description: "lista ou troca o modelo" },
+  { name: "/mode", description: "lista ou troca o modo de permissão (bypass pede confirm)" },
   { name: "/providers", description: "lista os providers configurados" },
   { name: "/provider", description: "gerencia perfis (add/edit/remove/use)" },
   { name: "/session", description: "resumo da sessão atual" },

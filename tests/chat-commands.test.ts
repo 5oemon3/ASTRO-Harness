@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { HELP_TEXT, parseCommand, suggestCommand, unknownCommandMessage } from "../src/chat/commands";
+import {
+  COMMAND_NAMES, HELP_TEXT, modeListText, parseCommand, resolveModeCommand, suggestCommand, unknownCommandMessage,
+} from "../src/chat/commands";
 import { detailsLines, formatUptime } from "../src/chat/repl";
 import type { SessionSnapshot } from "../src/chat/agent-session";
 
@@ -17,6 +19,24 @@ describe("comandos do chat (T1, #62)", () => {
     expect(parseCommand("/model")).toEqual({ kind: "model" });
     expect(parseCommand("/model p/m2")).toEqual({ kind: "model", model: "p/m2" });
     expect(parseCommand("/nope a")).toEqual({ kind: "unknown", raw: "nope" });
+  });
+  test("/mode: parser, ajuda, sugestão e resolveModeCommand (#271)", () => {
+    expect(parseCommand("/mode")).toEqual({ kind: "mode" });
+    expect(parseCommand("/mode ask")).toEqual({ kind: "mode", mode: "ask" });
+    expect(parseCommand("/mode BYPASS")).toEqual({ kind: "mode", mode: "bypass" });
+    expect(parseCommand("/mode bypass confirm")).toEqual({ kind: "mode", mode: "bypass", confirm: true });
+    expect(parseCommand("/mode ask confirm")).toEqual({ kind: "mode", mode: "ask", confirm: true });
+    expect(COMMAND_NAMES).toContain("mode");
+    expect(HELP_TEXT).toContain("/mode");
+    expect(suggestCommand("mod")).toBe("/mode");
+    // bypass sem confirm nunca troca; com confirm troca
+    expect(resolveModeCommand({ mode: "bypass" }, "ask", true)).toEqual({ kind: "needs-confirm" });
+    expect(resolveModeCommand({ mode: "bypass", confirm: true }, "ask", true)).toEqual({ kind: "switch", mode: "bypass" });
+    expect(resolveModeCommand({ mode: "allow-edits" }, "ask", true)).toEqual({ kind: "switch", mode: "allow-edits" });
+    expect(resolveModeCommand({ mode: "yolo" }, "ask", true)).toEqual({ kind: "invalid", mode: "yolo" });
+    expect(resolveModeCommand({}, "bypass", true)).toEqual({ kind: "list", current: "bypass" });
+    expect(resolveModeCommand({ mode: "ask" }, "ask", false)).toEqual({ kind: "unsupported" });
+    expect(modeListText("bypass")).toBe("→ bypass\n  allow-edits\n  ask\nativo: bypass");
   });
   test("/providers e /provider", () => {
     expect(parseCommand("/providers")).toEqual({ kind: "providers" });
@@ -106,10 +126,10 @@ describe("comandos do chat (T1, #62)", () => {
   });
 
   test("sugestão de comando próximo por distância de edição (#275)", () => {
-    expect(suggestCommand("mod")).toBe("/model");
+    expect(suggestCommand("mod")).toBe("/mode"); // "mod" está a distância 1 de "mode" e 2 de "model" (#271)
     expect(suggestCommand("hepl")).toBe("/help");
     expect(suggestCommand("xyzzy")).toBeUndefined();
-    expect(unknownCommandMessage("mod")).toBe("comando desconhecido: /mod — você quis dizer /model?");
+    expect(unknownCommandMessage("mod")).toBe("comando desconhecido: /mod — você quis dizer /mode?");
     expect(unknownCommandMessage("xyzzy")).toBe("comando desconhecido: /xyzzy (veja /help)");
   });
 });

@@ -1,6 +1,7 @@
 /** Comandos de barra compartilhados pelo REPL e pela TUI: puro, sem React. */
-import { HELP_TEXT, unknownCommandMessage, type ReplCommand } from "../chat/commands";
+import { HELP_TEXT, modeListText, resolveModeCommand, unknownCommandMessage, type ReplCommand } from "../chat/commands";
 import { detailsLines, providerLine, type ChatSession } from "../chat/repl";
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from "../permissions";
 import { sessionSummaryLine, type SessionStore, type SessionSummary } from "../chat/store";
 import { redactSecrets } from "../sanitize-external";
 import { exportSession } from "../chat/export";
@@ -57,6 +58,27 @@ export async function runCommand(
       }
       try {
         return { entries: [{ kind: "info", text: `modelo: ${session.setModel(command.model)}` }] };
+      } catch (error) {
+        return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }] };
+      }
+    }
+    case "mode": {
+      const current = session.permissionMode?.() ?? DEFAULT_PERMISSION_MODE;
+      const action = resolveModeCommand(command, current, session.setPermissionMode !== undefined);
+      if (action.kind === "list") {
+        return { entries: [{ kind: "info", text: modeListText(action.current) }] };
+      }
+      if (action.kind === "invalid") {
+        return { entries: [{ kind: "error", text: `modo inválido: ${action.mode} (use ${PERMISSION_MODES.join(", ")})` }] };
+      }
+      if (action.kind === "needs-confirm") {
+        return { entries: [{ kind: "error", text: "modo bypass não ativado: tools executariam sem aprovação — confirme com /mode bypass confirm" }] };
+      }
+      if (action.kind === "unsupported" || session.setPermissionMode === undefined) {
+        return { entries: [{ kind: "error", text: "esta sessão não aceita trocar o modo de permissão" }] };
+      }
+      try {
+        return { entries: [{ kind: "info", text: `modo: ${session.setPermissionMode(action.mode)}` }] };
       } catch (error) {
         return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }] };
       }

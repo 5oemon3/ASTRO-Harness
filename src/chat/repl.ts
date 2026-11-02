@@ -1,7 +1,7 @@
 /** REPL mínimo do chat (T1): I/O injetável e comandos; a UI só fala com a sessão. */
-import { HELP_TEXT, parseCommand, unknownCommandMessage } from "./commands";
+import { HELP_TEXT, modeListText, parseCommand, resolveModeCommand, unknownCommandMessage } from "./commands";
 import { runProviderWizard } from "./provider-wizard";
-import type { PermissionMode } from "../permissions";
+import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "../permissions";
 import type { ProfileManager, ProfileView } from "../provider/profile-manager";
 import type { ModelInfo, ProviderInfo, SessionSnapshot, TurnResult } from "./agent-session";
 import type { HealthCheck, HealthReport } from "../health";
@@ -36,6 +36,8 @@ export interface ChatSession {
   providerName?(): string;
   /** Modo de permissão ativo da sessão (footer/banner da TUI, #270); ausente a TUI cai no default. */
   permissionMode?(): PermissionMode;
+  /** Troca o modo de permissão em runtime via `/mode` (#271); devolve o modo ativo. */
+  setPermissionMode?(mode: PermissionMode): PermissionMode;
   /** Health agregado, sob demanda (status bar da TUI). */
   health?(): Promise<HealthReport>;
   /** Teste real mínimo de um provider, sob demanda. */
@@ -352,6 +354,26 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
           io.write(`modelo: ${session.setModel(command.model)}`);
         } catch (error) {
           io.write(`erro: ${messageOf(error)}`);
+        }
+        continue;
+      }
+      if (command.kind === "mode") {
+        const current = session.permissionMode?.() ?? DEFAULT_PERMISSION_MODE;
+        const action = resolveModeCommand(command, current, session.setPermissionMode !== undefined);
+        if (action.kind === "list") {
+          io.write(modeListText(action.current));
+        } else if (action.kind === "invalid") {
+          io.write(`modo inválido: ${action.mode} (use ${PERMISSION_MODES.join(", ")})`);
+        } else if (action.kind === "needs-confirm") {
+          io.write("modo bypass não ativado: tools executariam sem aprovação — confirme com /mode bypass confirm");
+        } else if (action.kind === "unsupported") {
+          io.write("esta sessão não aceita trocar o modo de permissão");
+        } else {
+          try {
+            io.write(`modo: ${session.setPermissionMode!(action.mode)}`);
+          } catch (error) {
+            io.write(`erro: ${messageOf(error)}`);
+          }
         }
         continue;
       }

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
+import type { PermissionMode } from "../src/permissions";
 import { BudgetExceededError } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
 import { AgentSession } from "../src/chat/agent-session";
@@ -96,7 +97,7 @@ describe("REPL do chat (T1, #62)", () => {
     expect(io.outputs).toContain("provider: p/m1");
     expect(io.outputs.some((line) => line.includes("/exit"))).toBe(true);
     expect(io.outputs.some((line) => line.includes("comando desconhecido: /nope"))).toBe(true);
-    expect(io.outputs.some((line) => line.includes("comando desconhecido: /mod") && line.includes("/model"))).toBe(true);
+    expect(io.outputs.some((line) => line.includes("comando desconhecido: /mod") && line.includes("/mode"))).toBe(true);
 
 
 
@@ -130,6 +131,28 @@ describe("REPL do chat (T1, #62)", () => {
     const session = new FakeSession();
     await runRepl(session, new ScriptedIO([]));
     expect(session.closed).toBe(1);
+  });
+
+  test("/mode lista, troca e bypass exige confirm (#271)", async () => {
+    class ModeSession extends FakeSession {
+      mode: PermissionMode = "ask";
+      permissionMode(): PermissionMode {
+        return this.mode;
+      }
+      setPermissionMode(mode: PermissionMode): PermissionMode {
+        this.mode = mode;
+        return this.mode;
+      }
+    }
+    const session = new ModeSession();
+    const io = new ScriptedIO(["/mode", "/mode allow-edits", "/mode bypass", "/mode bypass confirm", "/exit"]);
+    await runRepl(session, io);
+    const text = io.outputs.join("\n");
+    expect(text).toContain("ativo: ask");
+    expect(text).toContain("modo: allow-edits");
+    expect(text).toContain("/mode bypass confirm"); // aviso sem trocar
+    expect(text).toContain("modo: bypass");
+    expect(session.mode).toBe("bypass");
   });
 
   test("/details mostra id, provider, modelo, uptime, tokens, custo e origem", async () => {
