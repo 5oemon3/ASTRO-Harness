@@ -6,7 +6,7 @@ import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import type { ConfigSummary } from "../src/chat/config-summary";
 import type { PermissionMode } from "../src/permissions";
-import { BudgetExceededError } from "../src/budget";
+import { BudgetExceededError, type BudgetStatus } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
 import { AgentSession } from "../src/chat/agent-session";
 
@@ -291,5 +291,50 @@ describe("REPL do chat (T1, #62)", () => {
     await runRepl(session, io);
     expect(io.outputs.join("\n")).toContain("config indisponível nesta sessão");
     expect(session.closed).toBe(1);
+  });
+
+  test("/usage imprime uso da sessão e budget quando a sessão expõe budgetStatus (#63)", async () => {
+    class UsageSession extends FakeSession {
+      budgetStatus(): BudgetStatus {
+        return {
+          scope: "day", limitUsd: 5, spentUsd: 1, ratio: 0.2, warnAt: 0.8,
+          warning: false, exhausted: false, ceilingHit: false,
+          remainingUsd: 4, reservedUsd: 0, estimate: "US$ 1.000000",
+        };
+      }
+    }
+    const session = new UsageSession();
+    const io = new ScriptedIO(["/usage", "/exit"]);
+    await runRepl(session, io);
+    const text = io.outputs.join("\n");
+    expect(text).toContain("uso da sessão: 0 turno(s) · in 10 / out 5 tokens · custo US$ 0.001000");
+    expect(text).toContain("budget day: gasto US$ 1.000000 / limite US$ 5.000000 (20%) · restante US$ 4.000000 · aviso em 80%");
+    expect(session.closed).toBe(1);
+    expect(session.sent).toEqual([]); // /usage nunca cai no send
+  });
+
+  test("/usage sem budgetStatus imprime só a linha da sessão (#63)", async () => {
+    const session = new FakeSession();
+    const io = new ScriptedIO(["/usage", "/exit"]);
+    await runRepl(session, io);
+    const text = io.outputs.join("\n");
+    expect(text).toContain("uso da sessão: 0 turno(s) · in 10 / out 5 tokens · custo US$ 0.001000");
+    expect(text).not.toContain("budget day:");
+    expect(session.sent).toEqual([]);
+  });
+
+  test("/usage com budgetStatus que joga imprime erro redacted e não derruba o REPL (#63)", async () => {
+    class BrokenBudget extends FakeSession {
+      budgetStatus(): BudgetStatus {
+        throw new Error('ledger em "/tmp/x/.astro/ledger.jsonl": linha 3 ilegível');
+      }
+    }
+    const session = new BrokenBudget();
+    const io = new ScriptedIO(["/usage", "/exit"]);
+    await runRepl(session, io); // não deve rejeitar
+    const text = io.outputs.join("\n");
+    expect(text).toContain("erro: ledger em \"/tmp/x/.astro/ledger.jsonl\": linha 3 ilegível");
+    expect(session.closed).toBe(1); // /exit depois do erro ainda funciona
+    expect(session.sent).toEqual([]);
   });
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot } from "../src/chat/agent-session";
 import type { PermissionMode } from "../src/permissions";
+import type { BudgetStatus } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
 import { runCommand } from "../src/tui/commands";
 
@@ -273,5 +274,32 @@ describe("/config na TUI (#273)", () => {
     const outcome = await runCommand({ kind: "config" }, session, {});
     expect(outcome.openConfig).toBe(true);
     expect(outcome.entries).toEqual([]);
+  });
+});
+
+describe("/usage na TUI (#63)", () => {
+  class UsageSession extends FakeSession {
+    budgetStatus(): BudgetStatus {
+      return {
+        scope: "day", limitUsd: 5, spentUsd: 1, ratio: 0.2, warnAt: 0.8,
+        warning: false, exhausted: false, ceilingHit: false,
+        remainingUsd: 4, reservedUsd: 0, estimate: "US$ 1.000000",
+      };
+    }
+  }
+
+  test("imprime uso da sessão + budget como entrada info", async () => {
+    const session = new UsageSession();
+    const out = await runCommand({ kind: "usage" }, session, {});
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({ kind: "info" });
+    expect(out.entries[0]!.text).toContain("uso da sessão: 2 turno(s) · in 20 / out 10 tokens · custo US$ 0.500000");
+    expect(out.entries[0]!.text).toContain("budget day: gasto US$ 1.000000 / limite US$ 5.000000 (20%) · restante US$ 4.000000 · aviso em 80%");
+  });
+
+  test("sem budgetStatus imprime só a linha da sessão", async () => {
+    const session = new FakeSession();
+    const out = await runCommand({ kind: "usage" }, session, {});
+    expect(out.entries[0]!.text).toBe("uso da sessão: 2 turno(s) · in 20 / out 10 tokens · custo US$ 0.500000");
   });
 });

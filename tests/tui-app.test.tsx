@@ -8,7 +8,7 @@ import { SessionStore } from "../src/chat/store";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import type { ConfigSummary } from "../src/chat/config-summary";
-import { BudgetExceededError } from "../src/budget";
+import { BudgetExceededError, type BudgetStatus } from "../src/budget";
 import type { PermissionMode } from "../src/permissions";
 import { createApprovalBridge } from "../src/tui/approvals";
 
@@ -624,6 +624,56 @@ test("/config sem configSummary na sessão mostra erro e não abre tela (#273)",
     instance.stdin.write("/config");
     instance.stdin.write("\r");
     await waitFor(() => instance.lastFrame()?.includes("configuração indisponível") === true);
+  } finally {
+    instance.unmount();
+  }
+});
+
+class BudgetSession extends FakeSession {
+  budgetStatus(): BudgetStatus {
+    return {
+      scope: "day", limitUsd: 5, spentUsd: 1, ratio: 0.2, warnAt: 0.8,
+      warning: false, exhausted: false, ceilingHit: false,
+      remainingUsd: 4, reservedUsd: 0, estimate: "US$ 1.000000",
+    };
+  }
+}
+
+test("footer mostra segmento de budget quando a sessão expõe budgetStatus (#63)", async () => {
+  const session = new BudgetSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-budget-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "budget: 20% · US$ 1.000000/US$ 5.000000"));
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("footer sem budgetStatus não mostra segmento de budget (#63)", async () => {
+  const session = new FakeSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-nobudget-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    expect(frameHas(instance, "budget:")).toBe(false);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("/usage na TUI imprime uso da sessão e budget no painel (#63)", async () => {
+  const session = new BudgetSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-usage-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/usage");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "uso da sessão:"));
+    const frame = (instance.lastFrame() ?? "").replace(/\s+/g, " ");
+    expect(frame).toContain("uso da sessão: 0 turno(s) · in 0 / out 0 tokens · custo US$ 0.001000");
+    expect(frame).toContain("budget day: gasto US$ 1.000000 / limite US$ 5.000000 (20%) · restante US$ 4.000000 · aviso em 80%");
   } finally {
     instance.unmount();
   }

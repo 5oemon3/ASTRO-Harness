@@ -14,6 +14,8 @@ import { exportSession } from "./export";
 import { initAgents } from "./init";
 import { isFatalSessionError } from "./session-errors";
 import { redactSecrets } from "../sanitize-external";
+import { usageLines } from "./usage";
+import type { BudgetStatus } from "../budget";
 
 export interface ReplIO {
   read(prompt: string): Promise<string | null>;
@@ -44,6 +46,8 @@ export interface ChatSession {
   configSummary?(): ConfigSummary;
   /** Persiste `permissions.mode` no arquivo de config e aplica na sessão (#273). */
   savePermissionMode?(mode: PermissionMode): PermissionMode;
+  /** Status do budget derivado do ledger (`/usage`, #63); ausente sem budget na config. */
+  budgetStatus?(): BudgetStatus | undefined;
   /** Health agregado, sob demanda (status bar da TUI). */
   health?(): Promise<HealthReport>;
   /** Teste real mínimo de um provider, sob demanda. */
@@ -395,6 +399,15 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
             io.write(`erro: ${messageOf(error)}`); // store de trust inválido não derruba o /config
           }
           io.write(configLines(summary, trusted).join("\n"));
+        }
+        continue;
+      }
+      if (command.kind === "usage") {
+        try {
+          io.write(usageLines(session.snapshot(), session.budgetStatus?.()).join("\n"));
+        } catch (error) {
+          // ledger corrompido não derruba o REPL: imprime erro redacted e segue
+          io.write(paint(`erro: ${messageOf(error)}`, RED, style));
         }
         continue;
       }

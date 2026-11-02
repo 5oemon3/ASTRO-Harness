@@ -6,6 +6,7 @@ import { sessionSummaryLine, type SessionStore, type SessionSummary } from "../c
 import { redactSecrets } from "../sanitize-external";
 import { exportSession } from "../chat/export";
 import { initAgents } from "../chat/init";
+import { usageLines } from "../chat/usage";
 
 export type EntryKind = "user" | "assistant" | "info" | "error";
 
@@ -87,6 +88,13 @@ export async function runCommand(
     }
     case "config":
       return { entries: [], openConfig: true };
+    case "usage": {
+      try {
+        return { entries: [{ kind: "info", text: usageLines(session.snapshot(), session.budgetStatus?.()).join("\n") }] };
+      } catch (error) {
+        return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }] };
+      }
+    }
     case "providers":
       return { entries: [], openProviders: { mode: "list" } };
     case "provider": {

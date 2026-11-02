@@ -138,4 +138,14 @@ describe("comandos do chat (T1, #62)", () => {
     expect(unknownCommandMessage("mod")).toBe("comando desconhecido: /mod — você quis dizer /mode?");
     expect(unknownCommandMessage("xyzzy")).toBe("comando desconhecido: /xyzzy (veja /help)");
   });
+
+  test("/usage é reconhecido e entra na ajuda e nos nomes (#63)", () => {
+    expect(parseCommand("/usage")).toEqual({ kind: "usage" });
+    expect(parseCommand("/usage extra")).toEqual({ kind: "usage" });
+    expect(COMMAND_NAMES).toContain("usage");
+    expect(HELP_TEXT).toContain("/usage");
+    // não quebra sugestões existentes
+    expect(suggestCommand("mod")).toBe("/mode");
+    expect(suggestCommand("xyzzy")).toBeUndefined();
+  });
 });

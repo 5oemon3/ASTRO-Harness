@@ -22,6 +22,7 @@ export type ReplCommand =
   | { kind: "resume"; ref?: string }
   | { kind: "export"; path?: string }
   | { kind: "init" }
+  | { kind: "usage" }
   | { kind: "unknown"; raw: string };
 
 export const HELP_TEXT = [
@@ -46,6 +47,7 @@ export const HELP_TEXT = [
   "  /save           grava a sessão sanitizada e mostra o caminho",
   "  /export [arquivo]  exporta a conversa em Markdown (default .astro/exports/)",
   "  /init           cria AGENTS.md no cwd se ainda não existir",
+  "  /usage          uso da sessão (turnos, tokens, custo) e budget, se houver",
   "  /clear | /new   limpa o histórico (mantém o system)",
   "  /exit | /quit | /q  encerra a sessão",
 ].join("\n");
@@ -53,7 +55,7 @@ export const HELP_TEXT = [
 /** Nomes de comando (sem a barra), com aliases, na ordem do /help. */
 export const COMMAND_NAMES = [
   "help", "model", "mode", "config", "providers", "provider", "session", "details", "compact", "summarize",
-  "save", "sessions", "resume", "export", "init", "clear", "new", "exit", "quit", "q",
+  "save", "sessions", "resume", "export", "init", "usage", "clear", "new", "exit", "quit", "q",
 ] as const;
 
 /** O que o comando `/mode` manda fazer (puro; compartilhado por REPL e TUI, #271). */
@@ -195,6 +197,8 @@ export function parseCommand(line: string): ReplCommand {
       return { kind: "export", ...(arg === "" ? {} : { path: arg }) };
     case "init":
       return { kind: "init" };
+    case "usage":
+      return { kind: "usage" };
     default:
       return { kind: "unknown", raw: name ?? "" };
   }

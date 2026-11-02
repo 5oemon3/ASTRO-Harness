@@ -6,7 +6,7 @@ import { runTask, createProvider, shortTaskHash, type RunReport } from "../app";
 import { throwIfAborted } from "../abort";
 import type { SwapApprover } from "../approval";
 import { Auditor } from "../audit";
-import type { BudgetDecider } from "../budget";
+import { budgetStatus, type BudgetDecider, type BudgetStatus } from "../budget";
 import type { ToolApprover } from "../tools/executor";
 import type { TrustAsk } from "../trust";
 import { updateConfigPermissionsMode } from "../config";
@@ -254,6 +254,11 @@ export class AgentSession {
     updateConfigPermissionsMode(this.#configPath, mode);
     this.#config = { ...this.#config, permissions: { mode } };
     return this.setPermissionMode(mode);
+  }
+
+  /** Status do budget para `/usage` (#63): `undefined` sem budget na config; senão deriva do ledger. */
+  budgetStatus(): BudgetStatus | undefined {
+    return this.#config.budget === undefined ? undefined : budgetStatus(this.#config.budget, this.#ledger);
   }
 
   get providerSource(): ProviderSource {

@@ -1,6 +1,6 @@
 /** TUI (T2): conversa, entrada e status bar. Consome apenas a ChatSession. */
 import { Box, Static, Text, useInput } from "ink";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { parseCommand } from "../chat/commands";
 import { statusLine, type ChatSession } from "../chat/repl";
 import type { SessionStore } from "../chat/store";
@@ -24,6 +24,7 @@ import { ProviderScreen } from "./provider-screen";
 import { ConfigScreen } from "./config-screen";
 import { loadTrustedStore, trustedPath } from "../trust";
 import type { ProfileManager } from "../provider/profile-manager";
+import { budgetSegment } from "../chat/usage";
 
 export interface TuiAppProps {
   session: ChatSession;
@@ -374,6 +375,16 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
   });
 
+  // Segmento de budget na status bar (#63): hook antes dos returns condicionais abaixo;
+  // recalcula quando o status da sessão muda; falha de leitura vira "sem segmento"
+  const budget = useMemo(() => {
+    try {
+      return session.budgetStatus?.();
+    } catch {
+      return undefined;
+    }
+  }, [session, status]);
+
   if (modelPicker) {
     return (
       <ModelPicker
@@ -520,6 +531,15 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         {place} · {status.model} · {status.turns} turno(s) · {status.tokensIn}/{status.tokensOut} tokens · {money(status.costUsd)} · {providerId} · saúde: {healthState}
         {" · modo: "}
         <Text color={modeColor(mode, colors)}>{mode}</Text>
+        {budget === undefined ? null : (
+          <Text {...(budget.exhausted || budget.ceilingHit
+            ? { color: colors.error }
+            : budget.warning
+              ? { color: colors.warning }
+              : { dimColor: true })}>
+            {` · ${budgetSegment(budget)}`}
+          </Text>
+        )}
       </Text>
     </Box>
   );

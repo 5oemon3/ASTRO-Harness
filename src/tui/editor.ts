@@ -20,6 +20,7 @@ export const COMMANDS: readonly CommandInfo[] = [
   { name: "/save", description: "grava a sessão em disco" },
   { name: "/export", description: "exporta a conversa em Markdown" },
   { name: "/init", description: "cria AGENTS.md no diretório atual" },
+  { name: "/usage", description: "uso da sessão (turnos, tokens, custo) e budget" },
   { name: "/compact", description: "resume o histórico em um sumário" },
   { name: "/summarize", description: "alias de /compact" },
   { name: "/new", description: "limpa o histórico (alias de /clear)" },

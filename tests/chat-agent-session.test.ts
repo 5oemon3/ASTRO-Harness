@@ -478,3 +478,37 @@ describe("AgentSession configSummary / savePermissionMode (#273)", () => {
     }
   });
 });
+
+describe("AgentSession.budgetStatus (#63)", () => {
+  test("sem budget na config devolve undefined", () => {
+    const { session, stop } = setup();
+    try {
+      const chat = session();
+      expect(chat.budgetStatus()).toBeUndefined();
+      chat.close();
+    } finally {
+      stop();
+    }
+  });
+
+  test("com budget day deriva o status do ledger (gasto do turno entra no gasto)", async () => {
+    const { session, stop } = setup({ budget: { scope: "day", limitUsd: 5, warnAt: 0.8 } });
+    try {
+      const chat = session();
+      expect(chat.budgetStatus()).toMatchObject({
+        scope: "day", limitUsd: 5, warnAt: 0.8, spentUsd: 0, ratio: 0,
+        warning: false, exhausted: false, ceilingHit: false, remainingUsd: 5,
+      });
+      await chat.send("oi"); // 10 in + 5 out a US$ 1/M = US$ 0.000015
+      const after = chat.budgetStatus();
+      expect(after?.spentUsd).toBeCloseTo(0.000015, 10);
+      expect(after?.estimate).toBe("US$ 0.000015");
+      expect(after?.remainingUsd).toBeCloseTo(5 - 0.000015, 10);
+      expect(after?.exhausted).toBe(false);
+      expect(after?.warning).toBe(false);
+      chat.close();
+    } finally {
+      stop();
+    }
+  });
+});
