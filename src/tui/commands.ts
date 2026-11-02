@@ -2,7 +2,7 @@
 import { HELP_TEXT, modeListText, resolveModeCommand, unknownCommandMessage, type ReplCommand } from "../chat/commands";
 import { detailsLines, providerLine, type ChatSession } from "../chat/repl";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from "../permissions";
-import { sessionSummaryLine, type SessionStore, type SessionSummary } from "../chat/store";
+import type { SessionStore, SessionSummary } from "../chat/store";
 import { redactSecrets } from "../sanitize-external";
 import { exportSession } from "../chat/export";
 import { initAgents } from "../chat/init";
@@ -18,7 +18,6 @@ export interface Entry {
 
 export interface CommandState {
   lastFile?: string;
-  sessions?: SessionSummary[];
   /** Tema ativo e aplicador (persiste + troca ao vivo) para `/theme` (#64). */
   theme?: Theme;
   setTheme?(theme: Theme): void;
@@ -33,6 +32,8 @@ export interface CommandOutcome {
   openProviders?: { mode: "list" | "add" | "edit" | "remove"; target?: string };
   /** Abre a tela de configuração (`/config`, #273). */
   openConfig?: boolean;
+  /** Abre o modal de sessões (`/sessions`, #64). */
+  openSessions?: boolean;
 }
 
 type SlashCommand = Exclude<ReplCommand, { kind: "prompt" } | { kind: "empty" }>;
@@ -144,16 +145,8 @@ export async function runCommand(
       if (store === undefined) {
         return { entries: [{ kind: "info", text: "sem persistência configurada" }] };
       }
-      const sessions = store.list();
-      state.sessions = sessions;
-      return {
-        entries: [{
-          kind: "info",
-          text: sessions.length === 0
-            ? "nenhuma sessão salva"
-            : sessions.map((item, index) => sessionSummaryLine(item, index)).join("\n"),
-        }],
-      };
+      // na TUI o modal lista/renomeia/retoma; o REPL mantém a listagem em texto (#64)
+      return { entries: [], openSessions: true };
     }
     case "resume": {
       if (store === undefined) {
@@ -165,13 +158,10 @@ export async function runCommand(
       try {
         let chosen: SessionSummary | undefined;
         if (/^\d+$/.test(command.ref)) {
-          if (state.sessions === undefined || state.sessions.length === 0) state.sessions = store.list();
-          chosen = state.sessions[Number(command.ref) - 1];
+          chosen = store.list()[Number(command.ref) - 1]; // sempre relê a lista (#64)
           if (chosen === undefined) {
             return { entries: [{ kind: "info", text: "índice fora da lista; use /sessions" }] };
           }
-        } else {
-          chosen = state.sessions?.find((item) => item.id === command.ref);
         }
         const loaded = chosen === undefined ? store.load(command.ref) : store.load(chosen.id);
         session.resume(loaded.record);

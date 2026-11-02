@@ -125,7 +125,7 @@ describe("comandos da TUI (T2, #63)", () => {
     expect((await runCommand({ kind: "exit" }, session, {})).exit).toBe(true);
   });
 
-  test("sessions lista e resume carrega a sessão pelo número", async () => {
+  test("sessions abre o picker e resume carrega a sessão pelo número (#64)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-tui-resume-"));
     const store = new SessionStore(dir);
     store.write({
@@ -133,9 +133,10 @@ describe("comandos da TUI (T2, #63)", () => {
       messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
     });
     const session = new FakeSession();
-    const state: { sessions?: unknown; lastFile?: string } = {};
+    const state: { lastFile?: string } = {};
     const list = await runCommand({ kind: "sessions" }, session, state as never, store);
-    expect(list.entries[0]!.text).toContain("abc");
+    // na TUI o /sessions abre o modal; a lista não vai mais como texto para o histórico
+    expect(list).toMatchObject({ entries: [], openSessions: true });
     const resumed = await runCommand({ kind: "resume", ref: "1" }, session, state as never, store);
     expect(resumed.entries[0]!.text).toBe("sessão retomada: abc (1 turnos)");
     expect(resumed.lastFile).toMatch(/\.json$/);

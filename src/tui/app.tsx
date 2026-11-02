@@ -3,7 +3,7 @@ import { Box, Static, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { parseCommand, type ReplCommand } from "../chat/commands";
 import { statusLine, type ChatSession } from "../chat/repl";
-import type { SessionStore } from "../chat/store";
+import type { SessionStore, SessionSummary } from "../chat/store";
 import type { SessionSnapshot } from "../chat/agent-session";
 import { isFatalSessionError } from "../chat/session-errors";
 import { DEFAULT_PERMISSION_MODE } from "../permissions";
@@ -22,6 +22,7 @@ import { loadTuiConfig, saveTuiConfig, getThemeColors, type Theme, type ThemeCol
 import { LEADER, runKeybind } from "./keybinds";
 import { TOAST_TICK_MS, TOAST_TTL_MS, pruneToasts, pushToast, toastLine, type Toast } from "./toasts";
 import { ProviderScreen } from "./provider-screen";
+import { SessionPicker } from "./session-picker";
 import { ConfigScreen } from "./config-screen";
 import { loadTrustedStore, trustedPath } from "../trust";
 import type { ProfileManager } from "../provider/profile-manager";
@@ -143,6 +144,8 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const [screen, setScreen] = useState<{ mode: "list" | "add" | "edit" | "remove"; target?: string } | undefined>(undefined);
   const [configOpen, setConfigOpen] = useState(false); // tela `/config` (#273)
   const [modelPicker, setModelPicker] = useState(false);
+  const [sessionPicker, setSessionPicker] = useState(false); // modal `/sessions` (#64)
+  const [sessionList, setSessionList] = useState<SessionSummary[]>([]);
   const [favorites, setFavorites] = useState<string[]>(initialConfig.favoriteModels ?? []);
   const [recents, setRecents] = useState<string[]>(initialConfig.recentModels ?? []);
   const commandState = useRef<CommandState>({});
@@ -282,6 +285,15 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         setConfigOpen(true);
         return;
       }
+      if (outcome.openSessions === true) {
+        try {
+          setSessionList(store?.list() ?? []);
+          setSessionPicker(true);
+        } catch (error) {
+          setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+        }
+        return;
+      }
       if (outcome.lastFile !== undefined) commandState.current.lastFile = outcome.lastFile ?? undefined;
       const added = [...outcome.entries];
       const modelChanged = (command.kind === "model" && command.model !== undefined)
@@ -334,7 +346,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
   };
 
-  useInput((value, key) => {    if (screen !== undefined || modelPicker || configOpen) return; const ctrl = key.ctrl === true;
+  useInput((value, key) => {    if (screen !== undefined || modelPicker || configOpen || sessionPicker) return; const ctrl = key.ctrl === true;
     if (ctrl && (value === "c" || value === "d")) {
       approvals?.answer("");
       finish();
@@ -440,6 +452,50 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
     budgetAlarm.current = high;
   }, [budget]);
+
+  if (sessionPicker) {
+    return (
+      <SessionPicker
+        sessions={sessionList}
+        colors={colors}
+        onClose={() => setSessionPicker(false)}
+        onExit={finish}
+        onResume={(chosen) => {
+          // por path: id numérico não vira índice e ids duplicados não pegam a sessão errada
+          void (async () => {
+            const outcome = await runCommand({ kind: "resume", ref: chosen.path }, session, commandState.current, store, cwd);
+            if (outcome.lastFile !== undefined) commandState.current.lastFile = outcome.lastFile ?? undefined;
+            const added = [...outcome.entries];
+            const failed = added.some((entry) => entry.kind === "error");
+            if (!failed) {
+              try {
+                saveTuiConfig(cwd, { lastModel: session.snapshot().model });
+              } catch (error) {
+                added.push({ kind: "error", text: `erro: ${messageOf(error)}` });
+              }
+            }
+            setEntries((current) => [...current, ...added]);
+            setStatus(statusOf(session.snapshot()));
+            setSessionPicker(false);
+          })().catch((error: unknown) => {
+            setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+            setSessionPicker(false);
+          });
+        }}
+        onRename={(chosen, name) => {
+          if (store === undefined) return "sem persistência configurada";
+          try {
+            // por path: ids duplicados (sessão copiada) não renomeiam a errada
+            store.rename(chosen.path, name);
+            setSessionList(store.list());
+            return undefined;
+          } catch (error) {
+            return `erro: ${messageOf(error)}`;
+          }
+        }}
+      />
+    );
+  }
 
   if (modelPicker) {
     return (

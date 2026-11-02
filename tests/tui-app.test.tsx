@@ -411,7 +411,7 @@ test("segundo ctrl+c força a saída mesmo com o provider travado", async () => 
     instance.unmount();
   }
 });
-test("/sessions e /resume no painel compartilham a lista", async () => {
+test("/sessions abre o painel e /resume por id retoma a sessão vista (#64)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "astro-tui-panel-sessions-"));
   const store = new SessionStore(dir);
   store.write({
@@ -425,14 +425,12 @@ test("/sessions e /resume no painel compartilham a lista", async () => {
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
     await waitFor(() => instance.lastFrame()?.includes("xyz") === true);
+    await new Promise((resolve) => setTimeout(resolve, 50)); // assenta os hooks do modal
+    instance.stdin.write("\u001b"); // esc fecha o painel
+    await waitFor(() => (instance.lastFrame() ?? "").includes("Sessões") === false);
+    await new Promise((resolve) => setTimeout(resolve, 50)); // assenta o handler do painel principal
 
-    // arquivo novo aparece depois da lista exibida: /resume 1 deve usar a lista vista
-    store.write({
-      id: "zzz", startedAt: "2026-10-03T10:00:00.000Z", model: "p/m1",
-      messages: [{ role: "user", content: "novo" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null,
-    });
-
-    instance.stdin.write("/resume 1");
+    instance.stdin.write("/resume xyz");
     instance.stdin.write("\r");
     await waitFor(() => instance.lastFrame()?.includes("sessão retomada: xyz") === true);
     expect(session.resumed).toEqual(["xyz"]);
@@ -825,4 +823,64 @@ test("/theme contrast troca o tema ao vivo e persiste em .astro/tui.json (#64)",
   } finally {
     instance.unmount();
   }
+});
+
+test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-picker-"));
+  const store = new SessionStore(join(cwd, ".astro", "sessions"));
+  store.write({
+    id: "abc", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
+    messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
+  });
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50)); // assenta os hooks do modal
+    instance.stdin.write("r");
+    await waitFor(() => frameHas(instance, "nome: _"));
+    instance.stdin.write("nova");
+    instance.stdin.write("\r");
+    await waitFor(() => store.list()[0]?.name === "nova");
+    await waitFor(() => frameHas(instance, "nova (abc)"));
+    instance.stdin.write("\u001b"); // fecha o picker
+    await waitFor(() => frameHas(instance, "Sessões") === false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "eco:oi"));
+    // (verificado abaixo em teste próprio: o picker retoma pelo path)
+    // um turno novo persiste a sessão: o nome não pode sumir (coberto no store)
+    expect(store.list().find((item) => item.id === "abc")?.name).toBe("nova");
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("picker: enter retoma a sessão selecionada pelo path (#64)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-picker-enter-"));
+  const store = new SessionStore(join(cwd, ".astro", "sessions"));
+  const saved = { model: "p/m1", messages: [{ role: "user" as const, content: "x" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null };
+  // id numérico: um resume por id o trataria como índice da lista
+  store.write({ ...saved, id: "7", startedAt: "2026-10-01T10:00:00.000Z" });
+  store.write({ ...saved, id: "abc", startedAt: "2026-10-03T10:00:00.000Z" });
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("\u001b[B"); // segunda linha: id "7"
+    instance.stdin.write("\r");
+    await waitFor(() => session.resumed.length === 1);
+    expect(session.resumed[0]).toBe("7");
+    await waitFor(() => frameHas(instance, "sessão retomada: 7"));
+    expect(JSON.parse(readFileSync(join(cwd, ".astro", "tui.json"), "utf8")).lastModel).toBe("p/m1");
+    expect(frameHas(instance, "Sessões")).toBe(false);
+  } finally { instance.unmount(); }
 });
