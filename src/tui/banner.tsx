@@ -24,20 +24,34 @@ export interface BannerData {
   model: string;
   endpoint: string;
   state: string;
+  /** Modo de permissão ativo (#270); ausente não aparece. */
+  mode?: string;
   /** Injetável em testes; default lê package.json. */
   version?: string;
 }
 
+/** Trecho do modo na linha (` · modo: <modo>`); compartilhado por bannerLine e o componente. */
+export function modeSegment(mode: string): string {
+  return ` · modo: ${mode}`;
+}
+
+/** Cor do indicador de modo: só `bypass` usa alerta (error); demais ficam na cor normal (#270). */
+export function modeColor(mode: string | undefined, colors: ThemeColors): string | undefined {
+  return mode === "bypass" ? colors.error : undefined;
+}
+
 /** Linha única do banner (pura, testável). */
 export function bannerLine(data: BannerData): string {
-  return `ASTRO v${data.version ?? packageVersion()} · ${data.provider} · ${data.model} · ${data.endpoint} · estado: ${data.state}`;
+  const base = `ASTRO v${data.version ?? packageVersion()} · ${data.provider} · ${data.model} · ${data.endpoint} · estado: ${data.state}`;
+  return data.mode === undefined ? base : base + modeSegment(data.mode);
 }
 
 export function Banner({ colors, ...data }: BannerData & { colors: ThemeColors }): ReactElement {
   const lineColor = data.state === "ok" ? colors.accent : data.state === "down" ? colors.error : undefined;
   return (
     <Box borderStyle="round" borderColor={colors.accent} paddingX={1}>
-      <Text color={lineColor}>{bannerLine(data)}</Text>
+      <Text color={lineColor}>{bannerLine({ ...data, mode: undefined })}</Text>
+      {data.mode === undefined ? null : <Text color={modeColor(data.mode, colors)}>{modeSegment(data.mode)}</Text>}
     </Box>
   );
 }

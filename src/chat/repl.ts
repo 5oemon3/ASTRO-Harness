@@ -1,6 +1,7 @@
 /** REPL mínimo do chat (T1): I/O injetável e comandos; a UI só fala com a sessão. */
 import { HELP_TEXT, parseCommand, unknownCommandMessage } from "./commands";
 import { runProviderWizard } from "./provider-wizard";
+import type { PermissionMode } from "../permissions";
 import type { ProfileManager, ProfileView } from "../provider/profile-manager";
 import type { ModelInfo, ProviderInfo, SessionSnapshot, TurnResult } from "./agent-session";
 import type { HealthCheck, HealthReport } from "../health";
@@ -33,6 +34,8 @@ export interface ChatSession {
   setProvider(name: string): string;
   /** Nome do provider ativo (status bar); ausente deriva do modelo. */
   providerName?(): string;
+  /** Modo de permissão ativo da sessão (footer/banner da TUI, #270); ausente a TUI cai no default. */
+  permissionMode?(): PermissionMode;
   /** Health agregado, sob demanda (status bar da TUI). */
   health?(): Promise<HealthReport>;
   /** Teste real mínimo de um provider, sob demanda. */

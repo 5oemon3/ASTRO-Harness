@@ -6,12 +6,13 @@ import { statusLine, type ChatSession } from "../chat/repl";
 import type { SessionStore } from "../chat/store";
 import type { SessionSnapshot } from "../chat/agent-session";
 import { isFatalSessionError } from "../chat/session-errors";
+import { DEFAULT_PERMISSION_MODE } from "../permissions";
 import { redactSecrets } from "../sanitize-external";
 import { runCommand, type CommandState, type Entry } from "./commands";
 import type { ApprovalBridge } from "./approvals";
 import type { ShellRunner } from "./shell";
 import { COMMANDS, applyCompletion, commandDescription, completionItems, suggestionWindow } from "./editor";
-import { Banner } from "./banner";
+import { Banner, modeColor } from "./banner";
 import { indexFiles } from "./files";
 import { Markdown } from "./markdown";
 import { ModelPicker } from "./model-picker";
@@ -449,9 +450,11 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const providerId = session.providerName?.() ?? status.model.split("/")[0]!;
   const endpoint = manager?.list().find((item) => item.id === providerId)?.baseUrl ?? "-";
   const healthState = health?.provider === providerId ? health.state : "n/d";
+  // Modo de permissão sempre visível (#270); bypass em cor de alerta
+  const mode = session.permissionMode?.() ?? DEFAULT_PERMISSION_MODE;
   return (
     <Box flexDirection="column">
-      <Banner colors={colors} provider={providerId} model={status.model} endpoint={endpoint} state={healthState} />
+      <Banner colors={colors} provider={providerId} model={status.model} endpoint={endpoint} state={healthState} mode={mode} />
       <Static items={entries}>
         {(entry, index) => <EntryLine key={index} entry={entry} colors={colors} />}
       </Static>
@@ -478,6 +481,8 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       {win.end < suggestions.length ? <Text dimColor>  …</Text> : null}
       <Text dimColor>
         {place} · {status.model} · {status.turns} turno(s) · {status.tokensIn}/{status.tokensOut} tokens · {money(status.costUsd)} · {providerId} · saúde: {healthState}
+        {" · modo: "}
+        <Text color={modeColor(mode, colors)}>{mode}</Text>
       </Text>
     </Box>
   );

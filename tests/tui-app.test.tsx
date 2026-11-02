@@ -8,6 +8,7 @@ import { SessionStore } from "../src/chat/store";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import { BudgetExceededError } from "../src/budget";
+import type { PermissionMode } from "../src/permissions";
 import { createApprovalBridge } from "../src/tui/approvals";
 
 class FakeSession implements ChatSession {
@@ -100,6 +101,40 @@ test("banner no topo mostra versão, provider, modelo, endpoint e estado (#274)"
     expect(frame).toMatch(/ASTRO v\d+\.\d+\.\d+/);
     expect(frame).toContain("p · p/m1");
     expect(frame).toContain("estado:");
+  } finally {
+    instance.unmount();
+  }
+});
+
+class BypassSession extends FakeSession {
+  permissionMode(): PermissionMode {
+    return "bypass";
+  }
+}
+
+test("footer e banner mostram o modo de permissão ativo; bypass aparece (#270)", async () => {
+  const session = new BypassSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-mode-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "modo: bypass"));
+    const frame = (instance.lastFrame() ?? "").replace(/\s+/g, " ");
+    expect(frame).toContain("modo: bypass");
+    // banner (topo) também traz o modo
+    const topo = (instance.lastFrame() ?? "").split("\n").slice(0, 3).join(" ");
+    expect(topo).toContain("modo: bypass");
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("sessão sem permissionMode cai no default ask no footer (#270)", async () => {
+  const session = new FakeSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-mode-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "modo: ask"));
+    expect((instance.lastFrame() ?? "").replace(/\s+/g, " ")).toContain("modo: ask");
   } finally {
     instance.unmount();
   }

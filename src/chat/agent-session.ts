@@ -17,6 +17,7 @@ import type { ChatMessage } from "../provider/types";
 import type { FetchLike } from "../provider/types";
 import { Registry, type ModelEntry } from "../registry";
 import { Ledger } from "../ledger";
+import { resolvePermissionMode, type PermissionMode } from "../permissions";
 import { readAgentsMd } from "../spawn";
 import { forceCompaction, recordCompactionSuccess } from "../compaction/breaker";
 import { assertWithinQuota } from "../quota";
@@ -198,6 +199,16 @@ export class AgentSession {
 
   get model(): string {
     return this.#modelRef;
+  }
+
+  /**
+   * Modo de permissão ativo — exatamente o mesmo que o run usa (app.ts lê só
+   * `process.env.ASTRO_PERMISSION_MODE`, nunca o `env` injetado na sessão):
+   * `process.env.ASTRO_PERMISSION_MODE` > config > ask (D-24). A TUI mostra no
+   * footer/banner (#270); divergir aqui mostraria um modo que não é o do run.
+   */
+  permissionMode(): PermissionMode {
+    return resolvePermissionMode(process.env.ASTRO_PERMISSION_MODE, this.#config.permissions.mode);
   }
 
   get providerSource(): ProviderSource {
