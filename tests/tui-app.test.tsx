@@ -738,3 +738,71 @@ test("texto multi-linha que começa com / vai como prompt, não como comando (#6
     instance.unmount();
   }
 });
+
+test("toast de erro aparece, não bloqueia a entrada e expira (#64)", async () => {
+  const session = new FakeSession();
+  session.failNext = true;
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} toastTtlMs={50} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "✖ erro: boom"));
+    // não bloqueia: a próxima entrada continua funcionando com o toast na tela
+    instance.stdin.write("depois");
+    instance.stdin.write("\r");
+    await waitFor(() => session.sent.length === 2);
+    expect(session.sent).toEqual(["oi", "depois"]);
+    // expira (TTL 50ms), mas a entrada de erro continua no histórico
+    await waitFor(() => frameHas(instance, "✖ erro: boom") === false);
+    expect(frameHas(instance, "erro: boom")).toBe(true);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("toast de conclusão aparece ao fim de um turno (#64)", async () => {
+  const session = new FakeSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-ok-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "✔ turno concluído · 1 step(s)"));
+  } finally {
+    instance.unmount();
+  }
+});
+
+class WarningBudgetSession extends FakeSession {
+  warned = false;
+  budgetStatus(): BudgetStatus {
+    return {
+      scope: "day", limitUsd: 5, spentUsd: 4.5, ratio: 0.9, warnAt: 0.8,
+      warning: this.warned, exhausted: false, ceilingHit: false,
+      remainingUsd: 0.5, reservedUsd: 0, estimate: "US$ 4.500000",
+    };
+  }
+  async send(prompt: string): Promise<TurnResult> {
+    const result = await super.send(prompt);
+    this.warned = true; // o turno empurra o gasto para a faixa de aviso
+    return result;
+  }
+}
+
+test("toast de custo alto aparece quando o budget entra em aviso (#64)", async () => {
+  const session = new WarningBudgetSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-cost-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    expect(frameHas(instance, "⚠ custo alto")).toBe(false);
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "⚠ custo alto · budget: 90% · US$ 4.500000/US$ 5.000000"));
+  } finally {
+    instance.unmount();
+  }
+});

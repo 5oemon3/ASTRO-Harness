@@ -20,6 +20,7 @@ import { recordRecent, type ModelOption } from "./models";
 import { providerHealth } from "./health";
 import { loadTuiConfig, saveTuiConfig, getThemeColors, type Theme, type ThemeColors } from "./theme";
 import { LEADER, runKeybind } from "./keybinds";
+import { TOAST_TICK_MS, TOAST_TTL_MS, pruneToasts, pushToast, toastLine, type Toast } from "./toasts";
 import { ProviderScreen } from "./provider-screen";
 import { ConfigScreen } from "./config-screen";
 import { loadTrustedStore, trustedPath } from "../trust";
@@ -35,6 +36,8 @@ export interface TuiAppProps {
   shell?: ShellRunner;
   manager?: ProfileManager;
   onExit?: () => void;
+  /** Tempo de vida dos toasts em ms (#64); testes usam valores curtos. */
+  toastTtlMs?: number;
 }
 
 interface Status {
@@ -95,7 +98,7 @@ export function activateProvider(
   persistLastModel(cwd, session.snapshot().model, onWarning);
 }
 
-export function TuiApp({ session, cwd, branch, store, approvals, shell, manager, onExit }: TuiAppProps): ReactElement {
+export function TuiApp({ session, cwd, branch, store, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS }: TuiAppProps): ReactElement {
   const [entries, setEntries] = useState<Entry[]>([{ kind: "info", text: WELCOME }]);
   const [question, setQuestion] = useState<string | undefined>(() => approvals?.current()?.text);
   const [files, setFiles] = useState<string[]>([]);
@@ -143,6 +146,30 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const [recents, setRecents] = useState<string[]>(initialConfig.recentModels ?? []);
   const commandState = useRef<CommandState>({});
   const exited = useRef(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const addToast = (toast: { kind: Toast["kind"]; text: string }): void => {
+    setToasts((current) => pushToast(current, toast, Date.now()));
+  };
+  const seenEntries = useRef(0);
+
+  // Toasts de erro (#64): qualquer entrada de erro nova vira toast transitório;
+  // o histórico em `<Static>` continua sendo a fonte permanente
+  useEffect(() => {
+    const fresh = entries.slice(seenEntries.current);
+    seenEntries.current = entries.length;
+    const errors = fresh.filter((entry) => entry.kind === "error");
+    if (errors.length > 0) addToast({ kind: "error", text: errors[errors.length - 1]!.text });
+  }, [entries]);
+
+  // Remove os toasts expirados; só roda o tick quando há algo na tela
+  useEffect(() => {
+    if (toasts.length === 0) return;
+    const timer = setInterval(
+      () => setToasts((current) => pruneToasts(current, Date.now(), toastTtlMs)),
+      TOAST_TICK_MS,
+    );
+    return () => clearInterval(timer);
+  }, [toasts.length, toastTtlMs]);
 
   useEffect(() => {
     approvals?.subscribe((pendingQuestion) => setQuestion(pendingQuestion?.text));
@@ -286,6 +313,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         { kind: "assistant", text: result.final },
         { kind: "info", text: statusLine(result) },
       ]);
+      addToast({ kind: "success", text: `turno concluído · ${result.steps} step(s)` });
     } catch (error) {
       setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
       if (isFatalSessionError(error)) exitRequested.current = true;
@@ -398,6 +426,16 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       return undefined;
     }
   }, [session, status]);
+
+  // Aviso de custo alto (#64): toast na transição para aviso/esgotado/teto do budget
+  const budgetAlarm = useRef(false);
+  useEffect(() => {
+    const high = budget !== undefined && (budget.warning || budget.exhausted || budget.ceilingHit);
+    if (high && budget !== undefined && !budgetAlarm.current) {
+      addToast({ kind: "warning", text: `custo alto · ${budgetSegment(budget)}` });
+    }
+    budgetAlarm.current = high;
+  }, [budget]);
 
   if (modelPicker) {
     return (
@@ -524,6 +562,11 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       {busy ? <Text color={colors.warning}>pensando…</Text> : null}
       {partial === undefined ? null : <Text>{partial}</Text>}
       {question === undefined ? null : <Text color={colors.warning}>{question}</Text>}
+      {toasts.map((toast) => (
+        <Text key={toast.id} color={toast.kind === "error" ? colors.error : toast.kind === "warning" ? colors.warning : colors.accent}>
+          {toastLine(toast)}
+        </Text>
+      ))}
       <Box marginTop={1} borderStyle="round" borderColor={colors.accent} paddingX={1} flexDirection="column">
         {inputLines.map((line, index) => (
           <Box key={index}>
