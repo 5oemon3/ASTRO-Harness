@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigError, validateConfig } from "../src/config";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ConfigError, loadConfig, updateConfigPermissionsMode, validateConfig } from "../src/config";
 import type { ModelConfig, ModelStatus } from "../src/config";
+import type { PermissionMode } from "../src/permissions";
 import { isKnownTag } from "../src/tags";
 
 const valid = {
@@ -159,5 +163,53 @@ describe("cross-provider same-model-id semantics (S-06, #123)", () => {
     // O registry lookup requer composite identity provider/id
     expect(cfg.models.find((m) => m.provider === "openai" && m.id === "meta/llama-3.3-70b-instruct")).toBeUndefined();
     expect(cfg.models.find((m) => m.provider === "nvidia" && m.id === "meta/llama-3.3-70b-instruct")).toBeDefined();
+  });
+});
+
+describe("updateConfigPermissionsMode (#273)", () => {
+  const minimal = {
+    providers: { openai: { kind: "openai-compat", baseUrl: "https://api.openai.com/v1", credentialRef: "OPENAI_API_KEY" } },
+    models: [{ provider: "openai", id: "gpt-4o-mini", tags: ["writing-code"], context: 128000 }],
+    agent: { model: "openai/gpt-4o-mini", maxSteps: 12, tools: [] },
+    paths: { ledger: "l", audit: "a" },
+  };
+
+  test("grava só permissions.mode, mantém o resto, revalida e não deixa tmp órfão", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-mode-"));
+    const path = join(dir, "astro.config.json");
+    writeFileSync(path, JSON.stringify(minimal));
+    updateConfigPermissionsMode(path, "bypass");
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(raw.permissions).toEqual({ mode: "bypass" });
+    expect(raw.models).toEqual(minimal.models); // resto do arquivo intacto
+    expect(loadConfig(path).permissions.mode).toBe("bypass"); // continua válido ao carregar
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("sobrescreve permissions.mode existente", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-mode-"));
+    const path = join(dir, "astro.config.json");
+    writeFileSync(path, JSON.stringify({ ...minimal, permissions: { mode: "ask" } }));
+    updateConfigPermissionsMode(path, "allow-edits");
+    expect(loadConfig(path).permissions).toEqual({ mode: "allow-edits" });
+  });
+
+  test("modo inválido joga ConfigError e deixa o arquivo intacto", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-mode-"));
+    const path = join(dir, "astro.config.json");
+    const original = JSON.stringify(minimal);
+    writeFileSync(path, original);
+    expect(() => updateConfigPermissionsMode(path, "yolo" as PermissionMode)).toThrow(ConfigError);
+    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("arquivo que não é JSON válido joga ConfigError e não altera o arquivo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-mode-"));
+    const path = join(dir, "astro.config.json");
+    writeFileSync(path, "{ não é json");
+    expect(() => updateConfigPermissionsMode(path, "ask")).toThrow(ConfigError);
+    expect(readFileSync(path, "utf8")).toBe("{ não é json");
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

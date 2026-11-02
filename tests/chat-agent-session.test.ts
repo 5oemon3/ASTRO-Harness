@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { AgentSession } from "../src/chat/agent-session";
+import { loadConfig } from "../src/config";
 import type { PermissionMode } from "../src/permissions";
 import type { ChatMessage } from "../src/provider/types";
 import { Ledger } from "../src/ledger";
@@ -413,6 +414,63 @@ describe("AgentSession.setPermissionMode (#271)", () => {
       expect(modes.filter((p) => p.previous !== undefined)).toEqual([{ previous: "ask", mode: "bypass" }]);
       chat.close();
       expect(() => chat.setPermissionMode("ask")).toThrow(/encerrada/);
+    } finally {
+      if (saved === undefined) delete process.env.ASTRO_PERMISSION_MODE;
+      else process.env.ASTRO_PERMISSION_MODE = saved;
+      stop();
+    }
+  });
+});
+
+describe("AgentSession configSummary / savePermissionMode (#273)", () => {
+  test("configSummary reflete a config carregada (sem run = unlimited; só modelos com preço entram no custo)", () => {
+    const { configPath, session, stop } = setup();
+    const saved = process.env.ASTRO_PERMISSION_MODE;
+    try {
+      delete process.env.ASTRO_PERMISSION_MODE;
+      const chat = session();
+      const summary = chat.configSummary();
+      expect(summary.configPath).toBe(configPath);
+      expect(summary.maxTurns).toBe("unlimited"); // setup não define run
+      expect(summary.permissionMode).toBe("ask");
+      // p/m1 e p/m2 têm price no setup; q/m2 não tem e fica de fora
+      expect(summary.costs).toEqual([
+        { ref: "p/m1", inputPerM: 1, outputPerM: 1 },
+        { ref: "p/m2", inputPerM: 1, outputPerM: 1 },
+      ]);
+      expect(summary.budget).toBe("sem budget");
+      chat.close();
+    } finally {
+      if (saved === undefined) delete process.env.ASTRO_PERMISSION_MODE;
+      else process.env.ASTRO_PERMISSION_MODE = saved;
+      stop();
+    }
+  });
+
+  test("savePermissionMode persiste no arquivo, troca em runtime, audita e o próximo run usa o modo novo", async () => {
+    const { cwd, configPath, session, stop } = setup();
+    const saved = process.env.ASTRO_PERMISSION_MODE;
+    try {
+      delete process.env.ASTRO_PERMISSION_MODE;
+      const chat = session();
+      await chat.send("antes");
+      expect(chat.savePermissionMode("allow-edits")).toBe("allow-edits");
+      expect(loadConfig(configPath).permissions.mode).toBe("allow-edits"); // persistido no disco
+      expect(chat.permissionMode()).toBe("allow-edits"); // runtime
+      expect(() => chat.savePermissionMode("yolo" as PermissionMode)).toThrow(/modo inválido/);
+      expect(loadConfig(configPath).permissions.mode).toBe("allow-edits"); // falha não altera o arquivo
+      await chat.send("depois");
+      const events = new Auditor(join(cwd, ".astro", "audit.jsonl")).readAll();
+      const modes = events
+        .filter((e) => e.tipo === "mode.changed")
+        .map((e) => e.payload as { mode?: string; previous?: string });
+      // a sessão audita só a troca explícita (com previous)
+      expect(modes.filter((p) => p.previous !== undefined)).toEqual([{ previous: "ask", mode: "allow-edits" }]);
+      // runTask audita o modo de cada run: ask no 1º turno, allow-edits no 2º
+      expect(modes.filter((p) => p.previous === undefined).map((p) => p.mode)).toEqual(["ask", "allow-edits"]);
+      chat.close();
+      expect(() => chat.savePermissionMode("ask")).toThrow(/encerrada/);
+      expect(loadConfig(configPath).permissions.mode).toBe("allow-edits"); // sessão fechada não grava
     } finally {
       if (saved === undefined) delete process.env.ASTRO_PERMISSION_MODE;
       else process.env.ASTRO_PERMISSION_MODE = saved;

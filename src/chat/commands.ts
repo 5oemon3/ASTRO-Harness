@@ -11,6 +11,7 @@ export type ReplCommand =
   | { kind: "clear" }
   | { kind: "model"; model?: string }
   | { kind: "mode"; mode?: string; confirm?: boolean }
+  | { kind: "config" }
   | { kind: "providers" }
   | { kind: "provider"; action: ProviderAction; target?: string }
   | { kind: "session" }
@@ -28,6 +29,7 @@ export const HELP_TEXT = [
   "  /help           esta ajuda",
   "  /model [alvo]   lista (REPL) ou abre o seletor (TUI); com alvo, troca",
   "  /mode [modo]    lista os modos e o ativo; /mode <modo> troca (bypass exige \"confirm\")",
+  "  /config         mostra o resumo da configuração (REPL)",
   "  /providers      lista providers (kind, credencial, quota, modelos)",
   "  /provider       lista perfis (projeto, globais, env) e o ativo",
   "  /provider add   cria um perfil (catálogo ou custom)",
@@ -50,7 +52,7 @@ export const HELP_TEXT = [
 
 /** Nomes de comando (sem a barra), com aliases, na ordem do /help. */
 export const COMMAND_NAMES = [
-  "help", "model", "mode", "providers", "provider", "session", "details", "compact", "summarize",
+  "help", "model", "mode", "config", "providers", "provider", "session", "details", "compact", "summarize",
   "save", "sessions", "resume", "export", "init", "clear", "new", "exit", "quit", "q",
 ] as const;
 
@@ -168,6 +170,8 @@ export function parseCommand(line: string): ReplCommand {
         ...(second !== undefined && second.toLowerCase() === "confirm" ? { confirm: true } : {}),
       };
     }
+    case "config":
+      return { kind: "config" };
     case "providers":
       return { kind: "providers" };
     case "provider":

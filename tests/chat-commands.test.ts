@@ -38,6 +38,12 @@ describe("comandos do chat (T1, #62)", () => {
     expect(resolveModeCommand({ mode: "ask" }, "ask", false)).toEqual({ kind: "unsupported" });
     expect(modeListText("bypass")).toBe("→ bypass\n  allow-edits\n  ask\nativo: bypass");
   });
+  test("/config é reconhecido e entra na ajuda e nos nomes (#273)", () => {
+    expect(parseCommand("/config")).toEqual({ kind: "config" });
+    expect(parseCommand("/config extra")).toEqual({ kind: "config" });
+    expect(COMMAND_NAMES).toContain("config");
+    expect(HELP_TEXT).toContain("/config");
+  });
   test("/providers e /provider", () => {
     expect(parseCommand("/providers")).toEqual({ kind: "providers" });
     expect(parseCommand("/provider")).toEqual({ kind: "provider", action: "list" });

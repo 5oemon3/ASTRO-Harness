@@ -1,7 +1,9 @@
 /** REPL mínimo do chat (T1): I/O injetável e comandos; a UI só fala com a sessão. */
 import { HELP_TEXT, modeListText, parseCommand, resolveModeCommand, unknownCommandMessage } from "./commands";
 import { runProviderWizard } from "./provider-wizard";
+import { configLines, type ConfigSummary } from "./config-summary";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, type PermissionMode } from "../permissions";
+import { loadTrustedStore, trustedPath } from "../trust";
 import type { ProfileManager, ProfileView } from "../provider/profile-manager";
 import type { ModelInfo, ProviderInfo, SessionSnapshot, TurnResult } from "./agent-session";
 import type { HealthCheck, HealthReport } from "../health";
@@ -38,6 +40,10 @@ export interface ChatSession {
   permissionMode?(): PermissionMode;
   /** Troca o modo de permissão em runtime via `/mode` (#271); devolve o modo ativo. */
   setPermissionMode?(mode: PermissionMode): PermissionMode;
+  /** Resumo da config para `/config` (#273); ausente o REPL/TUI avisam. */
+  configSummary?(): ConfigSummary;
+  /** Persiste `permissions.mode` no arquivo de config e aplica na sessão (#273). */
+  savePermissionMode?(mode: PermissionMode): PermissionMode;
   /** Health agregado, sob demanda (status bar da TUI). */
   health?(): Promise<HealthReport>;
   /** Teste real mínimo de um provider, sob demanda. */
@@ -374,6 +380,21 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
           } catch (error) {
             io.write(`erro: ${messageOf(error)}`);
           }
+        }
+        continue;
+      }
+      if (command.kind === "config") {
+        const summary = session.configSummary?.();
+        if (summary === undefined) {
+          io.write("config indisponível nesta sessão");
+        } else {
+          let trusted: readonly string[] = [];
+          try {
+            trusted = loadTrustedStore(trustedPath()).folders;
+          } catch (error) {
+            io.write(`erro: ${messageOf(error)}`); // store de trust inválido não derruba o /config
+          }
+          io.write(configLines(summary, trusted).join("\n"));
         }
         continue;
       }

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
+import type { ConfigSummary } from "../src/chat/config-summary";
 import type { PermissionMode } from "../src/permissions";
 import { BudgetExceededError } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
@@ -250,5 +251,45 @@ describe("REPL do chat (T1, #62)", () => {
     const io = new ScriptedIO(["/compact force", "/exit"]);
     await runRepl(session, io);
     expect(session.forced).toBe(true);
+  });
+
+  test("/config imprime o resumo da config com as pastas confiáveis (#273)", async () => {
+    class ConfigSession extends FakeSession {
+      configSummary(): ConfigSummary {
+        return {
+          configPath: "/tmp/proj/astro.config.json",
+          maxTurns: "12",
+          permissionMode: "ask",
+          costs: [{ ref: "p/m1", inputPerM: 1, outputPerM: 2 }],
+          budget: "sem budget",
+        };
+      }
+    }
+    const home = mkdtempSync(join(tmpdir(), "astro-repl-config-"));
+    writeFileSync(join(home, "trusted.json"), JSON.stringify({ version: 1, folders: ["/tmp/proj"] }));
+    const savedHome = process.env.ASTRO_HOME;
+    process.env.ASTRO_HOME = home;
+    try {
+      const session = new ConfigSession();
+      const io = new ScriptedIO(["/config", "/exit"]);
+      await runRepl(session, io);
+      const text = io.outputs.join("\n");
+      expect(text).toContain("config: /tmp/proj/astro.config.json");
+      expect(text).toContain("run.maxTurns: 12");
+      expect(text).toContain("permissions.mode: ask");
+      expect(text).toContain("p/m1: in US$ 1.00/M · out US$ 2.00/M");
+      expect(text).toContain("pastas confiáveis:\n  /tmp/proj");
+    } finally {
+      if (savedHome === undefined) delete process.env.ASTRO_HOME;
+      else process.env.ASTRO_HOME = savedHome;
+    }
+  });
+
+  test("/config sem configSummary na sessão avisa sem derrubar o REPL (#273)", async () => {
+    const session = new FakeSession();
+    const io = new ScriptedIO(["/config", "/exit"]);
+    await runRepl(session, io);
+    expect(io.outputs.join("\n")).toContain("config indisponível nesta sessão");
+    expect(session.closed).toBe(1);
   });
 });

@@ -9,7 +9,9 @@ import { Auditor } from "../audit";
 import type { BudgetDecider } from "../budget";
 import type { ToolApprover } from "../tools/executor";
 import type { TrustAsk } from "../trust";
+import { updateConfigPermissionsMode } from "../config";
 import type { AstroConfig } from "../config";
+import { configSummaryOf, type ConfigSummary } from "./config-summary";
 import type { CodexLoginStart } from "../provider/codex-login";
 import { expandHomePath, saveCodexAuth, startCodexLogin } from "../provider/codex-login";
 import { loadEffectiveConfig, providerIdentityFor, type ProviderSelection, type ProviderSource } from "../provider/profiles";
@@ -231,6 +233,27 @@ export class AgentSession {
       this.#append("mode.changed", { previous, mode });
     }
     return this.#permissionMode;
+  }
+
+  /** Resumo da config carregada para `/config` (#273); o modo é o ativo da sessão. */
+  configSummary(): ConfigSummary {
+    return configSummaryOf(this.#config, this.#configPath, this.#permissionMode);
+  }
+
+  /**
+   * Troca `permissions.mode` pela tela `/config` (#273): persiste no arquivo
+   * primeiro (atômico e validado); se a escrita falhar, o runtime não muda.
+   * Depois atualiza a config em memória e aplica via `setPermissionMode`
+   * (audita `mode.changed`; o próximo `send` usa o modo novo).
+   */
+  savePermissionMode(mode: PermissionMode): PermissionMode {
+    if (!isPermissionMode(mode)) {
+      throw new Error(`modo inválido: ${String(mode)} (use bypass, allow-edits ou ask)`);
+    }
+    if (this.#closed || this.#fatal) throw new Error("sessão de chat encerrada");
+    updateConfigPermissionsMode(this.#configPath, mode);
+    this.#config = { ...this.#config, permissions: { mode } };
+    return this.setPermissionMode(mode);
   }
 
   get providerSource(): ProviderSource {

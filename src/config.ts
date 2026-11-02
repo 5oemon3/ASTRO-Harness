@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capability } from "./capabilities";
@@ -1300,4 +1301,42 @@ export function loadConfig(path: string): AstroConfig {
   }
 
   return validateConfig(raw);
+}
+
+/**
+ * Atualiza só `permissions.mode` no arquivo de config (#273, tela `/config`):
+ * lê o JSON cru, valida o resultado com `validateConfig` e grava de forma
+ * atômica (tmp + rename, modo 0600). Qualquer falha joga `ConfigError` e
+ * deixa o arquivo original intacto (sem tmp órfão).
+ */
+export function updateConfigPermissionsMode(path: string, mode: PermissionMode): void {
+  if (!isPermissionMode(mode)) {
+    throw new ConfigError('config inválida: "permissions.mode" deve ser bypass, allow-edits ou ask');
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // I-03: o detalhe do parser de JSON pode citar conteúdo do arquivo — não ecoar.
+    throw new ConfigError(`não foi possível atualizar "${path}": leitura/JSON falhou`);
+  }
+  if (!isPlainObject(raw)) {
+    throw new ConfigError(`não foi possível atualizar "${path}": raiz não é um objeto`);
+  }
+  raw.permissions = { ...(isPlainObject(raw.permissions) ? raw.permissions : {}), mode };
+  try {
+    validateConfig(raw); // garante que a config resultante continua válida antes de gravar
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ConfigError(`não foi possível atualizar "${path}": ${detail}`);
+  }
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    renameSync(tmp, path);
+  } catch (error) {
+    try { unlinkSync(tmp); } catch { /* tmp já não existe */ }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new ConfigError(`não foi possível gravar "${path}": ${detail}`);
+  }
 }

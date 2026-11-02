@@ -26,6 +26,8 @@ export interface CommandOutcome {
   lastFile?: string | null;
   /** Abre a tela de providers com o modo inicial. */
   openProviders?: { mode: "list" | "add" | "edit" | "remove"; target?: string };
+  /** Abre a tela de configuração (`/config`, #273). */
+  openConfig?: boolean;
 }
 
 type SlashCommand = Exclude<ReplCommand, { kind: "prompt" } | { kind: "empty" }>;
@@ -83,6 +85,8 @@ export async function runCommand(
         return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }] };
       }
     }
+    case "config":
+      return { entries: [], openConfig: true };
     case "providers":
       return { entries: [], openProviders: { mode: "list" } };
     case "provider": {
