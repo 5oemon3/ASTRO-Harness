@@ -166,11 +166,12 @@ The detailed plan lives in [`docs/roadmap.md`](docs/roadmap.md) and [`docs/roadm
 ## Local development
 
 ```bash
-bun run cli -- --help        # run from source, no build needed
+bun run dev                  # open the TUI from source, no build needed
+bun run cli -- --help        # run the CLI from source
 bun run cli -- run "..."     # run a task from source
-bun run tui                  # open the TUI in a real terminal
 bun run build                # build dist/cli.js and dist/launcher.js
 bun run smoke                # build and check the launcher with Bun removed from PATH
+bun run doctor               # local environment diagnostics, no network
 bun link                     # after a build, make the global `astro` command point to this checkout
 ```
 

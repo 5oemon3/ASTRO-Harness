@@ -9,9 +9,12 @@ ASTRO é um harness CLI local, em Bun + TypeScript strict, multi-provider, com f
 ## Comandos
 
 - `bun install --frozen-lockfile`
+- `bun run dev` — abre a TUI a partir da fonte, sem build
 - `bun test` — suíte completa
+- `bun run smoke` — build + valida o launcher com Node sem Bun no PATH
+- `bun run doctor` — diagnóstico local (versões, deps, dist, config, credenciais por nome, ASTRO_HOME)
 - `bun run typecheck` — `tsc --noEmit`
-- Antes de qualquer PR: os dois acima passam, sem exceção.
+- Antes de qualquer PR: `bun test` e `bun run typecheck` passam, sem exceção.
 
 ## Mapa do código
 
