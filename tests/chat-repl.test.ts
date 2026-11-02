@@ -337,4 +337,14 @@ describe("REPL do chat (T1, #62)", () => {
     expect(session.closed).toBe(1); // /exit depois do erro ainda funciona
     expect(session.sent).toEqual([]);
   });
+
+  test("/theme no REPL avisa que o tema é da TUI e nunca cai no send (#64)", async () => {
+    const session = new FakeSession();
+    const io = new ScriptedIO(["/theme", "/theme contrast", "/exit"]);
+    await runRepl(session, io);
+    const text = io.outputs.join("\n");
+    expect(text).toContain("tema: disponível só na TUI");
+    expect(session.sent).toEqual([]);
+    expect(session.closed).toBe(1);
+  });
 });

@@ -7,6 +7,7 @@ import { redactSecrets } from "../sanitize-external";
 import { exportSession } from "../chat/export";
 import { initAgents } from "../chat/init";
 import { usageLines } from "../chat/usage";
+import { THEMES, isTheme, type Theme } from "./theme";
 
 export type EntryKind = "user" | "assistant" | "info" | "error";
 
@@ -18,6 +19,9 @@ export interface Entry {
 export interface CommandState {
   lastFile?: string;
   sessions?: SessionSummary[];
+  /** Tema ativo e aplicador (persiste + troca ao vivo) para `/theme` (#64). */
+  theme?: Theme;
+  setTheme?(theme: Theme): void;
 }
 
 export interface CommandOutcome {
@@ -88,6 +92,26 @@ export async function runCommand(
     }
     case "config":
       return { entries: [], openConfig: true };
+    case "theme": {
+      const current = state.theme ?? "dark";
+      if (command.theme === undefined) {
+        const lines = THEMES.map((theme) => `${theme === current ? "→" : " "} ${theme}`);
+        return { entries: [{ kind: "info", text: `${lines.join("\n")}\nativo: ${current}` }] };
+      }
+      if (!isTheme(command.theme)) {
+        // não ecoa o argumento: ele pode ser um segredo colado por engano (I-03)
+        return { entries: [{ kind: "error", text: `tema inválido (use ${THEMES.join(", ")})` }] };
+      }
+      if (state.setTheme === undefined) {
+        return { entries: [{ kind: "error", text: "tema indisponível nesta sessão" }] };
+      }
+      try {
+        state.setTheme(command.theme);
+        return { entries: [{ kind: "info", text: `tema: ${command.theme}` }] };
+      } catch (error) {
+        return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }] };
+      }
+    }
     case "usage": {
       try {
         return { entries: [{ kind: "info", text: usageLines(session.snapshot(), session.budgetStatus?.()).join("\n") }] };

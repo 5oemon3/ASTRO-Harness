@@ -46,8 +46,11 @@ describe("keybindings da TUI (T2, #197)", () => {
     expect(quit.calls.finished).toBe(1);
     const light = setup({ theme: "light" });
     runKeybind("ctrl+x t", light.context);
-    expect(light.calls.themes).toEqual(["dark"]);
-    expect(light.entries.at(-1)?.text).toBe("tema: dark");
+    expect(light.calls.themes).toEqual(["contrast"]); // ciclo dark -> light -> contrast (#64)
+    expect(light.entries.at(-1)?.text).toBe("tema: contrast");
+    const contrast = setup({ theme: "contrast" });
+    runKeybind("ctrl+x t", contrast.context);
+    expect(contrast.calls.themes).toEqual(["dark"]);
     const models = setup();
     runKeybind("ctrl+x m", models.context);
     expect(models.entries.at(-1)?.text).toBe("p/m1\np/m2");

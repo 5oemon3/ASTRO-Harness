@@ -806,3 +806,23 @@ test("toast de custo alto aparece quando o budget entra em aviso (#64)", async (
     instance.unmount();
   }
 });
+
+test("/theme contrast troca o tema ao vivo e persiste em .astro/tui.json (#64)", async () => {
+  const session = new FakeSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-theme-cmd-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/theme contrast");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "tema: contrast"));
+    const saved = JSON.parse(readFileSync(join(cwd, ".astro", "tui.json"), "utf8")) as { theme: string };
+    expect(saved.theme).toBe("contrast");
+    // sem arg lista os três com o ativo marcado
+    instance.stdin.write("/theme");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "ativo: contrast"));
+  } finally {
+    instance.unmount();
+  }
+});

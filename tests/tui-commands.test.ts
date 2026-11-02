@@ -7,7 +7,8 @@ import type { SessionSnapshot } from "../src/chat/agent-session";
 import type { PermissionMode } from "../src/permissions";
 import type { BudgetStatus } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
-import { runCommand } from "../src/tui/commands";
+import { runCommand, type CommandState } from "../src/tui/commands";
+import type { Theme } from "../src/tui/theme";
 
 class FakeSession implements ChatSession {
   model = "p/m1";
@@ -301,5 +302,47 @@ describe("/usage na TUI (#63)", () => {
     const session = new FakeSession();
     const out = await runCommand({ kind: "usage" }, session, {});
     expect(out.entries[0]!.text).toBe("uso da sessão: 2 turno(s) · in 20 / out 10 tokens · custo US$ 0.500000");
+  });
+});
+
+describe("/theme na TUI (#64)", () => {
+  const state = (theme: Theme, setTheme?: (theme: Theme) => void): CommandState =>
+    ({ theme, ...(setTheme === undefined ? {} : { setTheme }) });
+
+  test("sem arg lista os três temas com o ativo marcado", async () => {
+    const out = await runCommand({ kind: "theme" }, new FakeSession(), state("light"));
+    expect(out.entries[0]).toMatchObject({ kind: "info" });
+    expect(out.entries[0]!.text).toBe("  dark\n→ light\n  contrast\nativo: light");
+  });
+
+  test("tema válido aplica e confirma", async () => {
+    const applied: Theme[] = [];
+    const out = await runCommand({ kind: "theme", theme: "contrast" }, new FakeSession(), state("dark", (theme) => applied.push(theme)));
+    expect(applied).toEqual(["contrast"]);
+    expect(out.entries[0]).toMatchObject({ kind: "info", text: "tema: contrast" });
+  });
+
+  test("tema inválido lista os válidos e sessão sem setTheme avisa", async () => {
+    const bad = await runCommand({ kind: "theme", theme: "neon" }, new FakeSession(), state("dark", () => {}));
+    expect(bad.entries[0]!.kind).toBe("error");
+    expect(bad.entries[0]!.text).toBe("tema inválido (use dark, light, contrast)");
+    const plain = await runCommand({ kind: "theme", theme: "light" }, new FakeSession(), state("dark"));
+    expect(plain.entries[0]!.kind).toBe("error");
+    expect(plain.entries[0]!.text).toContain("tema indisponível");
+  });
+
+  test("argumento inválido com cara de segredo não é ecoado (I-03, #64)", async () => {
+    const out = await runCommand({ kind: "theme", theme: "sk-ant-api03-segredo" }, new FakeSession(), state("dark", () => {}));
+    expect(out.entries[0]!.kind).toBe("error");
+    expect(out.entries[0]!.text).toBe("tema inválido (use dark, light, contrast)");
+    expect(out.entries[0]!.text).not.toContain("sk-ant");
+  });
+
+  test("falha ao persistir vira erro redacted sem derrubar a TUI", async () => {
+    const out = await runCommand({ kind: "theme", theme: "light" }, new FakeSession(), state("dark", () => {
+      throw new Error("falha ao gravar .astro/tui.json");
+    }));
+    expect(out.entries[0]!.kind).toBe("error");
+    expect(out.entries[0]!.text).toBe("erro: falha ao gravar .astro/tui.json");
   });
 });

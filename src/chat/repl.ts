@@ -411,6 +411,10 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
         }
         continue;
       }
+      if (command.kind === "theme") {
+        io.write("tema: disponível só na TUI (astro tui · /theme)");
+        continue;
+      }
       try {
         const result = await session.send(command.text, opts.signal);
         io.write(result.final);

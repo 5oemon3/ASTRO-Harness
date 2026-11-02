@@ -148,4 +148,16 @@ describe("comandos do chat (T1, #62)", () => {
     expect(suggestCommand("mod")).toBe("/mode");
     expect(suggestCommand("xyzzy")).toBeUndefined();
   });
+
+  test("/theme (e /themes) parseiam com tema opcional; entra na ajuda e nos nomes (#64)", () => {
+    expect(parseCommand("/theme")).toEqual({ kind: "theme" });
+    expect(parseCommand("/theme contrast")).toEqual({ kind: "theme", theme: "contrast" });
+    expect(parseCommand("/theme LIGHT")).toEqual({ kind: "theme", theme: "light" });
+    expect(parseCommand("/themes")).toEqual({ kind: "theme" });
+    expect(COMMAND_NAMES).toContain("theme");
+    expect(HELP_TEXT).toContain("/theme");
+    // não quebra sugestões existentes
+    expect(suggestCommand("mod")).toBe("/mode");
+    expect(suggestCommand("xyzzy")).toBeUndefined();
+  });
 });

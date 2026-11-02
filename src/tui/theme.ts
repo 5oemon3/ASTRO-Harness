@@ -4,7 +4,15 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, 
 import { isAbsolute, join, relative } from "node:path";
 import { ConfigError } from "../config";
 
-export type Theme = "dark" | "light";
+export type Theme = "dark" | "light" | "contrast";
+
+/** Temas na ordem em que `/theme` lista e o keybind alterna (#64). */
+export const THEMES: readonly Theme[] = ["dark", "light", "contrast"];
+
+/** Guarda de tema para o argumento de `/theme` (puro). */
+export function isTheme(value: string): value is Theme {
+  return THEMES.some((theme) => theme === value);
+}
 
 export interface TuiConfig {
   theme: Theme;
@@ -48,7 +56,7 @@ export function loadTuiConfig(cwd: string): TuiConfig {
     const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
     if (parsed === null || typeof parsed !== "object") return { ...DEFAULT_CONFIG };
     const record = parsed as Record<string, unknown>;
-    const theme: Theme = record.theme === "light" ? "light" : "dark";
+    const theme: Theme = typeof record.theme === "string" && isTheme(record.theme) ? record.theme : "dark";
     const lastModel = typeof record.lastModel === "string" && record.lastModel !== "" ? record.lastModel : undefined;
     const favoriteModels = normalizeList(record.favoriteModels);
     const recentModels = normalizeList(record.recentModels, 10);
@@ -94,11 +102,14 @@ export function saveTuiConfig(cwd: string, config: Partial<TuiConfig>): void {
   }
 }
 
+/** Próximo tema do ciclo (`ctrl+x t`): dark -> light -> contrast -> dark. */
 export function nextTheme(theme: Theme): Theme {
-  return theme === "dark" ? "light" : "dark";
+  const index = THEMES.indexOf(theme);
+  return THEMES[(index + 1) % THEMES.length]!;
 }
 
 /** Cores por tema; o fundo do terminal não é alterado. */
 export function getThemeColors(theme: Theme): ThemeColors {
+  if (theme === "contrast") return { accent: "whiteBright", warning: "yellowBright", error: "redBright" };
   return { accent: theme === "light" ? "blue" : "cyan", warning: "yellow", error: "red" };
 }

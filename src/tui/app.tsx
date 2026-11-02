@@ -115,8 +115,9 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   const [theme, setTheme] = useState<Theme>(initialConfig.theme);
   const colors = getThemeColors(theme);
   const persistTheme = (next: Theme): void => {
-    setTheme(next);
+    // persiste antes de aplicar: falha de escrita não deixa a TUI num tema que não sobrevive ao restart
     saveTuiConfig(cwd, { theme: next });
+    setTheme(next);
   };
   const leader = useRef(false);
   const busyRef = useRef(false);
@@ -260,6 +261,9 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       return;
     }
     if (command.kind !== "prompt") {
+      // `/theme` precisa do tema vivo e do aplicador que persiste em .astro/tui.json (#64)
+      commandState.current.theme = theme;
+      commandState.current.setTheme = persistTheme;
       const outcome = await runCommand(command, session, commandState.current, store, cwd);
       if (outcome.openProviders !== undefined) {
         if (manager === undefined) {
