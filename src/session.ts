@@ -417,10 +417,13 @@ export async function runSession(
 
       // L5 (#135): checkpoint uma única vez ao atingir a fração do limite de turnos ou de budget
       if (opts.checkpointAt !== undefined && !checkpointWritten) {
-        const spent = budgetSpent(opts.ledger, opts.run);
+        // Gasto do escopo (day/month/project/use-as-you-go), não só deste run:
+        // um run que começa com o escopo já acima da fração precisa do checkpoint
+        const scope = opts.budget === undefined ? undefined : budgetStatus(opts.budget, opts.ledger);
         const limitUsd = opts.budget?.limitUsd ?? opts.budget?.hardCeilingUsd ?? undefined;
         const turnDue = turnCheckpointDue(step, effectiveMaxSteps, opts.checkpointAt);
-        const budgetDue = limitUsd !== undefined && budgetCheckpointDue(spent.usd, limitUsd, opts.checkpointAt);
+        const budgetDue = limitUsd !== undefined && scope?.spentUsd !== null && scope?.spentUsd !== undefined
+          && budgetCheckpointDue(scope.spentUsd, limitUsd, opts.checkpointAt);
         if (turnDue || budgetDue) {
           checkpointWritten = true;
           const checkpoint = buildCheckpoint({

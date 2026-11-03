@@ -90,6 +90,39 @@ describe("segmentHash/toolCallPath/ProgressTracker.reset (#135 fatia B)", () => 
   });
 });
 
+describe("checkpoint de budget considera o escopo, não só o run (#135)", () => {
+  const price = { inputPerM: 600_000, outputPerM: 0, fonte: "t", verificado: false };
+
+  test("gasto anterior no mesmo escopo conta para o checkpoint", async () => {
+    const s = setup([resp({ content: "fim" })]);
+    // run anterior no mesmo escopo: US$ 0.6 de um limite de US$ 1 (60%)
+    s.ledger.record(
+      { run: "old", agent: "default", provider: "openai", model: "m", credentialRef: "K", quotaDomain: "d", tokensIn: 1, tokensOut: 0 },
+      price,
+    );
+    s.opts.budget = { scope: "day", limitUsd: 1, warnAt: 0.95, onExceed: "stop" };
+    s.opts.checkpointAt = 0.5;
+    s.opts.maxSteps = 10; // turnDue só no turno 5; o budget já está em 60%
+    await runSession(s.opts, "t");
+    expect(existsSync(checkpointPath(s.cwd, "r1", "default"))).toBe(true);
+    const events = s.audit.readAll().filter((e) => e.tipo === "loop.checkpoint");
+    expect(events[0]?.payload).toMatchObject({ step: 1, trigger: "budget" });
+  });
+
+  test("escopo com preço desconhecido não inventa checkpoint por budget", async () => {
+    const s = setup([resp({ content: "fim" })]);
+    // custo null: não dá para provar que atingiu a fração (B6)
+    s.ledger.record(
+      { run: "old", agent: "default", provider: "openai", model: "m", credentialRef: "K", quotaDomain: "d", tokensIn: 1, tokensOut: 0 },
+    );
+    s.opts.budget = { scope: "day", limitUsd: 1, warnAt: 0.95, onExceed: "stop" };
+    s.opts.checkpointAt = 0.5;
+    s.opts.maxSteps = 10;
+    await runSession(s.opts, "t");
+    expect(existsSync(checkpointPath(s.cwd, "r1", "default"))).toBe(false);
+  });
+});
+
 describe("wiring no runSession (#135 fatia B)", () => {
   test("checkpoint de turno: gravado uma vez, sanitizado (I-03), só arquivos dentro do cwd (I-11)", async () => {
     const s = setup([
