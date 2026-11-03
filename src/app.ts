@@ -45,6 +45,7 @@ import { runCommandTool } from "./tools/run-command";
 import { writeFileTool } from "./tools/write-file";
 import { handoffTool } from "./tools/handoff";
 import { createListModelCandidatesTool } from "./tools/list-model-candidates";
+import { createTaskTool } from "./tools/task";
 import { createSpawnAgentTool, readAgentsMd, SpawnRegistry } from "./spawn";
 import { grepTool } from "./tools/grep";
 import { listDirTool } from "./tools/list-dir";
@@ -53,7 +54,7 @@ import { lspTool } from "./tools/lsp";
 import { pipelineTool } from "./tools/pipeline";
 import { configureRunCommand, resolveSandboxSetting } from "./tools/run-command";
 import type { Tool } from "./tools/types";
-import { resolvePermissionMode, type ActionClass, type PermissionMode } from "./permissions";
+import { resolvePermissionMode, mostRestrictive, type ActionClass, type PermissionMode } from "./permissions";
 import { ensureTrustedCwd, type TrustAsk } from "./trust";
 import type { NoProgressDecider } from "./loop-guard";
 
@@ -815,6 +816,9 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   // Tools: builtin + plugins (F7-1); plugin não sobrescreve builtin
   const toolsByName = new Map(TOOLS_BY_NAME);
   const spawns = new SpawnRegistry();
+  // Preenchidos depois de resolver a allowlist/modo; a closure da task lê no call.
+  let childTools: readonly Tool[] = [];
+  let taskPermissionMode: PermissionMode = "ask";
   // S-09: candidatos dependem do config/ledger/registry deste run.
   toolsByName.set("list_model_candidates", createListModelCandidatesTool(() => ({
     config,
@@ -833,6 +837,65 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     enabled: multiAgentRun,
     ...(quotaLimits === undefined ? {} : { quotaLimits }),
     ...(budget === undefined ? {} : { budget }),
+  }));
+  // C4 (#58): delegação síncrona e isolada; o filho não herda mensagens do pai.
+  toolsByName.set("task", createTaskTool({
+    audit,
+    knownAgents: () => registry.listAgentNames(),
+    delegate: async ({ agent, prompt, maxSteps, signal, callerAllow, callerPermission }) => {
+      const target = registry.requireAgent(agent);
+      const targetModel = registry.resolveModel(target);
+      // v1: o filho compartilha a conta já travada pelo chamador; trocar de conta é recusado.
+      const parentAccount = currentAccount() ?? providerAccountRefFor(model.provider, config.providers[model.provider]!);
+      const targetProvider = config.providers[targetModel.provider];
+      if (targetProvider === undefined) {
+        throw new Error(`task: provider "${targetModel.provider}" do agent "${agent}" não está configurado`);
+      }
+      if (providerAccountRefFor(targetModel.provider, targetProvider) !== parentAccount) {
+        throw new Error(`task: agent "${agent}" usa outra conta; delegação entre contas não é suportada em v1`);
+      }
+      const parentAllow = new Set(callerAllow ?? config.agent.tools);
+      // Teto = allowlist efetiva do chamador, sem recursão de task em v1.
+      const allow = (target.tools ?? config.agent.tools)
+        .filter((name) => parentAllow.has(name) && name !== "task");
+      const executor = new ToolExecutor({
+        tools: childTools,
+        allow,
+        ceiling: allow,
+        audit,
+        permissionMode: taskPermissionMode,
+        permission: mostRestrictive(callerPermission ?? "full", target.permission ?? "full"),
+        ...(opts.approveTool === undefined ? {} : { approveTool: opts.approveTool }),
+      });
+      // Run própria para o filho: não sobrescreve o estado do run pai no ledger.
+      const childRun = `${run}.task.${randomUUID()}`;
+      const result = await runSession({
+        run: childRun,
+        agent,
+        credentialRef,
+        quotaDomain,
+        cwd,
+        provider: providerFor(targetModel, target.profile),
+        model: targetModel,
+        executor,
+        ledger,
+        audit,
+        maxSteps: Math.min(target.maxSteps ?? config.agent.maxSteps, maxSteps ?? config.agent.maxSteps),
+        ...(target.systemPrompt === undefined && projectSystemPrompt(config, cwd) === undefined
+          ? {}
+          : { systemPrompt: target.systemPrompt ?? projectSystemPrompt(config, cwd) }),
+        env,
+        protectedPaths: [ledgerPath, auditPath],
+        secretEnvNames,
+        inheritAgentLock: true,
+        ...(signal === undefined ? {} : { signal }),
+        ...(quotaLimits === undefined ? {} : { quotaLimits }),
+        ...(budget === undefined ? {} : { budget }),
+        ...(resolveIdentity === undefined ? {} : { resolveIdentity }),
+        ...(target.profile === undefined ? {} : { agentProfile: target.profile }),
+      }, prompt);
+      return result.final;
+    },
   }));
   for (const tool of loaded.tools) {
     if (!toolsByName.has(tool.manifest.name)) toolsByName.set(tool.manifest.name, tool);
@@ -853,11 +916,13 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     mcpRegistry?.close();
     throw error;
   }
+  childTools = baseTools;
   // Precedência: opção explícita (CLI/env do chat/tui) > config > ask (D-24).
   const permissionMode = resolvePermissionMode(
     opts.permissionMode ?? process.env.ASTRO_PERMISSION_MODE,
     config.permissions.mode,
   );
+  taskPermissionMode = permissionMode;
   // `bypass` é perigoso: avisa uma vez e deixa a ativação no audit sanitizado (I-04, #268).
   audit.append({ run, agent: AGENT_NAME, tipo: "mode.changed", payload: { mode: permissionMode } });
   if (permissionMode === "bypass") {

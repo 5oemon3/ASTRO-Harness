@@ -270,7 +270,7 @@ export class ToolExecutor {
         timer = setTimeout(() => resolve(TIMEOUT), tool.manifest.timeoutMs);
       });
       const outcome = await Promise.race([
-        tool.execute(input, { ...ctx, signal: controller.signal, executor: this }),
+        tool.execute(input, { ...ctx, signal: controller.signal, executor: this, permission: this.agentPermission }),
         timeout,
         aborted,
       ]);
@@ -286,6 +286,8 @@ export class ToolExecutor {
       }
       return this.limitOutput(ctx, call, outcome);
     } catch (error) {
+      // Pending do gate sobe e para o run em ponto seguro (I-19), não vira tool error.
+      if (error instanceof PermissionPendingError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       return failure(`erro na tool "${call.name}": ${message}`);
     } finally {

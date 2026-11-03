@@ -1,4 +1,5 @@
 import type { CallJournal } from "../call-id";
+import type { AgentPermission } from "../permissions";
 
 /** Efeitos externos que a tool pode causar (F-10, I-12): vocabulário fechado. */
 export type SideEffects = "none" | "filesystem" | "network" | "process";
@@ -63,6 +64,8 @@ export interface ToolContext {
   maxSteps?: number;
   /** Teto de tokens por saída (CMP-10), já resolvido para o modelo corrente. */
   outputLimitTokens?: number;
+  /** Perfil de permissão do executor que está chamando a tool (#58). */
+  permission?: AgentPermission;
 }
 
 /**

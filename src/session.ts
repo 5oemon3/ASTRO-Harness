@@ -109,6 +109,11 @@ export interface SessionOptions {
   onNoProgress?: NoProgressDecider;
   /** Hash da tarefa (nunca o prompt cru) para o resumo do checkpoint (L5, I-03/prompt não persistido). */
   taskHash?: string;
+  /**
+   * Subexecução in-process que compartilha a conta já travada pelo pai (#58):
+   * não adquire/libera lock próprio. Ausente = comportamento normal.
+   */
+  inheritAgentLock?: boolean;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -307,15 +312,17 @@ export async function runSession(
     throw new BudgetExceededError("ceiling", status);
   };
 
-  ensureAgentCreated(
-    opts.ledger,
-    opts.audit,
-    opts.run,
-    opts.agent,
-    opts.model.id,
-    { provider: opts.model.provider, ...(opts.credentialRef === undefined ? {} : { credentialRef: opts.credentialRef }) },
-    opts.agentProfile,
-  );
+  if (opts.inheritAgentLock !== true) {
+    ensureAgentCreated(
+      opts.ledger,
+      opts.audit,
+      opts.run,
+      opts.agent,
+      opts.model.id,
+      { provider: opts.model.provider, ...(opts.credentialRef === undefined ? {} : { credentialRef: opts.credentialRef }) },
+      opts.agentProfile,
+    );
+  }
 
   try {
     let effectiveMaxSteps = opts.maxSteps;
@@ -443,7 +450,9 @@ export async function runSession(
 
       if (response.toolCalls.length === 0) {
         opts.ledger.recordState(opts.run, "completed", { agent: opts.agent });
-        ensureAgentDestroyed(opts.ledger, opts.audit, opts.run, opts.agent, "completed");
+        if (opts.inheritAgentLock !== true) {
+          ensureAgentDestroyed(opts.ledger, opts.audit, opts.run, opts.agent, "completed");
+        }
         tracer?.end(stepSpan, { "tool.calls": 0 });
         tracer?.end(rootSpan, { status: "ok", steps: step });
         return { final: response.content, steps: step, messages };
@@ -542,7 +551,9 @@ export async function runSession(
           reason,
         });
       } finally {
-        releaseOnFailure(opts.ledger, opts.audit, opts.run, opts.agent, lockReason(error, opts.signal));
+        if (opts.inheritAgentLock !== true) {
+          releaseOnFailure(opts.ledger, opts.audit, opts.run, opts.agent, lockReason(error, opts.signal));
+        }
       }
     }
     if (rootSpan !== undefined && !errorHasHandoffName(error)) {
