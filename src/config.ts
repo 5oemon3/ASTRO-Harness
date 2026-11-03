@@ -1309,15 +1309,11 @@ export function loadConfig(path: string): AstroConfig {
 }
 
 /**
- * Atualiza só `permissions.mode` no arquivo de config (#273, tela `/config`):
- * lê o JSON cru, valida o resultado com `validateConfig` e grava de forma
- * atômica (tmp + rename, modo 0600). Qualquer falha joga `ConfigError` e
- * deixa o arquivo original intacto (sem tmp órfão).
+ * Lê o JSON cru, aplica `mutate`, valida o resultado com `validateConfig` e
+ * grava de forma atômica (tmp + rename, modo 0600). Qualquer falha joga
+ * `ConfigError` e deixa o arquivo original intacto (sem tmp órfão).
  */
-export function updateConfigPermissionsMode(path: string, mode: PermissionMode): void {
-  if (!isPermissionMode(mode)) {
-    throw new ConfigError('config inválida: "permissions.mode" deve ser bypass, allow-edits ou ask');
-  }
+function updateConfigFile(path: string, mutate: (raw: Record<string, unknown>) => void): void {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -1328,8 +1324,8 @@ export function updateConfigPermissionsMode(path: string, mode: PermissionMode):
   if (!isPlainObject(raw)) {
     throw new ConfigError(`não foi possível atualizar "${path}": raiz não é um objeto`);
   }
-  raw.permissions = { ...(isPlainObject(raw.permissions) ? raw.permissions : {}), mode };
   try {
+    mutate(raw);
     validateConfig(raw); // garante que a config resultante continua válida antes de gravar
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -1344,4 +1340,38 @@ export function updateConfigPermissionsMode(path: string, mode: PermissionMode):
     const detail = error instanceof Error ? error.message : String(error);
     throw new ConfigError(`não foi possível gravar "${path}": ${detail}`);
   }
+}
+
+/**
+ * Atualiza só `permissions.mode` no arquivo de config (#273, tela `/config`).
+ */
+export function updateConfigPermissionsMode(path: string, mode: PermissionMode): void {
+  if (!isPermissionMode(mode)) {
+    throw new ConfigError('config inválida: "permissions.mode" deve ser bypass, allow-edits ou ask');
+  }
+  updateConfigFile(path, (raw) => {
+    raw.permissions = { ...(isPlainObject(raw.permissions) ? raw.permissions : {}), mode };
+  });
+}
+
+/**
+ * Troca só `providers.<provider>.credentialRef` (migração para o cofre,
+ * #311 B.3). Aceita apenas `vault:<credentialId>` para não abrir um canal para
+ * gravar segredo no arquivo (I-03).
+ */
+export function updateConfigProviderCredentialRef(path: string, provider: string, credentialRef: string): void {
+  if (!isVaultCredentialRef(credentialRef)) {
+    throw new ConfigError('credentialRef de vault inválido: use vault:<credentialId>');
+  }
+  updateConfigFile(path, (raw) => {
+    const providers = raw.providers;
+    if (!isPlainObject(providers) || !isPlainObject(providers[provider])) {
+      throw new ConfigError(`config inválida: provider "${provider}" não encontrado`);
+    }
+    const entry = providers[provider];
+    if (entry.kind !== "openai-compat") {
+      throw new ConfigError(`config inválida: provider "${provider}" não é openai-compat`);
+    }
+    entry.credentialRef = credentialRef;
+  });
 }

@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { loadConfig, validateConfig } from "./config";
 import { loadEffectiveConfig } from "./provider/profiles";
 import { ProfileManager } from "./provider/profile-manager";
+import { formatVaultImport, importVaultCredential } from "./provider/vault-import";
 import { Ledger } from "./ledger";
 import { formatHandoffShow } from "./handoff/lifecycle";
 import { formatCostByAgent } from "./team";
@@ -129,7 +130,7 @@ const USAGE = `Uso:
   astro tui [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro resume <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
   astro health [--config <path>]
-  astro providers <health|list|test> [--config <path>]
+  astro providers <health|list|test|vault-import> [--config <path>] [--apply] [--allow-plain]
   astro handoff show <handoff_id> [--config <path>]
   astro cost --by-agent [--config <path>]
   astro pool <list|health> [--config <path>]
@@ -224,9 +225,11 @@ interface HealthCommand {
 }
 
 interface ProvidersCommand {
-  action: "health" | "list" | "test";
+  action: "health" | "list" | "test" | "vault-import";
   name?: string;
   configPath: string;
+  apply?: boolean;
+  allowPlain?: boolean;
 }
 
 interface PoolCommand {
@@ -339,8 +342,10 @@ function parseArgs(argv: string[]): ParsedCommand {
 
   if (command === "providers") {
     let configPath = "astro.config.json";
-    let action: "health" | "list" | "test" | undefined;
+    let action: "health" | "list" | "test" | "vault-import" | undefined;
     let name: string | undefined;
+    let apply = false;
+    let allowPlain = false;
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i] as string;
       if (arg === "--config") {
@@ -352,26 +357,49 @@ function parseArgs(argv: string[]): ParsedCommand {
         configPath = value;
         continue;
       }
+      if (arg === "--apply") {
+        apply = true;
+        continue;
+      }
+      if (arg === "--allow-plain") {
+        allowPlain = true;
+        continue;
+      }
       if (arg.startsWith("-")) {
         throw new UsageError(`opção desconhecida: "${arg}"`);
       }
-      if (action === undefined && (arg === "health" || arg === "list" || arg === "test")) {
+      if (action === undefined && (arg === "health" || arg === "list" || arg === "test" || arg === "vault-import")) {
         action = arg;
         continue;
       }
-      if (action === "test" && name === undefined) {
+      if ((action === "test" || action === "vault-import") && name === undefined) {
         name = arg;
         continue;
       }
       throw new UsageError(`argumento inesperado: "${arg}"`);
     }
     if (action === undefined) {
-      throw new UsageError("use: providers <health|list|test> [--config <path>]");
+      throw new UsageError("use: providers <health|list|test|vault-import> [--config <path>]");
     }
     if (action === "test" && name === undefined) {
       throw new UsageError("use: providers test <provider> [--config <path>]");
     }
-    return { kind: "providers", options: { action, ...(name === undefined ? {} : { name }), configPath } };
+    if (action === "vault-import" && name === undefined) {
+      throw new UsageError("use: providers vault-import <provider> [--apply] [--allow-plain] [--config <path>]");
+    }
+    if ((apply || allowPlain) && action !== "vault-import") {
+      throw new UsageError("--apply e --allow-plain só valem para providers vault-import");
+    }
+    return {
+      kind: "providers",
+      options: {
+        action,
+        ...(name === undefined ? {} : { name }),
+        configPath,
+        ...(apply ? { apply: true } : {}),
+        ...(allowPlain ? { allowPlain: true } : {}),
+      },
+    };
   }
 
   if (command === "cost") {
@@ -1148,6 +1176,17 @@ async function main(argv: string[]): Promise<number> {
   if (parsed.kind === "providers") {
     const o = parsed.options;
     try {
+      if (o.action === "vault-import") {
+        const result = importVaultCredential({
+          provider: o.name!,
+          env: process.env,
+          configPath: resolve(o.configPath),
+          ...(o.apply === true ? { apply: true } : {}),
+          ...(o.allowPlain === true ? { allowPlain: true } : {}),
+        });
+        console.log(formatVaultImport(result));
+        return 0;
+      }
       const config = loadEffectiveConfig(resolve(o.configPath)).config;
       if (o.action === "list") {
         console.log(formatProvidersList(config));

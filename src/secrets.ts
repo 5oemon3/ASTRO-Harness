@@ -37,3 +37,10 @@ export function isVaultId(value: string): boolean {
 export function isVaultCredentialRef(value: string): boolean {
   return isVaultRef(value) && isVaultId(value.slice(VAULT_REF_PREFIX.length));
 }
+
+/** Nome de variável de ambiente (fonte de segredo nomeada, I-03). */
+const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
+
+export function isEnvName(value: string): boolean {
+  return ENV_NAME.test(value);
+}
