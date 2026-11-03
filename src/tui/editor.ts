@@ -1,5 +1,6 @@
 /** Completions do editor da TUI: `/` comandos e `@` arquivos (puro). */
 import { searchFiles } from "./files";
+import { listWindow } from "./viewport";
 
 export interface CommandInfo {
   readonly name: string;
@@ -55,10 +56,7 @@ export const MAX_VISIBLE_SUGGESTIONS = 8;
 
 /** Janela de rolagem [start, end) que mantém `selected` visível. */
 export function suggestionWindow(length: number, selected: number, max = MAX_VISIBLE_SUGGESTIONS): { start: number; end: number } {
-  const count = Math.min(length, max);
-  if (length <= max) return { start: 0, end: count };
-  const start = Math.max(0, Math.min(selected - Math.floor(max / 2), length - max));
-  return { start, end: start + count };
+  return listWindow(length, selected, max);
 }
 
 /** Aplica a escolha à linha: comando substitui tudo; arquivo mantém o texto anterior. */

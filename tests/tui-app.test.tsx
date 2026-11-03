@@ -957,6 +957,40 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
   }
 });
 
+test("80x24 e resize encolhem o picker sem quebrar o input (#64)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-viewport-"));
+  const store = new SessionStore(join(cwd, ".astro", "sessions"));
+  for (let i = 0; i < 30; i++) {
+    store.write({
+      id: `v${i}`, startedAt: `2026-10-${String((i % 28) + 1).padStart(2, "0")}T10:00:00.000Z`, model: "p/m1",
+      messages: [{ role: "user", content: "x" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null,
+    });
+  }
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50)); // assenta os hooks do modal
+    Object.defineProperty(instance.stdout, "columns", { get: () => 80, configurable: true });
+    Object.defineProperty(instance.stdout, "rows", { get: () => 24, configurable: true });
+    instance.stdout.emit("resize");
+    await waitFor(() => frameHas(instance, "… 18 abaixo")); // 24 - chrome 6 = 12 (cap)
+    Object.defineProperty(instance.stdout, "columns", { get: () => 40, configurable: true });
+    Object.defineProperty(instance.stdout, "rows", { get: () => 10, configurable: true });
+    instance.stdout.emit("resize");
+    await waitFor(() => frameHas(instance, "… 26 abaixo")); // 10 - 6 = 4
+    instance.stdin.write("\u001b"); // fecha o picker
+    await waitFor(() => frameHas(instance, "Sessões") === false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "eco:oi"));
+  } finally { instance.unmount(); }
+});
+
 test("picker: enter retoma a sessão selecionada pelo path (#64)", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-picker-enter-"));
   const store = new SessionStore(join(cwd, ".astro", "sessions"));

@@ -124,6 +124,49 @@ test("navegação multi-passo no mesmo chunk usa o estado mais novo (#64)", asyn
   } finally { instance.unmount(); }
 });
 
+test("janela limita a lista e mantém o selecionado visível (#64)", async () => {
+  const sessions = Array.from({ length: 30 }, (_, i) => summary(`s${i}`));
+  const resumed: string[] = [];
+  const instance = render(
+    <SessionPicker sessions={sessions} colors={colors} maxRows={5}
+      onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("… 25 abaixo"));
+    expect(frame(instance)).toContain("> 1.");
+    expect(frame(instance)).toContain(" s4 ");
+    expect(frame(instance)).not.toContain(" s5 ");
+    for (let i = 0; i < 10; i++) instance.stdin.write("\u001b[B");
+    await waitFor(() => frame(instance).includes("… 8 acima"));
+    expect(frame(instance)).toContain("… 17 abaixo");
+    expect(frame(instance)).toContain("> 11.");
+    expect(frame(instance)).toContain(" s8 ");
+    expect(frame(instance)).not.toContain(" s7 ");
+    expect(frame(instance)).not.toContain(" s13 ");
+    instance.stdin.write("\r");
+    await waitFor(() => resumed.length === 1);
+    expect(resumed).toEqual(["s10"]);
+  } finally { instance.unmount(); }
+});
+
+test("redimensionar o terminal encolhe a janela do picker (#64)", async () => {
+  const sessions = Array.from({ length: 30 }, (_, i) => summary(`s${i}`));
+  const instance = render(
+    <SessionPicker sessions={sessions} colors={colors} onClose={() => {}} onResume={() => {}} onRename={() => undefined} />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("Sessões"));
+    Object.defineProperty(instance.stdout, "rows", { get: () => 24, configurable: true });
+    instance.stdout.emit("resize");
+    await waitFor(() => frame(instance).includes("… 18 abaixo")); // 24 - chrome 6 = 12 (cap)
+    Object.defineProperty(instance.stdout, "rows", { get: () => 10, configurable: true });
+    instance.stdout.emit("resize");
+    await waitFor(() => frame(instance).includes("… 26 abaixo")); // 10 - 6 = 4
+    expect(frame(instance)).toContain(" s3 ");
+    expect(frame(instance)).not.toContain(" s4 ");
+  } finally { instance.unmount(); }
+});
+
 test("lista vazia avisa e esc fecha (#64)", async () => {
   let closed = 0;
   const instance = render(

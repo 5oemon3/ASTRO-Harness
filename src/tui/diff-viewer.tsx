@@ -1,33 +1,44 @@
 /** Overlay full-screen de diff da TUI (#64): revisa o patch da tool `edit` antes de aprovar. */
-import { Box, Text, useInput } from "ink";
-import { useMemo, useRef, useState, type ReactElement } from "react";
+import { Box, Text, useInput, useWindowSize } from "ink";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { redactSecrets } from "../sanitize-external";
 import { diffLineColor, diffStats, parseDiffLines } from "./diff";
 import type { ThemeColors } from "./theme";
+import { listRows } from "./viewport";
 
 export interface DiffViewerProps {
   path: string;
   diff: string;
   colors: ThemeColors;
   onClose(): void;
-  /** Linhas visíveis por vez (janela de rolagem); testes usam viewport pequeno. */
+  /** Linhas visíveis por vez (janela de rolagem); default derivado do terminal. */
   viewport?: number;
 }
 
-const DEFAULT_VIEWPORT = 20;
+/** Borda (2) + título + rodapé. */
+const DIFF_CHROME = 4;
 
-export function DiffViewer({ path, diff, colors, onClose, viewport = DEFAULT_VIEWPORT }: DiffViewerProps): ReactElement {
+export function DiffViewer({ path, diff, colors, onClose, viewport }: DiffViewerProps): ReactElement {
   // I-03: o diff é conteúdo do modelo (não confiável); a redação acontece na
   // fronteira de render, então nenhum chamador consegue vazar segredo na tela
   const lines = useMemo(() => parseDiffLines(redactSecrets(diff)), [diff]);
   const safePath = useMemo(() => redactSecrets(path), [path]);
   const stats = useMemo(() => diffStats(lines), [lines]);
+  // Sem viewport explícito, a janela acompanha a altura do terminal (#64)
+  const { rows } = useWindowSize();
+  const viewportRows = viewport ?? listRows(rows, DIFF_CHROME, { cap: 20 });
+  const maxOffset = Math.max(lines.length - viewportRows, 0);
   // Ref espelha o offset: o handler do ink pode rodar antes do estado novo (mesmo padrão do app)
   const offsetRef = useRef(0);
   const [offset, setOffsetState] = useState(0);
+  const displayOffset = Math.min(offset, maxOffset);
+  useEffect(() => {
+    if (offset === displayOffset) return;
+    offsetRef.current = displayOffset;
+    setOffsetState(displayOffset);
+  }, [offset, displayOffset]);
   const setOffset = (next: number): void => {
-    const max = Math.max(lines.length - viewport, 0);
-    const clamped = Math.min(Math.max(next, 0), max);
+    const clamped = Math.min(Math.max(next, 0), maxOffset);
     offsetRef.current = clamped;
     setOffsetState(clamped);
   };
@@ -45,12 +56,12 @@ export function DiffViewer({ path, diff, colors, onClose, viewport = DEFAULT_VIE
       setOffset(offsetRef.current + 1);
       return;
     }
-    if (key.pageUp) setOffset(offsetRef.current - viewport);
-    if (key.pageDown) setOffset(offsetRef.current + viewport);
+    if (key.pageUp) setOffset(offsetRef.current - viewportRows);
+    if (key.pageDown) setOffset(offsetRef.current + viewportRows);
   });
 
-  const visible = lines.slice(offset, offset + viewport);
-  const last = Math.min(offset + viewport, lines.length);
+  const visible = lines.slice(displayOffset, displayOffset + viewportRows);
+  const last = Math.min(displayOffset + viewportRows, lines.length);
   return (
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>
@@ -68,7 +79,7 @@ export function DiffViewer({ path, diff, colors, onClose, viewport = DEFAULT_VIE
         </Text>
       ))}
       <Text dimColor>
-        {`↑↓/jk rolar · pgup/pgdn página · esc/q voltar · linha ${lines.length === 0 ? 0 : offset + 1}-${last}/${lines.length}`}
+        {`↑↓/jk rolar · pgup/pgdn página · esc/q voltar · linha ${lines.length === 0 ? 0 : displayOffset + 1}-${last}/${lines.length}`}
       </Text>
     </Box>
   );

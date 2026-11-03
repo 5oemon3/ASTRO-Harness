@@ -1,8 +1,12 @@
 /** Modal de sessões da TUI (#64): listar, renomear e retomar. */
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useWindowSize } from "ink";
 import { useRef, useState, type ReactElement } from "react";
 import { sessionSummaryLine, type SessionSummary } from "../chat/store";
 import type { ThemeColors } from "./theme";
+import { listRows, listWindow } from "./viewport";
+
+/** Borda (2) + título + dica + marcadores (2). */
+const PICKER_CHROME = 6;
 
 export interface SessionPickerProps {
   sessions: readonly SessionSummary[];
@@ -12,13 +16,17 @@ export interface SessionPickerProps {
   onResume(session: SessionSummary): void;
   /** Aplica o nome à sessão escolhida (por path, seguro a ids duplicados). */
   onRename(session: SessionSummary, name: string): string | undefined;
+  /** Linhas visíveis da lista; default derivado da altura do terminal. */
+  maxRows?: number;
 }
 
 export function SessionPicker({
-  sessions, colors, onClose, onExit, onResume, onRename,
+  sessions, colors, onClose, onExit, onResume, onRename, maxRows,
 }: SessionPickerProps): ReactElement {
   // Refs espelham o estado: o handler do ink pode rodar antes do efeito do
   // useEffectEvent ver o render novo (mesmo padrão do inputRef do app)
+  const { rows } = useWindowSize();
+  const windowRows = maxRows ?? listRows(rows, PICKER_CHROME);
   const selectedRef = useRef(0);
   const renamingRef = useRef(false);
   const draftRef = useRef("");
@@ -28,6 +36,7 @@ export function SessionPicker({
   const [draft, setDraftState] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
   const index = Math.min(selected, Math.max(sessions.length - 1, 0));
+  const visible = listWindow(sessions.length, index, windowRows);
 
   const move = (delta: number): void => {
     if (sessions.length === 0) return;
@@ -107,12 +116,17 @@ export function SessionPicker({
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>Sessões</Text>
       {sessions.length === 0 ? <Text dimColor>nenhuma sessão salva</Text> : null}
-      {sessions.map((item, position) => (
-        <Text key={item.path} color={position === index ? colors.accent : undefined}>
-          {position === index ? "> " : "  "}
-          {sessionSummaryLine(item, position)}
-        </Text>
-      ))}
+      {visible.start > 0 ? <Text dimColor>{`… ${visible.start} acima`}</Text> : null}
+      {sessions.slice(visible.start, visible.end).map((item, offset) => {
+        const position = visible.start + offset;
+        return (
+          <Text key={item.path} color={position === index ? colors.accent : undefined}>
+            {position === index ? "> " : "  "}
+            {sessionSummaryLine(item, position)}
+          </Text>
+        );
+      })}
+      {visible.end < sessions.length ? <Text dimColor>{`… ${sessions.length - visible.end} abaixo`}</Text> : null}
       {renaming ? <Text>nome: {draft}_</Text> : null}
       {error === undefined ? null : <Text color={colors.error}>{error}</Text>}
       <Text dimColor>{renaming ? "enter salvar · esc cancelar" : "↑↓ mover · enter retomar · r renomear · esc voltar"}</Text>

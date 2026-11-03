@@ -93,6 +93,22 @@ test("diff vazio renderiza sem quebrar e j além do fim prende no último lote (
   } finally { instance.unmount(); }
 });
 
+test("sem viewport explícito, a janela vem das linhas do terminal (#64)", async () => {
+  const instance = render(
+    <DiffViewer path="big.ts" diff={longDiff(30)} colors={colors} onClose={() => {}} />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("linha 1-"));
+    Object.defineProperty(instance.stdout, "rows", { get: () => 10, configurable: true });
+    instance.stdout.emit("resize");
+    await waitFor(() => frame(instance).includes("linha 1-6/31")); // 10 - chrome 4 = 6
+    expect(frame(instance)).toContain("line-05");
+    expect(frame(instance)).not.toContain("line-06");
+    for (let i = 0; i < 100; i++) instance.stdin.write("j");
+    await waitFor(() => frame(instance).includes("linha 26-31/31"));
+  } finally { instance.unmount(); }
+});
+
 test("pgdn avança uma página e esc/q fecham o overlay (#64)", async () => {
   let closed = 0;
   const instance = render(
