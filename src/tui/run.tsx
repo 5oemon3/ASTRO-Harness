@@ -8,7 +8,7 @@ import { NoProviderError, NO_PROVIDER_MESSAGE } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
 import { trustChoice, trustPrompt } from "../trust";
 import { createApprovalBridge } from "./approvals";
-import { createShellRunner } from "./shell";
+import { createShellRunner, type ShellRunner } from "./shell";
 import { getThemeColors, loadTuiConfig } from "./theme";
 
 export interface RunTuiOptions {
@@ -64,6 +64,31 @@ export async function withProviderSetup<T>(
   }
 }
 
+export interface TuiBootstrapOptions<T> {
+  createSession(): T;
+  setup(): Promise<boolean>;
+  createShell(): ShellRunner;
+  allowMissingConfig: boolean;
+}
+
+export interface TuiBootstrap<T> {
+  session: T;
+  shell: ShellRunner;
+}
+
+/**
+ * Bootstrap testável da TUI: sessão e shell só são criados depois que o
+ * provider existe. O shell carrega a config efetiva, então criá-lo antes do
+ * setup escondia a tela de providers (#348).
+ */
+export async function bootstrapTui<T>(opts: TuiBootstrapOptions<T>): Promise<TuiBootstrap<T> | undefined> {
+  return await withProviderSetup(
+    () => ({ session: opts.createSession(), shell: opts.createShell() }),
+    opts.setup,
+    opts.allowMissingConfig,
+  );
+}
+
 /** Tela de providers standalone; resolve true quando um perfil foi ativado. */
 export async function setupProvider(manager: ProfileManager, cwd: string): Promise<boolean> {
   const [{ render }, { ProviderScreen }] = await Promise.all([
@@ -107,10 +132,6 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     ]);
     const cwd = resolve(opts.cwd);
     const approvals = createApprovalBridge();
-    const shell = createShellRunner({
-      configPath: resolve(opts.configPath), cwd, env: opts.env ?? process.env,
-      allowMissingConfig: opts.allowMissingConfig === true,
-    });
     const configPath = resolve(opts.configPath);
     const project = existsSync(configPath) ? loadConfig(configPath) : undefined;
     const manager = new ProfileManager({
@@ -129,15 +150,20 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       ...(model === undefined ? {} : { model }),
     });
     // `--provider` explícito vence o último modelo salvo em .astro/tui.json.
-    const session = await withProviderSetup(
-      () => (opts.provider === undefined ? openSession(createSession, cwd) : createSession()),
-      () => setupProvider(manager, cwd),
-      opts.allowMissingConfig === true,
-    );
-    if (session === undefined) {
+    const boot = await bootstrapTui({
+      createSession: () => (opts.provider === undefined ? openSession(createSession, cwd) : createSession()),
+      setup: () => setupProvider(manager, cwd),
+      createShell: () => createShellRunner({
+        configPath, cwd, env: opts.env ?? process.env,
+        allowMissingConfig: opts.allowMissingConfig === true,
+      }),
+      allowMissingConfig: opts.allowMissingConfig === true,
+    });
+    if (boot === undefined) {
       console.error(`erro: ${NO_PROVIDER_MESSAGE}`);
       return 1;
     }
+    const { session, shell } = boot;
     for (const warning of session.warnings) console.error(`aviso: ${warning}`);
     const store = new SessionStore(resolve(cwd, ".astro", "sessions"));
     let instance: ReturnType<typeof render> | undefined;
