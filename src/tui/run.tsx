@@ -6,7 +6,9 @@ import { ConfigError, loadConfig } from "../config";
 import { ProfileManager } from "../provider/profile-manager";
 import { NoProviderError, NO_PROVIDER_MESSAGE } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
+import { isVaultCredentialRef, VAULT_REF_PREFIX } from "../secrets";
 import { trustChoice, trustPrompt } from "../trust";
+import { Vault, vaultPath } from "../vault";
 import { createApprovalBridge } from "./approvals";
 import { createShellRunner, type ShellRunner } from "./shell";
 import { getThemeColors, loadTuiConfig } from "./theme";
@@ -90,7 +92,12 @@ export async function bootstrapTui<T>(opts: TuiBootstrapOptions<T>): Promise<Tui
 }
 
 /** Tela de providers standalone; resolve true quando um perfil foi ativado. */
-export async function setupProvider(manager: ProfileManager, cwd: string): Promise<boolean> {
+export async function setupProvider(
+  manager: ProfileManager,
+  cwd: string,
+  onSaveSecret?: (providerId: string, secret: string) => string,
+  onDiscardSecret?: (ref: string) => void,
+): Promise<boolean> {
   const [{ render }, { ProviderScreen }] = await Promise.all([
     import("ink"),
     import("./provider-screen"),
@@ -112,6 +119,8 @@ export async function setupProvider(manager: ProfileManager, cwd: string): Promi
         onClose={() => finish(false)}
         onActivate={() => finish(true)}
         onChanged={() => undefined}
+        {...(onSaveSecret === undefined ? {} : { onSaveSecret })}
+        {...(onDiscardSecret === undefined ? {} : { onDiscardSecret })}
       />,
       TUI_RENDER_OPTIONS,
     );
@@ -132,6 +141,16 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     ]);
     const cwd = resolve(opts.cwd);
     const approvals = createApprovalBridge();
+    // Chave digitada no setup vai para o cofre (ADR-0019); o perfil guarda só o ref.
+    const vault = new Vault(vaultPath(opts.env ?? process.env));
+    const saveSecret = (providerId: string, secret: string): string => {
+      const created = vault.create({ providerId, label: "tui", secret });
+      return `vault:${created.id}`;
+    };
+    const discardSecret = (ref: string): void => {
+      if (!isVaultCredentialRef(ref)) return;
+      try { vault.remove(ref.slice(VAULT_REF_PREFIX.length)); } catch { /* preserva o erro original */ }
+    };
     const configPath = resolve(opts.configPath);
     const project = existsSync(configPath) ? loadConfig(configPath) : undefined;
     const manager = new ProfileManager({
@@ -152,7 +171,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     // `--provider` explícito vence o último modelo salvo em .astro/tui.json.
     const boot = await bootstrapTui({
       createSession: () => (opts.provider === undefined ? openSession(createSession, cwd) : createSession()),
-      setup: () => setupProvider(manager, cwd),
+      setup: () => setupProvider(manager, cwd, saveSecret, discardSecret),
       createShell: () => createShellRunner({
         configPath, cwd, env: opts.env ?? process.env,
         allowMissingConfig: opts.allowMissingConfig === true,
@@ -178,6 +197,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           approvals={approvals}
           shell={shell}
           manager={manager}
+          saveSecret={saveSecret}
+          discardSecret={discardSecret}
           onExit={() => instance?.unmount()}
         />,
         TUI_RENDER_OPTIONS,

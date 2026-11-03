@@ -7,6 +7,7 @@ import type { ProfileModel } from "../provider/profiles";
 import type { HealthCheck } from "../health";
 import type { CodexLoginStart } from "../provider/codex-login";
 import { redactSecrets } from "../sanitize-external";
+import { isEnvName, isVaultCredentialRef, looksLikeSecret } from "../secrets";
 import { formatProviderCheck } from "./health";
 import type { ThemeColors } from "./theme";
 
@@ -23,6 +24,10 @@ export interface ProviderScreenProps {
   onTest?: (id: string) => Promise<HealthCheck>;
   /** Login device flow do Codex; ausente desabilita `l`. */
   onLogin?: (id: string, signal?: AbortSignal) => Promise<CodexLoginStart>;
+  /** Salva uma chave digitada no cofre e devolve `vault:<id>`; ausente = cofre indisponível. */
+  onSaveSecret?: (providerId: string, secret: string) => string;
+  /** Desfaz uma credencial recém-criada quando o perfil não pôde ser gravado. */
+  onDiscardSecret?: (ref: string) => void;
 }
 
 type Step = "catalog" | "name" | "baseUrl" | "models" | "credential" | "confirm";
@@ -78,7 +83,7 @@ export function listActions(opts: {
 }
 
 export function ProviderScreen({
-  manager, colors, currentModel, initial, onClose, onActivate, onChanged, onTest, onLogin,
+  manager, colors, currentModel, initial, onClose, onActivate, onChanged, onTest, onLogin, onSaveSecret, onDiscardSecret,
 }: ProviderScreenProps): ReactElement {
   const initialList = manager.list();
   const initialTarget = initial?.target === undefined
@@ -110,6 +115,9 @@ export function ProviderScreen({
   const [baseUrl, setBaseUrl] = useState(initialEdit?.baseUrl ?? "");
   const [models, setModels] = useState(initialEdit?.models.map((model) => model.id).join(";") ?? "");
   const [credential, setCredential] = useState(initialEdit?.credentialRef ?? "");
+  // Chave digitada fica só na ref até o save; nunca no estado/render (I-03).
+  const secretRef = useRef<string | undefined>(undefined);
+  const [credentialIsSecret, setCredentialIsSecret] = useState(false);
   const [message, setMessage] = useState<string | undefined>(() => {
     if (initial?.target === undefined) return undefined;
     if (initialTarget === undefined) return `provider "${initial.target}" não encontrado`;
@@ -149,6 +157,8 @@ export function ProviderScreen({
     setBaseUrl("");
     setModels("");
     setCredential("");
+    secretRef.current = undefined;
+    setCredentialIsSecret(false);
     setMessage(undefined);
     setView("form");
   };
@@ -166,6 +176,8 @@ export function ProviderScreen({
     setBaseUrl(profile.baseUrl ?? "");
     setModels(profile.models.map((model) => model.id).join(";"));
     setCredential(profile.credentialRef ?? "");
+    secretRef.current = undefined;
+    setCredentialIsSecret(false);
     setMessage(undefined);
     setView("form");
   };
@@ -177,12 +189,13 @@ export function ProviderScreen({
       setMessage("informe ao menos um modelo");
       return;
     }
-    const draft: ProfileDraft = {
+    const secret = secretRef.current;
+    const baseDraft: ProfileDraft = {
       name,
       kind: editing?.kind ?? entry?.kind ?? "openai-compat",
       models: parsedModels,
       ...(baseUrl === "" ? {} : { baseUrl }),
-      ...(credential === "" ? {} : { credentialRef: credential }),
+      ...(credential === "" || credentialIsSecret ? {} : { credentialRef: credential }),
       ...(editing?.credentialsPath === undefined && entry?.credentialsPath === undefined
         ? {}
         : { credentialsPath: editing?.credentialsPath ?? entry?.credentialsPath }),
@@ -191,29 +204,60 @@ export function ProviderScreen({
         : { quotaDomain: editing?.quotaDomain ?? entry?.quotaDomain ?? entry?.key }),
       ...(editing?.headers === undefined ? {} : { headers: editing.headers }),
     };
-    try {
-      const saved = editing === undefined ? manager.add(draft) : manager.edit(editing.id, draft);
-      let activationError: string | undefined;
-      if (editing === undefined) {
-        try {
-          manager.use(saved.id);
-        } catch (error) {
-          activationError = messageOf(error);
-        }
-      }
-      onChanged?.();
-      if (editing === undefined && activationError === undefined) {
-        try {
-          onActivate(saved.id);
-        } catch (error) {
-          activationError = messageOf(error);
-        }
-      }
-      setView("list");
-      setMessage(activationError === undefined ? `salvo: ${saved.id}` : `salvo: ${saved.id} (não ativado: ${activationError})`);
-    } catch (error) {
-      setMessage(messageOf(error));
+    if (secret !== undefined && onSaveSecret === undefined) {
+      setMessage("cofre de credenciais indisponível nesta tela; use uma variável de ambiente");
+      return;
     }
+    let saved: ProfileView;
+    let addedId: string | undefined;
+    let createdRef: string | undefined;
+    try {
+      if (secret !== undefined && editing !== undefined) {
+        // Edição: cria no cofre ANTES de tocar no perfil; falha preserva a ref antiga.
+        createdRef = onSaveSecret!(editing.id, secret);
+        saved = manager.edit(editing.id, { ...baseDraft, credentialRef: createdRef });
+      } else if (editing === undefined) {
+        saved = manager.add(baseDraft);
+        addedId = saved.id;
+        if (secret !== undefined) {
+          createdRef = onSaveSecret!(saved.id, secret);
+          saved = manager.edit(saved.id, { ...baseDraft, credentialRef: createdRef });
+        }
+      } else {
+        saved = manager.edit(editing.id, baseDraft);
+      }
+    } catch (error) {
+      // Não deixa perfil novo sem a chave pretendida nem credencial órfã.
+      if (createdRef !== undefined) onDiscardSecret?.(createdRef);
+      if (addedId !== undefined) {
+        try { manager.remove(addedId); } catch { /* preserva o erro original */ }
+      }
+      setMessage(messageOf(error));
+      return;
+    }
+    if (createdRef !== undefined) {
+      secretRef.current = undefined;
+      setCredentialIsSecret(false);
+      setCredential(createdRef);
+    }
+    let activationError: string | undefined;
+    if (editing === undefined) {
+      try {
+        manager.use(saved.id);
+      } catch (error) {
+        activationError = messageOf(error);
+      }
+    }
+    onChanged?.();
+    if (editing === undefined && activationError === undefined) {
+      try {
+        onActivate(saved.id);
+      } catch (error) {
+        activationError = messageOf(error);
+      }
+    }
+    setView("list");
+    setMessage(activationError === undefined ? `salvo: ${saved.id}` : `salvo: ${saved.id} (não ativado: ${activationError})`);
   };
 
   const startLogin = (profile: ProfileView): void => {
@@ -456,9 +500,29 @@ export function ProviderScreen({
         setMessage("base url é obrigatória");
         return;
       }
-      if (step === "credential" && credential.trim() !== "" && kind !== "codex-oauth") {
-        const valid = /^[A-Z_][A-Z0-9_]*$/.test(credential.trim());
-        if (!valid) { setMessage("use o nome da variável, ex.: OPENAI_API_KEY"); return; }
+      if (step === "credential" && kind !== "codex-oauth") {
+        const value = credential.trim();
+        if (value === "") {
+          secretRef.current = undefined;
+          setCredentialIsSecret(false);
+          setCredential("");
+        } else if (looksLikeSecret(value)) {
+          // Chave tem prioridade sobre "nome de env" (AKIA... também casa ENV_NAME).
+          if (onSaveSecret === undefined) {
+            setMessage("cofre de credenciais indisponível nesta tela; use uma variável de ambiente");
+            return;
+          }
+          secretRef.current = value;
+          setCredentialIsSecret(true);
+          setCredential("");
+        } else if (isEnvName(value) || isVaultCredentialRef(value)) {
+          secretRef.current = undefined;
+          setCredentialIsSecret(false);
+          setCredential(value);
+        } else {
+          setMessage("use o nome da variável (ex.: OPENAI_API_KEY) ou cole a chave completa");
+          return;
+        }
       }
       setMessage(undefined);
       setStep(STEPS[index + 1] ?? "confirm");
@@ -537,7 +601,7 @@ export function ProviderScreen({
       name: "Nome",
       baseUrl: "Base URL",
       models: "Modelos (separe com ;)",
-      credential: "Variável da chave (vazio = sem chave)",
+      credential: "Variável da chave ou chave colada (vazio = sem chave)",
       confirm: "Confirmar",
     };
     const value = step === "name" ? name
@@ -561,7 +625,7 @@ export function ProviderScreen({
                   <Text>nome:    {name}</Text>
                   <Text>baseUrl: {baseUrl || "-"}</Text>
                   <Text>modelos: {models}</Text>
-                  <Text>chave:   {credential || "-"}</Text>
+                  <Text>chave:   {credentialIsSecret ? "vault:<novo>" : credential || "-"}</Text>
                   <Text dimColor>enter salvar · esc voltar</Text>
                 </Box>
               )

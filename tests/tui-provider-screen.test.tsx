@@ -237,6 +237,116 @@ test("a abre o formulário e salva um provider custom", async () => {
   instance.unmount();
 });
 
+const fakeSecret = ["s", "k", "-"].join("") + "live-abcdef12345";
+
+const frame = (instance: ReturnType<typeof render>): string => instance.lastFrame() ?? "";
+
+async function fillCredentialsStep(instance: ReturnType<typeof render>): Promise<void> {
+  await waitFor(() => frame(instance).includes("De onde partir?"));
+  instance.stdin.write("\r");
+  await waitFor(() => frame(instance).includes("Nome"));
+  instance.stdin.write("Local");
+  instance.stdin.write("\r");
+  await waitFor(() => frame(instance).includes("Base URL"));
+  instance.stdin.write("http://localhost:1/v1");
+  await waitFor(() => frame(instance).includes("http://localhost:1/v1"));
+  instance.stdin.write("\r");
+  await waitFor(() => frame(instance).includes("Modelos"));
+  instance.stdin.write("m1");
+  await waitFor(() => frame(instance).includes("m1"));
+  instance.stdin.write("\r");
+  await waitFor(() => frame(instance).includes("Variável da chave"));
+}
+
+test("chave colada vai para o cofre e o perfil usa vault:<id> (#350)", async () => {
+  const m = manager();
+  let savedProvider = "";
+  let savedSecret = "";
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={(providerId, secret) => {
+        savedProvider = providerId;
+        savedSecret = secret;
+        return "vault:cred-12345678";
+      }}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write(fakeSecret);
+    await waitFor(() => frame(instance).includes("******"));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("Confirmar"));
+    expect(frame(instance)).toContain("vault:<novo>");
+    expect(frame(instance)).not.toContain(fakeSecret);
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("salvo: local"));
+    expect(savedProvider).toBe("local");
+    expect(savedSecret).toBe(fakeSecret);
+    const stored = m.list().find((item) => item.id === "local");
+    expect(stored?.credentialRef).toBe("vault:cred-12345678");
+    expect(JSON.stringify(m.list())).not.toContain(fakeSecret);
+    expect(frame(instance)).not.toContain(fakeSecret);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("chave sem cofre disponível não grava o perfil nem ecoa o segredo (#350)", async () => {
+  const m = manager();
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write(fakeSecret);
+    await waitFor(() => frame(instance).includes("******"));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("cofre de credenciais indisponível"));
+    expect(frame(instance)).toContain("Variável da chave");
+    expect(frame(instance)).not.toContain(fakeSecret);
+    expect(m.list().some((item) => item.id === "local")).toBe(false);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("entrada que não é env nem chave reconhecível fica no passo (#350)", async () => {
+  const m = manager();
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={() => "vault:cred-12345678"}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write("minha-chave");
+    await waitFor(() => frame(instance).includes("***********")); // 11 chars
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("cole a chave completa"));
+    expect(frame(instance)).toContain("Variável da chave");
+    expect(m.list().some((item) => item.id === "local")).toBe(false);
+  } finally {
+    instance.unmount();
+  }
+});
+
 test("edit preserva headers e remove confirma", async () => {
   const m = manager();
   const added = m.add({
@@ -429,6 +539,167 @@ test("menu de ações aceita número direto e m fecha o menu (#272)", async () =
     await waitFor(() => instance.lastFrame()?.includes("astro.config.json") === true);
     instance.stdin.write("m");
     await waitFor(() => (instance.lastFrame()?.includes("Ações") ?? false) === false);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("chave no formato AWS (uppercase) vai para o cofre, não para credentialRef (#351)", async () => {
+  const m = manager();
+  const awsKey = "AKIAIOSFODNN7EXAMPLE";
+  let savedSecret = "";
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={(_id, secret) => {
+        savedSecret = secret;
+        return "vault:cred-12345678";
+      }}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write(awsKey);
+    await waitFor(() => frame(instance).includes("*".repeat(awsKey.length)));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("Confirmar"));
+    expect(frame(instance)).toContain("vault:<novo>");
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("salvo: local"));
+    expect(savedSecret).toBe(awsKey);
+    expect(m.list().find((item) => item.id === "local")?.credentialRef).toBe("vault:cred-12345678");
+    expect(JSON.stringify(m.list())).not.toContain(awsKey);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("nome de variável continua indo para credentialRef (#350)", async () => {
+  const m = manager();
+  let vaultCalls = 0;
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={() => { vaultCalls++; return "vault:cred-12345678"; }}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write("OPENAI_API_KEY");
+    await waitFor(() => frame(instance).includes("*".repeat("OPENAI_API_KEY".length)));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("Confirmar"));
+    expect(frame(instance)).toContain("OPENAI_API_KEY");
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("salvo: local"));
+    expect(vaultCalls).toBe(0);
+    expect(m.list().find((item) => item.id === "local")?.credentialRef).toBe("OPENAI_API_KEY");
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("editar perfil com vault:<id> preserva a ref ao passar pelo passo (#351)", async () => {
+  const m = manager();
+  const added = m.add({
+    name: "Casa", kind: "openai-compat", baseUrl: "https://casa.example/v1",
+    credentialRef: "vault:cred-12345678",
+    models: [{ id: "m1", tags: ["writing-code"], context: 8192 }],
+  });
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "edit", target: added.id }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={() => { throw new Error("não deveria criar credencial"); }}
+    />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("Editar casa"));
+    for (const label of ["Base URL", "Modelos", "Variável da chave", "Confirmar"]) {
+      instance.stdin.write("\r");
+      await waitFor(() => frame(instance).includes(label));
+    }
+    expect(frame(instance)).toContain("vault:cred-12345678");
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("salvo: casa"));
+    expect(m.list().find((item) => item.id === "casa")?.credentialRef).toBe("vault:cred-12345678");
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("falha do cofre em edição preserva a credencial antiga (#351)", async () => {
+  const m = manager();
+  const added = m.add({
+    name: "Casa", kind: "openai-compat", baseUrl: "https://casa.example/v1", credentialRef: "KEY",
+    models: [{ id: "m1", tags: ["writing-code"], context: 8192 }],
+  });
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "edit", target: added.id }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={() => { throw new Error("cofre falhou"); }}
+    />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("Editar casa"));
+    for (const label of ["Base URL", "Modelos", "Variável da chave"]) {
+      instance.stdin.write("\r");
+      await waitFor(() => frame(instance).includes(label));
+    }
+    instance.stdin.write("\u007f".repeat("KEY".length)); // limpa a ref antiga
+    instance.stdin.write(fakeSecret);
+    await waitFor(() => frame(instance).includes("*".repeat(fakeSecret.length)));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("Confirmar"));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("cofre falhou"));
+    expect(m.list().find((item) => item.id === "casa")?.credentialRef).toBe("KEY");
+    expect(frame(instance)).not.toContain(fakeSecret);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("ref de cofre inválida desfaz o perfil e descarta a credencial criada (#351)", async () => {
+  const m = manager();
+  let discarded = "";
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={() => "vault:invalido"}
+      onDiscardSecret={(ref) => { discarded = ref; }}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write(fakeSecret);
+    await waitFor(() => frame(instance).includes("*".repeat(fakeSecret.length)));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("Confirmar"));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("credentialRef"));
+    expect(discarded).toBe("vault:invalido");
+    expect(m.list().some((item) => item.id === "local")).toBe(false);
+    expect(frame(instance)).not.toContain(fakeSecret);
   } finally {
     instance.unmount();
   }
