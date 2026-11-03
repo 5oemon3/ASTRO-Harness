@@ -620,6 +620,46 @@ test("mostra deltas e substitui pela resposta final", async () => {
   }
 });
 
+test("streaming com throttle longo: leading edge imediata e resto bufferizado na janela (#64)", async () => {
+  class FastStreamer extends FakeSession {
+    override async send(prompt: string, signal?: AbortSignal, onToken?: (text: string) => void): Promise<TurnResult> {
+      onToken?.("par");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      onToken?.("cial");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return super.send(prompt, signal);
+    }
+  }
+  const instance = render(<TuiApp session={new FastStreamer()} cwd="/tmp/astro" streamThrottleMs={1000} />);
+  try {
+    instance.stdin.write("olá");
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes("par") === true);
+    // dentro da janela de 1000ms o resto fica bufferizado (não renderiza "parcial")
+    expect(instance.lastFrame()).not.toContain("parcial");
+    await waitFor(() => instance.lastFrame()?.includes("eco:olá") === true);
+    expect(instance.lastFrame()).not.toContain("parcial");
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("histórico longo é virtualizado com marcador de mensagens anteriores (#64)", async () => {
+  const instance = render(<TuiApp session={new FakeSession()} cwd="/tmp/astro" historyLimit={3} />);
+  try {
+    for (const msg of ["m1", "m2", "m3"]) {
+      instance.stdin.write(msg);
+      instance.stdin.write("\r");
+      await waitFor(() => instance.lastFrame()?.includes(`eco:${msg}`) === true);
+    }
+    // 1 boas-vindas + 3 turnos × (user/assistant/info) = 10 entradas; janela = 3 → 7 ocultas
+    await waitFor(() => frameHas(instance, "… 7 mensagens anteriores"));
+    expect(frameHas(instance, "eco:m3")).toBe(true);
+  } finally {
+    instance.unmount();
+  }
+});
+
 test("/config abre a tela de configuração e trocar o modo atualiza o footer (#273)", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-config-"));
   class ConfigSession extends FakeSession {

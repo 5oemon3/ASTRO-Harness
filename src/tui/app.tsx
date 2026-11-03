@@ -28,6 +28,8 @@ import { ConfigScreen } from "./config-screen";
 import { loadTrustedStore, trustedPath } from "../trust";
 import type { ProfileManager } from "../provider/profile-manager";
 import { budgetSegment } from "../chat/usage";
+import { createThrottledSink, STREAM_THROTTLE_MS } from "./stream";
+import { HISTORY_LIMIT, visibleWindow } from "./history";
 
 export interface TuiAppProps {
   session: ChatSession;
@@ -40,6 +42,10 @@ export interface TuiAppProps {
   onExit?: () => void;
   /** Tempo de vida dos toasts em ms (#64); testes usam valores curtos. */
   toastTtlMs?: number;
+  /** Janela do throttle de streaming em ms (#64); default STREAM_THROTTLE_MS. */
+  streamThrottleMs?: number;
+  /** Entradas do histórico visíveis no <Static> (#64); default HISTORY_LIMIT. */
+  historyLimit?: number;
 }
 
 interface Status {
@@ -100,7 +106,7 @@ export function activateProvider(
   persistLastModel(cwd, session.snapshot().model, onWarning);
 }
 
-export function TuiApp({ session, cwd, branch, store, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS }: TuiAppProps): ReactElement {
+export function TuiApp({ session, cwd, branch, store, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS, streamThrottleMs = STREAM_THROTTLE_MS, historyLimit = HISTORY_LIMIT }: TuiAppProps): ReactElement {
   const [entries, setEntries] = useState<Entry[]>([{ kind: "info", text: WELCOME }]);
   const [question, setQuestion] = useState<ApprovalQuestion | undefined>(() => approvals?.current());
   const [files, setFiles] = useState<string[]>([]);
@@ -158,6 +164,16 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     setToasts((current) => pushToast(current, toast, Date.now()));
   };
   const seenEntries = useRef(0);
+  // Virtualização do histórico (#64): o <Static> do ink é append-only por
+  // contagem (items.slice(index)), então o corte da janela acontece num update
+  // separado (efeito abaixo), nunca atomicamente com o append — senão itens na
+  // borda seriam pulados. As ocultas viram marcador acima do <Static>.
+  const [hiddenEntries, setHiddenEntries] = useState(0);
+  useEffect(() => {
+    if (entries.length <= historyLimit) return;
+    setHiddenEntries((hidden) => hidden + (entries.length - historyLimit));
+    setEntries((current) => visibleWindow(current, historyLimit));
+  }, [entries.length, historyLimit]);
 
   // Toasts de erro (#64): qualquer entrada de erro nova vira toast transitório;
   // o histórico em `<Static>` continua sendo a fonte permanente
@@ -328,12 +344,16 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     const controller = new AbortController();
     turn.current = controller;
     setBusy(true);
+    // deltas do provider passam pelo throttle: leading edge + trailing (#64)
+    const sink = createThrottledSink({
+      intervalMs: streamThrottleMs,
+      now: () => Date.now(),
+      schedule: (cb, ms) => { setTimeout(cb, ms); },
+      emit: (text) => setPartial((current) => (current ?? "") + text),
+    });
     try {
-      let streamed = "";
-      const result = await session.send(command.text, controller.signal, (delta) => {
-        streamed += delta;
-        setPartial(streamed);
-      });
+      const result = await session.send(command.text, controller.signal, (delta) => sink.add(delta));
+      sink.flush();
       setPartial(undefined);
       setEntries((current) => [
         ...current,
@@ -345,6 +365,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
       if (isFatalSessionError(error)) exitRequested.current = true;
     } finally {
+      sink.flush(); // invalida timer pendente: nenhum delta emite depois do turno
       setPartial(undefined);
       const saved = persist(true);
       if (saved.failed) commandState.current.lastFile = undefined;
@@ -647,6 +668,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
   return (
     <Box flexDirection="column">
       <Banner colors={colors} provider={providerId} model={status.model} endpoint={endpoint} state={healthState} mode={mode} />
+      {hiddenEntries > 0 ? <Text dimColor>{`… ${hiddenEntries} mensagens anteriores`}</Text> : null}
       <Static items={entries}>
         {(entry, index) => <EntryLine key={index} entry={entry} colors={colors} />}
       </Static>
