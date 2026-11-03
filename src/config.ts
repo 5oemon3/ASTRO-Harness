@@ -7,7 +7,7 @@ import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type Thin
 import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "./output-limit";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
 import { isPermissionMode, DEFAULT_PERMISSION_MODE, type PermissionMode } from "./permissions";
-import { isAuthHeader, looksLikeSecret } from "./secrets";
+import { isAuthHeader, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
 import { headerEnvName, isValidHeaderName } from "./mcp/headers";
 import { outboundUrlProblem } from "./url-safety";
 import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "./tags";
@@ -405,12 +405,17 @@ function validateProvider(name: string, value: unknown): ProviderConfig {
     // baseUrl recebe prompts e saída de tools: mesma regra de saída (SSRF/exfiltração).
     const baseUrlIssue = outboundUrlProblem(baseUrl);
     if (baseUrlIssue !== undefined) fail(`config inválida: "${field}.baseUrl" ${baseUrlIssue}`);
+    const credentialRef = raw.credentialRef === undefined
+      ? undefined
+      : expectString(raw.credentialRef, `${field}.credentialRef`);
+    // `vault:<credentialId>` é a outra fonte aceita (ADR-0019, #311)
+    if (credentialRef !== undefined && isVaultRef(credentialRef) && !isVaultCredentialRef(credentialRef)) {
+      fail(`config inválida: "${field}.credentialRef" deve ser um nome de variável de ambiente ou vault:<credentialId>`);
+    }
     return {
       kind,
       baseUrl,
-      ...(raw.credentialRef === undefined
-        ? {}
-        : { credentialRef: expectString(raw.credentialRef, `${field}.credentialRef`) }),
+      ...(credentialRef === undefined ? {} : { credentialRef }),
       quotaDomain,
       ...(headers === undefined ? {} : { headers }),
       ...fallbackFields,

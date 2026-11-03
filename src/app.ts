@@ -21,6 +21,9 @@ import { CompletionCache, cachedProvider } from "./cache";
 import { loadPlugins, pluginAllowlistFromEnv, type PluginProviderFactory } from "./plugins";
 import { sendAuditWebhook } from "./team";
 import { resolveTaskSkill } from "./skills/executor";
+import { resolveCredentialValue } from "./credential-ref";
+import { Vault, vaultPath } from "./vault";
+import { isVaultRef } from "./secrets";
 import type { AuditEvent } from "./audit";
 import { budgetStatus, restrictBudget, BudgetExceededError, type BudgetDecider, type BudgetStatus } from "./budget";
 import { MaxStepsError, runSession, runMultiAgentSession, type EffectiveIdentity, type IdentityResolver, type MultiAgentSessionOptions } from "./session";
@@ -201,8 +204,9 @@ function isCodexOAuth(p: ProviderConfig): p is CodexOAuthProviderConfig {
 }
 
 /**
- * Instancia o provider do modelo pelo `kind`. Segredos vêm apenas do ambiente
- * (`env[credentialRef]`) ou, no Codex, do arquivo de credenciais em modo leitura.
+ * Instancia o provider do modelo pelo `kind`. Segredos vêm do ambiente
+ * (`env[credentialRef]`) ou do cofre local (`vault:<credentialId>`), sempre em
+ * memória; no Codex, do arquivo de credenciais em modo leitura.
  * Kinds de plugin (F7-1) são criados pela factory registrada pelo plugin.
  * Exportado para o bench CLI construir providers a partir da config.
  */
@@ -211,14 +215,20 @@ export function createProvider(
   model: ModelEntry,
   env: Record<string, string | undefined>,
   pluginFactories: Map<string, PluginProviderFactory> = new Map(),
+  /** Injetável em testes; default lê o cofre do `ASTRO_HOME` do env. */
+  vault: Vault = new Vault(vaultPath(env)),
 ): ProviderSetup {
   const providerConfig = providerConfigFor(config, model);
   const { credentialRef, quotaDomain } = providerIdentity(config, model.provider);
 
   if (isOpenAICompat(providerConfig)) {
-    const apiKey = credentialRef === undefined ? undefined : env[credentialRef];
+    const apiKey = credentialRef === undefined
+      ? undefined
+      : resolveCredentialValue(credentialRef, env, vault);
     if (credentialRef !== undefined && (apiKey === undefined || apiKey.length === 0)) {
-      throw new Error(`defina ${credentialRef} no ambiente`);
+      throw new Error(isVaultRef(credentialRef)
+        ? `credencial de vault "${credentialRef}" vazia`
+        : `defina ${credentialRef} no ambiente`);
     }
 
     return {

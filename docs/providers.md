@@ -10,7 +10,7 @@ Objetivo: guia de configuração de providers, validação manual de credenciais
 
 | Kind | Providers | Credencial | Onde |
 |---|---|---|---|
-| `openai-compat` | NVIDIA NIM, OpenRouter, Ollama/LM Studio | `credentialRef` (env nomeada; opcional para provider local) | `src/provider/openai-compat.ts` |
+| `openai-compat` | NVIDIA NIM, OpenRouter, Ollama/LM Studio | `credentialRef` (env nomeada ou `vault:<credentialId>`; opcional para provider local) | `src/provider/openai-compat.ts` |
 | `codex-oauth` | Codex OAuth | `~/.codex/auth.json` (lido em runtime; o login da TUI grava nesse caminho) | `src/provider/codex-oauth.ts` |
 
 Kinds de plugin são aceitos com `kind` custom e factory registrada por plugin (`src/plugins.ts`, `src/config.ts`).
@@ -46,7 +46,7 @@ CRUD: `/provider add` (catálogo ou custom), `/provider edit <nome|id>`, `/provi
 
 ## Cofre local de credenciais (ADR-0019, #311)
 
-O cofre vive em `~/.astro/vault.json` (`ASTRO_HOME` sobrescreve): diretório 0700, arquivo 0600, escrita atômica (`src/vault.ts`). No Windows o segredo é cifrado com DPAPI via PowerShell (segredo só por variável de ambiente do processo filho, nunca na linha de comando); fora do Windows o modo é `plain` 0600, aceito explicitamente com aviso em `astro health` e no start de `chat`/`tui` (`vaultPlainWarning`, fora do agregado de providers). Validação estrita rejeita campo desconhecido e erro cita só o caminho (I-03); `vault.json` é caminho crítico em `src/permissions.ts`; `redactSecrets` cobre o par `"secret": "..."` inteiro. A classe `Vault` (uma credencial ativa por provider) guarda o valor decifrado só em memória durante o uso — listagens e health nunca o expõem. Nesta fatia o cofre ainda não é referenciado por `credentialRef` (B.2/B.3).
+O cofre vive em `~/.astro/vault.json` (`ASTRO_HOME` sobrescreve): diretório 0700, arquivo 0600, escrita atômica (`src/vault.ts`). No Windows o segredo é cifrado com DPAPI via PowerShell (segredo só por variável de ambiente do processo filho, nunca na linha de comando); fora do Windows o modo é `plain` 0600, aceito explicitamente com aviso em `astro health` e no start de `chat`/`tui` (`vaultPlainWarning`, fora do agregado de providers). Validação estrita rejeita campo desconhecido e erro cita só o caminho (I-03); `vault.json` é caminho crítico em `src/permissions.ts`; `redactSecrets` cobre o par `"secret": "..."` inteiro. A classe `Vault` (uma credencial ativa por provider) guarda o valor decifrado só em memória durante o uso — listagens e health nunca o expõem. `credentialRef` aceita `vault:<credentialId>` além de env nomeada: a resolução (`src/credential-ref.ts`) lê o valor do cofre em memória, erros nomeiam só o ref e id ausente ou malformado vira `ConfigError` (I-03); o ledger/audit continuam gravando o ref, nunca o valor.
 
 ## Custo e preço
 
@@ -150,7 +150,7 @@ Exemplo completo: `examples/tool-sql/sql.ts` (~70 linhas).
 |---|---|
 | 1 | Implementar `Provider.complete(req)` devolvendo `CompletionResponse` |
 | 2 | Classificar falhas com `ProviderError` (`transient_rate_limit`, `hard_quota`, `auth`, `outage`, `network_timeout`, `invalid_request`) |
-| 3 | Ler segredo só de `env[credentialRef]` (I-03) — nunca da config em claro |
+| 3 | Ler segredo de `env[credentialRef]` ou de `vault:<credentialId>` (I-03) — nunca da config em claro |
 | 4 | Envolver com `defineProviderFactory("meu-kind", create)` e exportar em plugin `definePlugin({ name, providers: [factory] })` |
 | 5 | Testar com `createMockProvider` e um servidor mock — sem rede real |
 

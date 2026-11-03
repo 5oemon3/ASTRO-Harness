@@ -19,3 +19,21 @@ export function looksLikeSecret(value: string): boolean {
   const text = trimmed.replace(/^(bearer|basic)\s+/i, "");
   return SECRET_VALUE.test(text);
 }
+
+/** Prefixo de `credentialRef` que aponta para o cofre local (ADR-0019). */
+export const VAULT_REF_PREFIX = "vault:";
+/** Id de credencial do cofre: `cred-<uuid>`. */
+const VAULT_ID = /^cred-[A-Za-z0-9-]{8,}$/;
+
+export function isVaultRef(value: string): boolean {
+  return value.startsWith(VAULT_REF_PREFIX);
+}
+
+export function isVaultId(value: string): boolean {
+  return VAULT_ID.test(value);
+}
+
+/** `vault:<credentialId>` bem formado; o id é público, o valor nunca (I-03). */
+export function isVaultCredentialRef(value: string): boolean {
+  return isVaultRef(value) && isVaultId(value.slice(VAULT_REF_PREFIX.length));
+}

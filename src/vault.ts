@@ -9,7 +9,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync,
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { looksLikeSecret } from "./secrets";
+import { isVaultId, looksLikeSecret } from "./secrets";
 
 export type VaultScheme = "dpapi" | "plain";
 
@@ -101,7 +101,6 @@ export function dpapiUnprotect(blob: string): string {
 
 const ROOT_KEYS = new Set(["version", "credentials"]);
 const CRED_KEYS = new Set(["id", "providerId", "label", "scheme", "secret", "createdAt", "lastUsedAt", "active"]);
-const ID_RE = /^cred-[A-Za-z0-9-]{8,}$/;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -124,7 +123,7 @@ export function validateVaultStore(raw: unknown): VaultStore {
     for (const key of Object.keys(cred)) {
       if (!CRED_KEYS.has(key)) fail("credencial contém campo desconhecido");
     }
-    if (typeof cred.id !== "string" || !ID_RE.test(cred.id)) fail(`"id" inválido`);
+    if (typeof cred.id !== "string" || !isVaultId(cred.id)) fail(`"id" inválido`);
     if (ids.has(cred.id)) fail(`"id" duplicado`);
     if (typeof cred.providerId !== "string" || cred.providerId.trim() === "") fail(`"providerId" inválido`);
     if (typeof cred.label !== "string" || cred.label.trim() === "") fail(`"label" inválido`);

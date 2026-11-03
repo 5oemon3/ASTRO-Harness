@@ -33,6 +33,16 @@ describe("config", () => {
     expect(cfg.models[0].status).toBe("active");
     expect(cfg.providers.openai.quotaDomain).toBe("default");
   });
+  test("credentialRef aceita env nomeada e vault:<credentialId>; vault malformado é erro (#311)", () => {
+    const withRef = (ref: string) => {
+      const raw = structuredClone(valid);
+      raw.providers.openai.credentialRef = ref;
+      return validateConfig(raw);
+    };
+    expect((withRef("OPENAI_API_KEY").providers.openai as { credentialRef?: string }).credentialRef).toBe("OPENAI_API_KEY");
+    expect((withRef("vault:cred-12345678-abcd").providers.openai as { credentialRef?: string }).credentialRef).toBe("vault:cred-12345678-abcd");
+    expect(() => withRef("vault:../etc")).toThrow(/credentialRef/);
+  });
   test("tag fora do vocabulário fechado → ConfigError", () => {
     const bad = structuredClone(valid);
     bad.models[0].tags.push("telepathy");

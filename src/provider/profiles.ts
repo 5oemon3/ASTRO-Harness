@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ConfigError, loadConfig, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../config";
 import { isKnownTag } from "../tags";
-import { isAuthHeader, looksLikeSecret } from "../secrets";
+import { isAuthHeader, isVaultCredentialRef, looksLikeSecret } from "../secrets";
 import { outboundUrlProblem } from "../url-safety";
 import { vaultMeta, vaultPath, vaultPlainWarning } from "../vault";
 
@@ -118,8 +118,8 @@ function validateProfile(raw: unknown, field: string): ProviderProfile {
   const credentialRef = profile.credentialRef === undefined
     ? undefined
     : asString(profile.credentialRef, `${field}.credentialRef`);
-  if (credentialRef !== undefined && !ENV_NAME.test(credentialRef)) {
-    fail(`"${field}.credentialRef" deve ser um nome de variável de ambiente (ex.: OPENAI_API_KEY)`);
+  if (credentialRef !== undefined && !ENV_NAME.test(credentialRef) && !isVaultCredentialRef(credentialRef)) {
+    fail(`"${field}.credentialRef" deve ser um nome de variável de ambiente (ex.: OPENAI_API_KEY) ou vault:<credentialId>`);
   }
   const credentialsPath = profile.credentialsPath === undefined
     ? undefined

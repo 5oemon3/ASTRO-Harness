@@ -61,6 +61,15 @@ test("rejeita credentialRef que não é nome de variável", () => {
     .toThrow(/credentialRef/);
 });
 
+test("aceita credentialRef vault:<credentialId> e rejeita id malformado (#311)", () => {
+  const store = validateProfileStore(storeWith({ ...baseProfile, credentialRef: "vault:cred-12345678-abcd" }));
+  expect(store.profiles[0]!.credentialRef).toBe("vault:cred-12345678-abcd");
+  expect(() => validateProfileStore(storeWith({ ...baseProfile, credentialRef: "vault:../etc" })))
+    .toThrow(/credentialRef/);
+  expect(() => validateProfileStore(storeWith({ ...baseProfile, credentialRef: "vault:" })))
+    .toThrow(/credentialRef/);
+});
+
 test("rejeita id duplicado", () => {
   expect(() => validateProfileStore({
     version: 1,
