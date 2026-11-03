@@ -21,6 +21,7 @@ import {
 } from "./model-choice";
 import type { QuotaLimit } from "./quota";
 import type { AgentEntry, Registry } from "./registry";
+import type { AgentPermission } from "./permissions";
 import { ROLE_TAGS } from "./tags";
 import type { Tool, ToolContext, ToolResult } from "./tools/types";
 
@@ -104,13 +105,14 @@ export class SpawnRegistry {
   }
 
   /** Converte o spawn para o contrato de agent do loop multi-agent. */
-  toAgentEntry(agent: SpawnedAgent, baseSystemPrompt?: string): AgentEntry {
+  toAgentEntry(agent: SpawnedAgent, baseSystemPrompt?: string, permission?: AgentPermission): AgentEntry {
     const systemPrompt = [baseSystemPrompt, agent.instructions].filter((part) => part !== undefined && part.length > 0).join("\n\n");
     return {
       model: agent.candidate.model,
       ...(agent.candidate.profile === undefined ? {} : { profile: agent.candidate.profile }),
       maxSteps: agent.maxSteps,
       tools: agent.tools,
+      ...(permission === undefined ? {} : { permission }),
       ...(systemPrompt.length === 0 ? {} : { systemPrompt }),
     };
   }

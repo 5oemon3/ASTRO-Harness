@@ -6,7 +6,7 @@ import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capabilit
 import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type ThinkingMode } from "./call-profile";
 import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "./output-limit";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
-import { isPermissionMode, DEFAULT_PERMISSION_MODE, type PermissionMode } from "./permissions";
+import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "./permissions";
 import { isAuthHeader, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
 import { headerEnvName, isValidHeaderName } from "./mcp/headers";
 import { outboundUrlProblem } from "./url-safety";
@@ -109,6 +109,8 @@ export interface NamedAgentConfig {
   systemPrompt?: string;
   /** Profile da model pool (F-27, ADR-0007); substitui `model` quando definido. */
   profile?: string;
+  /** Perfil de permissão do agente (#58); ausente = "full" (compat). */
+  permission?: AgentPermission;
 }
 
 /** Configuração de tools específicas (por nome da tool). */
@@ -767,6 +769,14 @@ function validatePaths(value: unknown): PathsConfig {
   };
 }
 
+/** Perfil de permissão do agent nomeado (#58); vocabulário fechado. */
+function expectAgentPermission(value: unknown, field: string): AgentPermission {
+  if (!isAgentPermission(value)) {
+    fail(`config inválida: "${field}" deve ser read-only, write, execute ou full`);
+  }
+  return value;
+}
+
 /** Valida um agent nomeado (em `agents`). Usa defaults do agent principal se omitido. */
 function validateNamedAgent(
   name: string,
@@ -782,6 +792,7 @@ function validateNamedAgent(
 
   const systemPrompt = raw.systemPrompt === undefined ? undefined : expectString(raw.systemPrompt, `${field}.systemPrompt`);
   const maxSteps = raw.maxSteps === undefined ? baseAgent.maxSteps : expectPositiveInteger(raw.maxSteps, `${field}.maxSteps`);
+  const permission = raw.permission === undefined ? undefined : expectAgentPermission(raw.permission, `${field}.permission`);
   let tools = baseAgent.tools;
   if (raw.tools !== undefined) {
     tools = expectStringArray(raw.tools, `${field}.tools`);
@@ -795,7 +806,11 @@ function validateNamedAgent(
   // F-27 (ADR-0007): profile substitui model; os dois juntos são ambíguos.
   if (raw.profile !== undefined) {
     const { profile, model } = resolveProfileField(field, raw, modelPool);
-    return { model, maxSteps, tools, profile, ...(systemPrompt === undefined ? {} : { systemPrompt }) };
+    return {
+      model, maxSteps, tools, profile,
+      ...(permission === undefined ? {} : { permission }),
+      ...(systemPrompt === undefined ? {} : { systemPrompt }),
+    };
   }
 
   const model = raw.model === undefined ? baseAgent.model : expectString(raw.model, `${field}.model`);
@@ -808,7 +823,11 @@ function validateNamedAgent(
     fail(`config inválida: agent "${name}" referencia modelo "${model}" que não está active (status: "${modelEntry.status}")`);
   }
 
-  return { model, maxSteps, tools, ...(systemPrompt === undefined ? {} : { systemPrompt }) };
+  return {
+    model, maxSteps, tools,
+    ...(permission === undefined ? {} : { permission }),
+    ...(systemPrompt === undefined ? {} : { systemPrompt }),
+  };
 }
 
 /** Valida a seção opcional `cache` (F6-4): defaults 24h/10000 entradas. */

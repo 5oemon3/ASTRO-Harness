@@ -9,9 +9,78 @@
  * de segredo ou confinamento no `cwd` — isso é aplicado pelas próprias tools e
  * continua valendo em `bypass`.
  */
-import type { Tool } from "./tools/types";
+import type { SideEffects, Tool, ToolClass, ToolManifest } from "./tools/types";
 
 export type PermissionMode = "bypass" | "allow-edits" | "ask";
+
+/** Perfil de permissão do agente (#58, D-28): compõe com a allowlist (I-01). */
+export type AgentPermission = "read-only" | "write" | "execute" | "full";
+
+export const AGENT_PERMISSIONS: readonly AgentPermission[] = ["read-only", "write", "execute", "full"];
+
+export function isAgentPermission(value: unknown): value is AgentPermission {
+  return typeof value === "string" && (AGENT_PERMISSIONS as readonly string[]).includes(value);
+}
+
+const PERMISSION_RANK: Record<AgentPermission, number> = {
+  "read-only": 0,
+  write: 1,
+  execute: 2,
+  full: 3,
+};
+
+const PERMISSION_BY_CLASS: Record<ToolClass, AgentPermission> = {
+  read_common: "read-only",
+  read_critical: "read-only",
+  edit: "write",
+  delete: "write",
+  shell: "execute",
+  identity_swap: "full",
+};
+
+const PERMISSION_BY_NAME: Record<string, AgentPermission> = {
+  read: "read-only",
+  write: "write",
+  execute: "execute",
+  handoff: "full",
+  spawn_agent: "execute",
+};
+
+/** Efeito externo eleva a permissão mesmo quando a classe declara leitura. */
+const PERMISSION_BY_EFFECT: Record<SideEffects, AgentPermission> = {
+  none: "read-only",
+  filesystem: "write",
+  network: "execute",
+  process: "execute",
+};
+
+/** A mais permissiva entre duas (usada para compor os sinais do manifesto). */
+export function highestPermission(a: AgentPermission, b: AgentPermission): AgentPermission {
+  return PERMISSION_RANK[a] >= PERMISSION_RANK[b] ? a : b;
+}
+
+/** A mais restritiva entre duas (composição com allowlist/base executor). */
+export function mostRestrictive(a: AgentPermission, b: AgentPermission): AgentPermission {
+  return PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b;
+}
+
+/**
+ * Permissão mínima exigida por uma tool: classe + nome de permissão +
+ * `sideEffects`. Uma tool MCP `read_common` com `sideEffects: "network"` exige
+ * `execute`; classe desconhecida exige `full` (falha fechada).
+ */
+export function requiredPermission(
+  manifest: Pick<ToolManifest, "class" | "permission" | "sideEffects">,
+): AgentPermission {
+  const byClass = PERMISSION_BY_CLASS[manifest.class] ?? "full";
+  const byName = PERMISSION_BY_NAME[manifest.permission] ?? "read-only";
+  const byEffect = PERMISSION_BY_EFFECT[manifest.sideEffects] ?? "full";
+  return [byClass, byName, byEffect].reduce(highestPermission);
+}
+
+export function permissionAllows(granted: AgentPermission, required: AgentPermission): boolean {
+  return PERMISSION_RANK[granted] >= PERMISSION_RANK[required];
+}
 
 /** Classes de ação que o gate distingue (PERM-02 formaliza no manifesto). */
 export type ActionClass =

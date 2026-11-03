@@ -25,6 +25,7 @@ import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/e
 import { completeWithCompaction } from "./compaction/runtime";
 import { effectiveOutputCap, type OutputLimitConfig } from "./output-limit";
 import type { SpawnRegistry } from "./spawn";
+import { mostRestrictive } from "./permissions";
 import {
   buildCheckpoint,
   budgetCheckpointDue,
@@ -799,7 +800,11 @@ export async function runMultiAgentSession(
     const declared = opts.registry.getAgent(name);
     if (declared !== undefined) return declared;
     const spawned = opts.spawns?.get(name);
-    return spawned === undefined ? undefined : opts.spawns!.toAgentEntry(spawned, opts.baseSystemPrompt);
+    return spawned === undefined ? undefined : opts.spawns!.toAgentEntry(
+      spawned,
+      opts.baseSystemPrompt,
+      mostRestrictive(currentAgent.permission ?? "full", opts.baseExecutor.permission),
+    );
   };
   const knownFor = (name: string): string[] | undefined => {
     const spawned = opts.spawns?.get(name);
@@ -977,6 +982,7 @@ export async function runMultiAgentSession(
         audit: opts.audit,
         permissionMode: opts.baseExecutor.permissionMode,
         grants: opts.baseExecutor.permissionGrants,
+        permission: mostRestrictive(opts.baseExecutor.permission, currentAgent.permission ?? "full"),
         ...(opts.baseExecutor.toolApprover === undefined ? {} : { approveTool: opts.baseExecutor.toolApprover }),
       });
 

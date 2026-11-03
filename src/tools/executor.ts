@@ -5,10 +5,13 @@ import { redactSecrets } from "../sanitize-external";
 import {
   actionClassOf,
   permissionDecision,
+  permissionAllows,
+  requiredPermission,
   DEFAULT_PERMISSION_MODE,
   PermissionGrants,
   PermissionPendingError,
   type ActionClass,
+  type AgentPermission,
   type PermissionApproval,
   type PermissionDecision,
   type PermissionMode,
@@ -66,6 +69,8 @@ export class ToolExecutor {
   private readonly approveTool?: ToolApprover;
   /** Grants em memória da sessão (PERM-05); compartilhado com subagentes. */
   readonly permissionGrants: PermissionGrants;
+  /** Perfil do agent (#58); a mais restritiva entre ele e a allowlist vence. */
+  private readonly agentPermission: AgentPermission;
 
   constructor(opts: {
     tools: readonly Tool[];
@@ -76,6 +81,8 @@ export class ToolExecutor {
     approveTool?: ToolApprover;
     /** Grants da sessão; subagente recebe os mesmos grants do executor pai. */
     grants?: PermissionGrants;
+    /** Perfil de permissão do agent (#58); default `full` (compat). */
+    permission?: AgentPermission;
   }) {
     this.tools = opts.tools;
     this.byName = new Map(opts.tools.map((tool) => [tool.manifest.name, tool]));
@@ -86,6 +93,12 @@ export class ToolExecutor {
     this.mode = opts.permissionMode ?? DEFAULT_PERMISSION_MODE;
     this.approveTool = opts.approveTool;
     this.permissionGrants = opts.grants ?? new PermissionGrants();
+    this.agentPermission = opts.permission ?? "full";
+  }
+
+  /** Perfil de permissão do agent (filho herda do seu próprio perfil, não do pai). */
+  get permission(): AgentPermission {
+    return this.agentPermission;
   }
 
   /** Modo de permissão corrente (subagente herda do executor pai). */
@@ -213,6 +226,18 @@ export class ToolExecutor {
         agent: ctx.agent,
         tipo: "tool.denied",
         payload: { name: call.name, reason },
+      });
+      return failure(reason);
+    }
+    // Perfil do agent (#58): a permissão mais restritiva entre I-01 e o perfil vence
+    const required = requiredPermission(tool.manifest);
+    if (!permissionAllows(this.agentPermission, required)) {
+      const reason = `tool "${call.name}" exige permissão "${required}" (agent "${ctx.agent}" tem "${this.agentPermission}")`;
+      this.auditRef.append({
+        run: ctx.run,
+        agent: ctx.agent,
+        tipo: "tool.denied",
+        payload: { name: call.name, reason, required, permission: this.agentPermission },
       });
       return failure(reason);
     }
