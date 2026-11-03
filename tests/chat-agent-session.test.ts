@@ -479,6 +479,39 @@ describe("AgentSession configSummary / savePermissionMode (#273)", () => {
   });
 });
 
+describe("AgentSession.quotaStatus (#64)", () => {
+  test("sem quota na config devolve undefined", () => {
+    const { session, stop } = setup();
+    try {
+      const chat = session();
+      expect(chat.quotaStatus()).toBeUndefined();
+      chat.close();
+    } finally {
+      stop();
+    }
+  });
+
+  test("com quota do domínio ativo deriva uso e razão do ledger", async () => {
+    const { session, stop } = setup({ quota: { default: { dailyTokens: 100 } } });
+    try {
+      const chat = session();
+      expect(chat.quotaStatus()).toMatchObject({
+        quotaDomain: "default", warnAt: 0.8, warning: false, exhausted: false,
+        dailyTokens: { used: 0, limit: 100, ratio: 0 },
+      });
+      await chat.send("oi"); // 10 in + 5 out
+      const after = chat.quotaStatus();
+      expect(after?.dailyTokens?.used).toBe(15);
+      expect(after?.dailyTokens?.ratio).toBeCloseTo(0.15);
+      expect(after?.warning).toBe(false);
+      expect(after?.exhausted).toBe(false);
+      chat.close();
+    } finally {
+      stop();
+    }
+  });
+});
+
 describe("AgentSession.budgetStatus (#63)", () => {
   test("sem budget na config devolve undefined", () => {
     const { session, stop } = setup();

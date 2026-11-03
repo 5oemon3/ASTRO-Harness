@@ -9,6 +9,7 @@ import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import type { ConfigSummary } from "../src/chat/config-summary";
 import { BudgetExceededError, type BudgetStatus } from "../src/budget";
+import type { QuotaStatus } from "../src/quota";
 import type { PermissionMode } from "../src/permissions";
 import { createApprovalBridge } from "../src/tui/approvals";
 
@@ -897,6 +898,36 @@ test("toast de custo alto aparece quando o budget entra em aviso (#64)", async (
     instance.stdin.write("oi");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "⚠ custo alto · budget: 90% · US$ 4.500000/US$ 5.000000"));
+  } finally {
+    instance.unmount();
+  }
+});
+
+class WarningQuotaSession extends FakeSession {
+  warned = false;
+  quotaStatus(): QuotaStatus {
+    return {
+      quotaDomain: "d", warnAt: 0.8, warning: this.warned, exhausted: false,
+      dailyTokens: { used: this.warned ? 90 : 10, limit: 100, ratio: this.warned ? 0.9 : 0.1 },
+    };
+  }
+  async send(prompt: string): Promise<TurnResult> {
+    const result = await super.send(prompt);
+    this.warned = true; // o turno empurra o domínio para a faixa de aviso
+    return result;
+  }
+}
+
+test("toast de quota aparece quando o domínio entra em aviso (#64)", async () => {
+  const session = new WarningQuotaSession();
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-quota-"));
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    expect(frameHas(instance, "⚠ quota")).toBe(false);
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "⚠ quota d: 90% dos tokens do dia (90/100)"));
   } finally {
     instance.unmount();
   }

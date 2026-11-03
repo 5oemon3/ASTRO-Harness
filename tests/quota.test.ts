@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { validateConfig, ConfigError } from "../src/config";
 import { Auditor } from "../src/audit";
 import { Ledger } from "../src/ledger";
-import { assertWithinQuota, QuotaExceededError } from "../src/quota";
+import { assertWithinQuota, quotaAvailable, quotaStatus, QuotaExceededError } from "../src/quota";
 import type { CompletionResponse, Provider } from "../src/provider/types";
 import type { ModelEntry } from "../src/registry";
 import { runSession, type SessionOptions } from "../src/session";
@@ -106,6 +106,76 @@ describe("assertWithinQuota (F6-3)", () => {
     const err = capture(() => assertWithinQuota(ledger, { d: { monthlyCostUsd: 0.5 } }, "d", now));
     expect(err).toBeInstanceOf(QuotaExceededError);
     expect(err.message).toContain("limite mensal");
+  });
+});
+
+describe("quotaStatus (F6-3, #64)", () => {
+  const make = (): Ledger => new Ledger(
+    join(mkdtempSync(join(tmpdir(), "astro-quota-status-")), "ledger.jsonl"),
+    { warn: () => {} },
+  );
+  const usage = (
+    ledger: Ledger,
+    domain: string,
+    tokensIn: number,
+    tokensOut: number,
+    price?: { inputPerM: number; outputPerM: number; fonte: string; verificado: boolean },
+  ): Date => {
+    const entry = ledger.record(
+      { run: "r", agent: "a", provider: "p", model: "m", credentialRef: "K", quotaDomain: domain, tokensIn, tokensOut },
+      price,
+    );
+    return new Date(entry.ts);
+  };
+
+  test("domínio sem limite devolve undefined", () => {
+    const ledger = make();
+    expect(quotaStatus(ledger, {}, "d")).toBeUndefined();
+    expect(quotaStatus(ledger, { outro: { dailyTokens: 1 } }, "d")).toBeUndefined();
+  });
+
+  test("tokens do dia: uso, razão e aviso a partir de 80%", () => {
+    const ledger = make();
+    let now = usage(ledger, "d", 40, 10);
+    expect(quotaStatus(ledger, { d: { dailyTokens: 100 } }, "d", now)).toMatchObject({
+      quotaDomain: "d", warnAt: 0.8, warning: false, exhausted: false,
+      dailyTokens: { used: 50, limit: 100, ratio: 0.5 },
+    });
+    now = usage(ledger, "d", 20, 10); // +30 → 80
+    expect(quotaStatus(ledger, { d: { dailyTokens: 100 } }, "d", now)).toMatchObject({
+      warning: true, exhausted: false, dailyTokens: { used: 80, ratio: 0.8 },
+    });
+  });
+
+  test("no limite fica esgotado (e em aviso)", () => {
+    const ledger = make();
+    const now = usage(ledger, "d", 60, 40);
+    expect(quotaStatus(ledger, { d: { dailyTokens: 100 } }, "d", now)).toMatchObject({
+      warning: true, exhausted: true, dailyTokens: { used: 100, ratio: 1 },
+    });
+  });
+
+  test("custo do mês conta na janela e ignora outros domínios", () => {
+    const ledger = make();
+    const price = { inputPerM: 500_000, outputPerM: 0, fonte: "t", verificado: true };
+    const now = usage(ledger, "d", 1, 0, price); // US$ 0.5
+    usage(ledger, "outro", 9999, 0);
+    expect(quotaStatus(ledger, { d: { monthlyCostUsd: 1 } }, "d", now)).toMatchObject({
+      warning: false, exhausted: false, monthlyCostUsd: { used: 0.5, limit: 1, ratio: 0.5 },
+    });
+    expect(quotaStatus(ledger, { d: { monthlyCostUsd: 0.4 } }, "d", now)).toMatchObject({
+      warning: true, exhausted: true,
+    });
+  });
+
+  test("limite zero conta como esgotado e quotaAvailable concorda", () => {
+    const ledger = make();
+    const now = usage(ledger, "d", 1, 0);
+    expect(quotaStatus(ledger, { d: { dailyTokens: 0 } }, "d", now)).toMatchObject({
+      exhausted: true, dailyTokens: { ratio: 1 },
+    });
+    expect(quotaAvailable(ledger, { d: { dailyTokens: 0 } }, "d", now)).toBe(false);
+    expect(quotaAvailable(ledger, { d: { dailyTokens: 10 } }, "d", now)).toBe(true);
   });
 });
 

@@ -27,7 +27,7 @@ import { SessionPicker } from "./session-picker";
 import { ConfigScreen } from "./config-screen";
 import { loadTrustedStore, trustedPath } from "../trust";
 import type { ProfileManager } from "../provider/profile-manager";
-import { budgetSegment } from "../chat/usage";
+import { budgetSegment, quotaSegment } from "../chat/usage";
 import { createThrottledSink, STREAM_THROTTLE_MS } from "./stream";
 import { HISTORY_LIMIT, visibleWindow } from "./history";
 
@@ -490,6 +490,24 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
     }
     budgetAlarm.current = high;
   }, [budget]);
+
+  // Aviso de quota do domínio ativo (#64, F6-3): mesmo padrão do budget, mas
+  // com tokens do dia/custo do mês em vez de USD do budget
+  const quota = useMemo(() => {
+    try {
+      return session.quotaStatus?.();
+    } catch {
+      return undefined;
+    }
+  }, [session, status]);
+  const quotaAlarm = useRef(false);
+  useEffect(() => {
+    const high = quota !== undefined && (quota.warning || quota.exhausted);
+    if (high && quota !== undefined && !quotaAlarm.current) {
+      addToast({ kind: "warning", text: quotaSegment(quota) });
+    }
+    quotaAlarm.current = high;
+  }, [quota]);
 
   if (diffOpen && question?.diff !== undefined) {
     return (

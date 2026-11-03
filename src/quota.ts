@@ -13,6 +13,27 @@ export interface QuotaLimit {
   monthlyCostUsd?: number;
 }
 
+/** Fração de uso a partir da qual o domínio entra em aviso (toast da TUI). */
+export const QUOTA_WARN_RATIO = 0.8;
+
+/** Uso de uma dimensão da quota (tokens do dia ou custo do mês). */
+export interface QuotaDimensionStatus {
+  used: number;
+  limit: number;
+  ratio: number;
+}
+
+/** Status derivado do ledger para um quotaDomain (F6-3); sem limite não há status. */
+export interface QuotaStatus {
+  quotaDomain: string;
+  warnAt: number;
+  dailyTokens?: QuotaDimensionStatus;
+  monthlyCostUsd?: QuotaDimensionStatus;
+  /** Qualquer dimensão a partir do warnAt (esgotado também avisa). */
+  warning: boolean;
+  exhausted: boolean;
+}
+
 /** Erro de quota excedida; classificado como hard_quota (não retriable). */
 export class QuotaExceededError extends ProviderError {
   constructor(message: string) {
@@ -44,6 +65,39 @@ function usageFor(ledger: Ledger, quotaDomain: string, now: Date): Usage {
   return usage;
 }
 
+/** Uso de uma dimensão; limite zero conta como esgotado (razão 1). */
+function dimension(used: number, limit: number): QuotaDimensionStatus {
+  return { used, limit, ratio: limit > 0 ? used / limit : 1 };
+}
+
+/**
+ * Deriva o status do domínio para o toast da TUI (#64). `undefined` quando
+ * o domínio não declara limite; aviso/esgotado seguem o uso atual do ledger.
+ */
+export function quotaStatus(
+  ledger: Ledger,
+  limits: Record<string, QuotaLimit>,
+  quotaDomain: string,
+  now: Date = new Date(),
+): QuotaStatus | undefined {
+  const limit = limits[quotaDomain];
+  if (limit === undefined) return undefined;
+  const usage = usageFor(ledger, quotaDomain, now);
+  const dailyTokens = limit.dailyTokens === undefined ? undefined : dimension(usage.todayTokens, limit.dailyTokens);
+  const monthlyCostUsd = limit.monthlyCostUsd === undefined ? undefined : dimension(usage.monthCostUsd, limit.monthlyCostUsd);
+  const ratios = [dailyTokens?.ratio, monthlyCostUsd?.ratio]
+    .filter((ratio): ratio is number => ratio !== undefined);
+  const exhausted = ratios.some((ratio) => ratio >= 1);
+  return {
+    quotaDomain,
+    warnAt: QUOTA_WARN_RATIO,
+    ...(dailyTokens === undefined ? {} : { dailyTokens }),
+    ...(monthlyCostUsd === undefined ? {} : { monthlyCostUsd }),
+    warning: exhausted || ratios.some((ratio) => ratio >= QUOTA_WARN_RATIO),
+    exhausted,
+  };
+}
+
 /**
  * Verifica se o domínio ainda tem quota, sem lançar; usado pelo filtro de
  * candidatos (S-09). Domínio sem limite declarado está disponível.
@@ -54,12 +108,7 @@ export function quotaAvailable(
   quotaDomain: string,
   now: Date = new Date(),
 ): boolean {
-  const limit = limits[quotaDomain];
-  if (limit === undefined) return true;
-  const usage = usageFor(ledger, quotaDomain, now);
-  if (limit.dailyTokens !== undefined && usage.todayTokens >= limit.dailyTokens) return false;
-  if (limit.monthlyCostUsd !== undefined && usage.monthCostUsd >= limit.monthlyCostUsd) return false;
-  return true;
+  return quotaStatus(ledger, limits, quotaDomain, now)?.exhausted !== true;
 }
 
 /**

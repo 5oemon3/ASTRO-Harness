@@ -22,7 +22,7 @@ import { Ledger } from "../ledger";
 import { isPermissionMode, resolvePermissionMode, type PermissionMode } from "../permissions";
 import { readAgentsMd } from "../spawn";
 import { forceCompaction, recordCompactionSuccess } from "../compaction/breaker";
-import { assertWithinQuota } from "../quota";
+import { assertWithinQuota, quotaStatus, type QuotaStatus } from "../quota";
 import { DEFAULT_SYSTEM_PROMPT, safePrompt } from "../session";
 import { guardContext } from "./context-guard";
 import { isFatalSessionError } from "./session-errors";
@@ -259,6 +259,13 @@ export class AgentSession {
   /** Status do budget para `/usage` (#63): `undefined` sem budget na config; senão deriva do ledger. */
   budgetStatus(): BudgetStatus | undefined {
     return this.#config.budget === undefined ? undefined : budgetStatus(this.#config.budget, this.#ledger);
+  }
+
+  /** Status da quota do domínio ativo (#64, F6-3); `undefined` sem limite declarado. */
+  quotaStatus(): QuotaStatus | undefined {
+    const provider = this.#registry.require(this.#modelRef).provider;
+    const quotaDomain = this.#config.providers[provider]?.quotaDomain ?? "default";
+    return quotaStatus(this.#ledger, this.#config.quota ?? {}, quotaDomain);
   }
 
   get providerSource(): ProviderSource {

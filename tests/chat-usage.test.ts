@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { BudgetStatus } from "../src/budget";
-import { budgetLine, budgetSegment, usageLines } from "../src/chat/usage";
+import { budgetLine, budgetSegment, quotaSegment, usageLines } from "../src/chat/usage";
 import type { SessionSnapshot } from "../src/chat/agent-session";
+import type { QuotaStatus } from "../src/quota";
 
 const snapshot: SessionSnapshot = {
   id: "s1",
@@ -67,5 +68,22 @@ describe("usageLines / budgetLine / budgetSegment (#63)", () => {
       .toBe("budget: gasto US$ 1.000000");
     expect(budgetSegment(status({ limitUsd: null, ratio: null, spentUsd: null, remainingUsd: null })))
       .toBe("budget: gasto n/d");
+  });
+});
+
+function quota(over: Partial<QuotaStatus> = {}): QuotaStatus {
+  return { quotaDomain: "d", warnAt: 0.8, warning: true, exhausted: false, ...over };
+}
+
+describe("quotaSegment (#64)", () => {
+  test("mostra tokens do dia, custo do mês ou os dois", () => {
+    expect(quotaSegment(quota({ dailyTokens: { used: 90, limit: 100, ratio: 0.9 } })))
+      .toBe("quota d: 90% dos tokens do dia (90/100)");
+    expect(quotaSegment(quota({ monthlyCostUsd: { used: 4.5, limit: 5, ratio: 0.9 } })))
+      .toBe("quota d: 90% do custo do mês (US$ 4.50/US$ 5.00)");
+    expect(quotaSegment(quota({
+      dailyTokens: { used: 90, limit: 100, ratio: 0.9 },
+      monthlyCostUsd: { used: 4.5, limit: 5, ratio: 0.9 },
+    }))).toBe("quota d: 90% dos tokens do dia (90/100) · 90% do custo do mês (US$ 4.50/US$ 5.00)");
   });
 });

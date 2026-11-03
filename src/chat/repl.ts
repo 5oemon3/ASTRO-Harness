@@ -16,6 +16,7 @@ import { isFatalSessionError } from "./session-errors";
 import { redactSecrets } from "../sanitize-external";
 import { usageLines } from "./usage";
 import type { BudgetStatus } from "../budget";
+import type { QuotaStatus } from "../quota";
 
 export interface ReplIO {
   read(prompt: string): Promise<string | null>;
@@ -48,6 +49,8 @@ export interface ChatSession {
   savePermissionMode?(mode: PermissionMode): PermissionMode;
   /** Status do budget derivado do ledger (`/usage`, #63); ausente sem budget na config. */
   budgetStatus?(): BudgetStatus | undefined;
+  /** Status da quota do domínio ativo (#64, F6-3); ausente sem limite declarado. */
+  quotaStatus?(): QuotaStatus | undefined;
   /** Health agregado, sob demanda (status bar da TUI). */
   health?(): Promise<HealthReport>;
   /** Teste real mínimo de um provider, sob demanda. */
