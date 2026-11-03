@@ -704,3 +704,39 @@ test("ref de cofre inválida desfaz o perfil e descarta a credencial criada (#35
     instance.unmount();
   }
 });
+
+test("falha de manager.edit após criar a credencial dispara o descarte (#352)", async () => {
+  class EditFails extends ProfileManager {
+    override edit(): never {
+      throw new Error("edit falhou");
+    }
+  }
+  const home = mkdtempSync(join(tmpdir(), "astro-tui-provider-352-"));
+  const m = new EditFails({ project: project(), env: { ASTRO_HOME: home } });
+  let discarded = "";
+  const instance = render(
+    <ProviderScreen
+      manager={m}
+      colors={colors}
+      initial={{ mode: "add" }}
+      onClose={() => undefined}
+      onActivate={() => undefined}
+      onSaveSecret={() => "vault:cred-12345678"}
+      onDiscardSecret={(ref) => { discarded = ref; }}
+    />,
+  );
+  try {
+    await fillCredentialsStep(instance);
+    instance.stdin.write(fakeSecret);
+    await waitFor(() => frame(instance).includes("*".repeat(fakeSecret.length)));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("Confirmar"));
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("edit falhou"));
+    expect(discarded).toBe("vault:cred-12345678");
+    expect(m.list().some((item) => item.id === "local")).toBe(false);
+    expect(frame(instance)).not.toContain(fakeSecret);
+  } finally {
+    instance.unmount();
+  }
+});

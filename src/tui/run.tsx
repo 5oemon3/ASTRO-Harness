@@ -6,9 +6,9 @@ import { ConfigError, loadConfig } from "../config";
 import { ProfileManager } from "../provider/profile-manager";
 import { NoProviderError, NO_PROVIDER_MESSAGE } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
-import { isVaultCredentialRef, VAULT_REF_PREFIX } from "../secrets";
 import { trustChoice, trustPrompt } from "../trust";
 import { Vault, vaultPath } from "../vault";
+import { createSecretHandlers } from "./vault-secret";
 import { createApprovalBridge } from "./approvals";
 import { createShellRunner, type ShellRunner } from "./shell";
 import { getThemeColors, loadTuiConfig } from "./theme";
@@ -143,14 +143,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     const approvals = createApprovalBridge();
     // Chave digitada no setup vai para o cofre (ADR-0019); o perfil guarda só o ref.
     const vault = new Vault(vaultPath(opts.env ?? process.env));
-    const saveSecret = (providerId: string, secret: string): string => {
-      const created = vault.create({ providerId, label: "tui", secret });
-      return `vault:${created.id}`;
-    };
-    const discardSecret = (ref: string): void => {
-      if (!isVaultCredentialRef(ref)) return;
-      try { vault.remove(ref.slice(VAULT_REF_PREFIX.length)); } catch { /* preserva o erro original */ }
-    };
+    const { saveSecret, discardSecret } = createSecretHandlers(vault);
     const configPath = resolve(opts.configPath);
     const project = existsSync(configPath) ? loadConfig(configPath) : undefined;
     const manager = new ProfileManager({
