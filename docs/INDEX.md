@@ -23,7 +23,7 @@ Objetivo: apontar o documento certo para cada tarefa.
 | `docs/skills.md` | Ao criar, instalar, revisar ou invocar uma skill (`/<nome>`) | ~100 |
 | `docs/ci.md` | Ao mexer em workflow, investigar falha de CI ou decidir merge | ~35 |
 | `docs/mcp.md` | Ao configurar servidores MCP, transports, reconexão ou modelo de confiança | ~60 |
-| `docs/web-tools.md` | Ao configurar `webSearch` ou usar `web_search` | ~40 |
+| `docs/web-tools.md` | Ao configurar `webSearch` ou usar `web_search`/`web_fetch` | ~50 |
 
 Referências usadas nos documentos:
 

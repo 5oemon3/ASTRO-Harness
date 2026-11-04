@@ -31,3 +31,7 @@ Até 3 tentativas. `429`, `500`, `502`, `503`, `504` e erro de rede repetem; `Re
 ## Untrusted
 
 Resultado de busca é dado externo. O manifesto marca `risk: low`, `permission: read`, `sideEffects: network` e a descrição avisa que o conteúdo pode conter prompt injection: o modelo não deve executar instruções vindas dele.
+
+## `web_fetch`
+
+`{url, maxLength? (50000), format? ("markdown"|"text")}` baixa uma URL `http(s)` e devolve o texto limpo. `outboundUrlProblem` recusa loopback, faixas privadas e hosts de metadados; cada hop de redirect (máximo 3) é revalidado pelo literal e pelos endereços resolvidos via DNS. HTML remove as tags reais primeiro e só então decodifica entidades; todo `<` seguido de tag-like é escapado (`&lt;div>`), inclusive dentro de outro trecho ou sem `>`, então markup codificado com `href`/`onerror` não vira tag, e comparações como `a < b` ficam intactas. `href` é decodificado até estabilizar, removendo todo C0 (tab/LF/CR inclusive) a cada passe, antes de checar uma allowlist de schemes (`http`/`https`/relativo), fechando double/triple-encoded e controles entre entidades, e `script`/`style`/`iframe`/`object`/`embed`/`noscript`/`svg`/`template`/`base` e handlers são removidos. Títulos, listas e links são preservados em markdown. A leitura é limitada a `maxLength * 4` bytes (teto de 1MB) antes do corte; conteúdo não textual é recusado, `text/plain` volta como está e `Content-Type` ausente é tratado como HTML. Audit `web.fetch {url, status, contentLength, duration}` sem query/hash.

@@ -48,6 +48,7 @@ import { handoffTool } from "./tools/handoff";
 import { createListModelCandidatesTool } from "./tools/list-model-candidates";
 import { createTaskTool } from "./tools/task";
 import { createWebSearchTool, webSearchSecretEnvNames } from "./tools/web-search";
+import { createWebFetchTool } from "./tools/web-fetch";
 import { createSpawnAgentTool, readAgentsMd, SpawnRegistry } from "./spawn";
 import { grepTool } from "./tools/grep";
 import { listDirTool } from "./tools/list-dir";
@@ -843,6 +844,8 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       env,
     }));
   }
+  // web_fetch (#57): sem config; allowlist e permissão continuam valendo (I-01).
+  toolsByName.set("web_fetch", createWebFetchTool({ audit }));
   const spawns = new SpawnRegistry();
   // Preenchidos depois de resolver a allowlist/modo; a closure da task lê no call.
   let childTools: readonly Tool[] = [];

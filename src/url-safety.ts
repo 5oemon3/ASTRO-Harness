@@ -31,34 +31,47 @@ function ipv4Private(host: string): boolean {
   );
 }
 
+function bareHost(hostname: string): string {
+  const lower = hostname.toLowerCase().replace(/\.$/, "");
+  return lower.startsWith("[") && lower.endsWith("]") ? lower.slice(1, -1) : lower;
+}
+
 function ipv6Private(host: string): boolean {
-  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-  const lower = bare.toLowerCase();
+  const lower = bareHost(host);
   if (lower === "::" || lower === "::1") return true;
   if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
   if (/^fe[89ab]/.test(lower)) return true;
   const mapped = /^::ffff:(.+)$/.exec(lower);
-  if (mapped !== null) return ipv4Private(mapped[1]!);
+  if (mapped !== null) {
+    const rest = mapped[1]!;
+    if (rest.includes(".")) return ipv4Private(rest);
+    const groups = rest.split(":");
+    if (groups.length === 2 && groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) {
+      const hi = Number.parseInt(groups[0]!, 16);
+      const lo = Number.parseInt(groups[1]!, 16);
+      return ipv4Private([hi >> 8, hi & 255, lo >> 8, lo & 255].join("."));
+    }
+    return true;
+  }
   return false;
 }
 
 function isMetadataOrLinkLocal(url: URL): boolean {
   const host = url.hostname.toLowerCase();
-  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  const bare = bareHost(host);
   if (METADATA_HOSTS.has(host) || METADATA_HOSTS.has(bare)) return true;
   if (ipv4Private(bare)) {
     const [a, b] = bare.split(".").map(Number) as [number, number, number, number];
     if ((a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) return true;
   }
-  return bare.toLowerCase().startsWith("fe8")
-    || bare.toLowerCase().startsWith("fe9")
-    || bare.toLowerCase().startsWith("fea")
-    || bare.toLowerCase().startsWith("feb");
+  return bare.startsWith("fe8")
+    || bare.startsWith("fe9")
+    || bare.startsWith("fea")
+    || bare.startsWith("feb");
 }
 
 function isPrivateHost(url: URL): boolean {
-  const host = url.hostname.toLowerCase();
-  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  const bare = bareHost(url.hostname);
   if (bare === "localhost" || bare.endsWith(".localhost")) return true;
   return ipv4Private(bare) || ipv6Private(bare);
 }
