@@ -1222,10 +1222,10 @@ function validateWebSearch(value: unknown): WebSearchConfig {
   for (const key of Object.keys(raw)) {
     if (!known.has(key)) fail(`config inválida: "webSearch.${key}" desconhecido`);
   }
-  const providers: readonly WebSearchProvider[] = ["exa"];
+  const providers: readonly WebSearchProvider[] = ["exa", "brave", "google", "custom"];
   const provider = raw.provider;
   if (typeof provider !== "string" || !providers.includes(provider as WebSearchProvider)) {
-    fail('config inválida: "webSearch.provider" deve ser exa');
+    fail('config inválida: "webSearch.provider" deve ser exa, brave, google ou custom');
   }
   const apiKeyEnv = expectString(raw.apiKeyEnv, "webSearch.apiKeyEnv");
   if (!isEnvName(apiKeyEnv) || looksLikeSecret(apiKeyEnv)) {
@@ -1235,6 +1235,9 @@ function validateWebSearch(value: unknown): WebSearchConfig {
   if (baseUrl !== undefined) {
     const problem = urlProblem(baseUrl);
     if (problem !== undefined) fail(`config inválida: "webSearch.baseUrl" ${problem}`);
+  }
+  if (provider === "custom" && baseUrl === undefined) {
+    fail('config inválida: "webSearch.baseUrl" é obrigatório para o provider "custom"');
   }
   let defaultMaxResults: number | undefined;
   if (raw.defaultMaxResults !== undefined) {
