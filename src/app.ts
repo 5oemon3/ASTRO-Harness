@@ -47,6 +47,7 @@ import { writeFileTool } from "./tools/write-file";
 import { handoffTool } from "./tools/handoff";
 import { createListModelCandidatesTool } from "./tools/list-model-candidates";
 import { createTaskTool } from "./tools/task";
+import { createWebSearchTool, webSearchSecretEnvNames } from "./tools/web-search";
 import { createSpawnAgentTool, readAgentsMd, SpawnRegistry } from "./spawn";
 import { grepTool } from "./tools/grep";
 import { listDirTool } from "./tools/list-dir";
@@ -828,9 +829,20 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       if (!SYSTEM_ENV.test(name)) secretEnvNames.push(name);
     }
   }
+  // A chave do web_search (#57) nunca chega ao shell nem a filho stdio (I-03).
+  secretEnvNames.push(...webSearchSecretEnvNames(config));
 
   // Tools: builtin + plugins (F7-1); plugin não sobrescreve builtin
   const toolsByName = new Map(TOOLS_BY_NAME);
+  // web_search (#57): só existe quando `webSearch` está configurado; a chave
+  // vem de variável de ambiente nomeada e nunca entra no manifesto.
+  if (config.webSearch !== undefined) {
+    toolsByName.set("web_search", createWebSearchTool({
+      config: config.webSearch,
+      audit,
+      env,
+    }));
+  }
   const spawns = new SpawnRegistry();
   // Preenchidos depois de resolver a allowlist/modo; a closure da task lê no call.
   let childTools: readonly Tool[] = [];

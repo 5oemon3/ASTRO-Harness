@@ -8,6 +8,7 @@ import { loadEffectiveConfig } from "../provider/profiles";
 import { redactSecrets } from "../sanitize-external";
 import { ToolExecutor, type ToolApprover } from "../tools/executor";
 import { configureRunCommand, resolveSandboxSetting, runCommandTool } from "../tools/run-command";
+import { webSearchSecretEnvNames } from "../tools/web-search";
 
 export interface ShellResult {
   output: string;
@@ -66,6 +67,7 @@ export function createShellRunner(opts: ShellOptions): ShellRunner {
       if (!SYSTEM_ENV.has(name.toUpperCase())) secretEnvNames.push(name);
     }
   }
+  secretEnvNames.push(...webSearchSecretEnvNames(config));
   const modelEntry = config.models.find((model) => `${model.provider}/${model.id}` === config.agent.model);
   return {
     enabled: true,

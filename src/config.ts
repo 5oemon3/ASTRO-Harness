@@ -7,10 +7,11 @@ import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type Thin
 import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "./output-limit";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
 import type { ModelRouting } from "./provider/model-routing";
+import type { WebSearchConfig, WebSearchProvider } from "./tools/web-search";
 import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "./permissions";
-import { isAuthHeader, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
+import { isAuthHeader, isEnvName, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
 import { headerEnvName, isValidHeaderName } from "./mcp/headers";
-import { outboundUrlProblem } from "./url-safety";
+import { outboundUrlProblem, urlProblem } from "./url-safety";
 import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "./tags";
 
 /** Configuração comum a todos os providers. */
@@ -253,6 +254,8 @@ export interface AstroConfig {
   outputLimit?: OutputLimitConfig;
   /** Compactação de sessão (S-17, CMP-1): buffer da janela; `null` = default. */
   compaction?: CompactionConfig;
+  /** Ferramenta web_search (#57): backend, env da chave e resultados default. */
+  webSearch?: WebSearchConfig;
   paths: PathsConfig;
 }
 
@@ -1210,6 +1213,45 @@ function validateCompaction(value: unknown): CompactionConfig {
 }
 
 /**
+ * Valida `webSearch` (#57): a chave é sempre um NOME de variável de ambiente
+ * (I-03); `custom` exige baseUrl. Default de resultados 5, teto 10.
+ */
+function validateWebSearch(value: unknown): WebSearchConfig {
+  const raw = expectObject(value, "webSearch");
+  const known = new Set(["provider", "apiKeyEnv", "baseUrl", "defaultMaxResults"]);
+  for (const key of Object.keys(raw)) {
+    if (!known.has(key)) fail(`config inválida: "webSearch.${key}" desconhecido`);
+  }
+  const providers: readonly WebSearchProvider[] = ["exa"];
+  const provider = raw.provider;
+  if (typeof provider !== "string" || !providers.includes(provider as WebSearchProvider)) {
+    fail('config inválida: "webSearch.provider" deve ser exa');
+  }
+  const apiKeyEnv = expectString(raw.apiKeyEnv, "webSearch.apiKeyEnv");
+  if (!isEnvName(apiKeyEnv) || looksLikeSecret(apiKeyEnv)) {
+    fail('config inválida: "webSearch.apiKeyEnv" deve ser o NOME de uma variável de ambiente; nunca o valor da chave (I-03)');
+  }
+  const baseUrl = raw.baseUrl === undefined ? undefined : expectString(raw.baseUrl, "webSearch.baseUrl");
+  if (baseUrl !== undefined) {
+    const problem = urlProblem(baseUrl);
+    if (problem !== undefined) fail(`config inválida: "webSearch.baseUrl" ${problem}`);
+  }
+  let defaultMaxResults: number | undefined;
+  if (raw.defaultMaxResults !== undefined) {
+    defaultMaxResults = expectPositiveInteger(raw.defaultMaxResults, "webSearch.defaultMaxResults");
+    if (defaultMaxResults > 10) {
+      fail('config inválida: "webSearch.defaultMaxResults" deve ser no máximo 10');
+    }
+  }
+  return {
+    provider: provider as WebSearchProvider,
+    apiKeyEnv,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(defaultMaxResults === undefined ? {} : { defaultMaxResults }),
+  };
+}
+
+/**
  * Valida a configuração crua (tipicamente vinda de JSON) e aplica os defaults:
  * `status: "active"` por modelo e `quotaDomain: "default"` por provider.
  */
@@ -1353,9 +1395,12 @@ export function validateConfig(raw: unknown): AstroConfig {
   // Servidores MCP (C2, #56): ausente = nenhum servidor
   const mcpServers = root.mcpServers === undefined ? undefined : validateMcpServers(root.mcpServers);
 
+  // web_search (#57): ausente = tool não registrada
+  const webSearch = root.webSearch === undefined ? undefined : validateWebSearch(root.webSearch);
+
   const paths = validatePaths(root.paths);
 
-  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
+  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
 }
 
 /** Lê um arquivo JSON de configuração e o valida. */
