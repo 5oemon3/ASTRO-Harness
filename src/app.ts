@@ -12,6 +12,7 @@ import { CodexOAuthProvider } from "./provider/codex-oauth";
 import { OpenAICompatProvider } from "./provider/openai-compat";
 import { FallbackProvider, DEFAULT_PRIORITY } from "./provider/fallback-provider";
 import { ProfileFallbackProvider, type ProfileChainEntry } from "./provider/profile-fallback-provider";
+import { createRoutedProvider, type ModelRouting } from "./provider/model-routing";
 import type { ChatMessage, CompletionRequest, Provider } from "./provider/types";
 import { Registry, type ModelEntry } from "./registry";
 import { sendTelemetry } from "./telemetry";
@@ -776,7 +777,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   // falar com o provider certo, não com o do modelo de entrada. Agents com
   // profile usam o wrapper da pool (roteia por `req.profile`).
   const modelProviders = new Map<string, Provider>();
-  const providerFor = (m: ModelEntry, profile?: string): Provider => {
+  const providerForModel = (m: ModelEntry, profile?: string): Provider => {
     if (profile !== undefined) return effectiveProvider;
     const key = `${m.provider}/${m.id}`;
     const cached = modelProviders.get(key);
@@ -787,6 +788,21 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     const wrapped = withCache(built, cacheScope(m));
     modelProviders.set(key, wrapped);
     return wrapped;
+  };
+  /**
+   * Provider do agent com roteamento barato/forte (#58). Cada lado usa o
+   * provider guardado do próprio modelo (quota/audit/cache no modelo certo);
+   * profile já roteia pela pool e não combina com modelRouting (config).
+   */
+  const providerFor = (m: ModelEntry, profile?: string, routing?: ModelRouting): Provider => {
+    const base = providerForModel(m, profile);
+    if (routing === undefined || profile !== undefined) return base;
+    return createRoutedProvider({
+      routing,
+      fallback: m,
+      resolve: (key) => registry.require(key),
+      providerFor: (target) => providerForModel(target),
+    });
   };
 
   // O shell não deve ver chaves de nenhum provider configurado, mesmo inativo
@@ -875,7 +891,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         credentialRef,
         quotaDomain,
         cwd,
-        provider: providerFor(targetModel, target.profile),
+        provider: providerFor(targetModel, target.profile, target.modelRouting),
         model: targetModel,
         executor,
         ledger,

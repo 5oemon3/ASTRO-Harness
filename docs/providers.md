@@ -86,7 +86,11 @@ O ledger (F-31d) grava a identidade efetiva que atendeu — `provider`, `model`,
 
 `bun src/cli.ts pool health` estende `health` (F6-6): imprime `{status, profiles, providers}` em JSON, com status por profile — `ok` quando o provider primário responde, `degraded` quando ele está fora mas há fallback saudável na cadeia, `down` quando nenhum caminho responde. Sai 0 só com o agregado `ok`.
 
-## Call profile por modelo (E1–E8, ADR-0012)
+## Roteamento barato/forte por agente (#58)
+
+`agents.<nome>.modelRouting` declara `cheapModel`/`strongModel` (`provider/id` ativos, no mesmo provider do agente — troca de conta exige aprovação). A compactação (sumarização) chama com `purpose: "cheap"`; a geração usa `strong` por default, e um lado não declarado cai no `model` do agente. O roteador (`src/provider/model-routing.ts`) resolve o provider guardado do modelo de destino — quota, cache e audit ficam no modelo que atendeu — e o ledger grava a identidade efetiva. `profile` e `modelRouting` não combinam: a pool já roteia.
+
+## Call profile por modelo (E1-E8, ADR-0012)
 
 `models[].call` liga a escala uniforme `lvl` 0 (low) … 4 (ultra) ao parâmetro de cada provider, sem hardcode:
 

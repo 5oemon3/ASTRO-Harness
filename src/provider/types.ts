@@ -28,11 +28,16 @@ export interface CompletionRequest {
   tools?: ToolDef[];
   /** Profile da model pool que originou a chamada (F-31); roteia o fallback de profile. */
   profile?: string;
+  /** Lado do modelRouting (#58): sumarização/classificação é cheap; ausente = strong. */
+  purpose?: ModelPurpose;
   /** Escolha runtime do call profile (E1–E5); ausente = defaults do modelo. */
   call?: CallSelection;
   /** Recebe deltas de texto quando o provider suporta streaming (T3). */
   onToken?: (text: string) => void;
 }
+
+/** Propósito da chamada no roteamento barato/forte (#58). */
+export type ModelPurpose = "cheap" | "strong";
 
 /** Uma troca de profile durante um completion (F-31); `reason` é a classe do erro. */
 export interface FallbackRecord {

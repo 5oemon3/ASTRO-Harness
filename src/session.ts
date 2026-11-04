@@ -20,6 +20,7 @@ import { assertWithinQuota, type QuotaLimit } from "./quota";
 import { assertAgentQuota, assertProjectBudget } from "./team";
 import { acquireAgentLock, findAgentLock, releaseAgentLock } from "./agent-lock";
 import type { AppliedCallProfile, CallSelection } from "./call-profile";
+import type { ModelRouting } from "./provider/model-routing";
 import { CompactionPausedError } from "./compaction/breaker";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
 import { completeWithCompaction } from "./compaction/runtime";
@@ -383,6 +384,7 @@ export async function runSession(
           model: opts.model.id,
           messages: safePrompt(input),
           tools: undefined,
+          purpose: "cheap",
           ...(opts.agentProfile === undefined ? {} : { profile: opts.agentProfile }),
         }, opts.signal).then((summary) => {
           recordAuxUsage(summary, opts.model, opts.agent);
@@ -735,7 +737,7 @@ export interface MultiAgentSessionOptions {
   /** Gate de aprovação de troca (F-19): o runtime injeta; ausente = sem gate (componente interno). */
   approveSwap?: SwapApprover;
   /** Provider por modelo/agent (F-31d): sem ele, todos usam `provider`. */
-  providerFor?: (model: ModelEntry, profile?: string) => Provider;
+  providerFor?: (model: ModelEntry, profile?: string, routing?: ModelRouting) => Provider;
   /** Nome do agente corrente compartilhado com os wrappers (atribui swap.*). */
   activeAgent?: { name: string };
 }
@@ -1005,7 +1007,8 @@ export async function runMultiAgentSession(
       );
       // Wrappers atribuem swap.* ao agente que está executando (F-19/I-04)
       if (opts.activeAgent !== undefined) opts.activeAgent.name = currentAgentName;
-      const providerFor = (): Provider => opts.providerFor?.(currentModel, currentAgent.profile) ?? opts.provider;
+      const providerFor = (): Provider =>
+        opts.providerFor?.(currentModel, currentAgent.profile, currentAgent.modelRouting) ?? opts.provider;
       const response = await completeWithCompaction(messages, {
         ledger: opts.ledger,
         audit: opts.audit,
@@ -1028,6 +1031,7 @@ export async function runMultiAgentSession(
           model: currentModel.id,
           messages: safePrompt(input),
           tools: undefined,
+          purpose: "cheap",
           ...(currentAgent.profile === undefined ? {} : { profile: currentAgent.profile }),
         }, opts.signal).then((summary) => {
           recordAuxUsage(summary, currentModel, currentAgentName);

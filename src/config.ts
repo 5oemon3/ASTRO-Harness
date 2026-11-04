@@ -6,6 +6,7 @@ import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capabilit
 import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type ThinkingMode } from "./call-profile";
 import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "./output-limit";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
+import type { ModelRouting } from "./provider/model-routing";
 import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "./permissions";
 import { isAuthHeader, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
 import { headerEnvName, isValidHeaderName } from "./mcp/headers";
@@ -111,6 +112,8 @@ export interface NamedAgentConfig {
   profile?: string;
   /** Perfil de permissão do agente (#58); ausente = "full" (compat). */
   permission?: AgentPermission;
+  /** Roteamento barato/forte por propósito (#58); ausente = modelo do agente. */
+  modelRouting?: ModelRouting;
 }
 
 /** Configuração de tools específicas (por nome da tool). */
@@ -777,6 +780,48 @@ function expectAgentPermission(value: unknown, field: string): AgentPermission {
   return value;
 }
 
+/** Valida `modelRouting` (#58): chaves `provider/id` declaradas, ativas e no mesmo provider do agente. */
+function validateModelRouting(
+  value: unknown,
+  field: string,
+  knownModels: Set<string>,
+  allModels: ModelConfig[],
+  baseModelKey: string,
+): ModelRouting {
+  const raw = expectObject(value, field);
+  const baseProvider = allModels.find((entry) => `${entry.provider}/${entry.id}` === baseModelKey)?.provider;
+  for (const key of Object.keys(raw)) {
+    if (key !== "cheapModel" && key !== "strongModel") {
+      fail(`config inválida: "${field}.${key}" desconhecido`);
+    }
+  }
+  const pick = (key: "cheapModel" | "strongModel"): string | undefined => {
+    if (raw[key] === undefined) return undefined;
+    const id = expectString(raw[key], `${field}.${key}`);
+    if (!knownModels.has(id)) {
+      fail(`config inválida: "${field}.${key}" referencia modelo "${id}" não declarado em "models"`);
+    }
+    const model = allModels.find((entry) => `${entry.provider}/${entry.id}` === id);
+    if (model !== undefined && model.status !== "active") {
+      fail(`config inválida: "${field}.${key}" referencia modelo "${id}" que não está active (status: "${model.status}")`);
+    }
+    // I-08/A4: trocar de provider na rota mudaria a conta sem aprovação.
+    if (model !== undefined && baseProvider !== undefined && model.provider !== baseProvider) {
+      fail(`config inválida: "${field}.${key}" deve usar o provider "${baseProvider}" do agente; troca de conta exige aprovação`);
+    }
+    return id;
+  };
+  const cheapModel = pick("cheapModel");
+  const strongModel = pick("strongModel");
+  if (cheapModel === undefined && strongModel === undefined) {
+    fail(`config inválida: "${field}" deve declarar cheapModel e/ou strongModel`);
+  }
+  return {
+    ...(cheapModel === undefined ? {} : { cheapModel }),
+    ...(strongModel === undefined ? {} : { strongModel }),
+  };
+}
+
 /** Valida um agent nomeado (em `agents`). Usa defaults do agent principal se omitido. */
 function validateNamedAgent(
   name: string,
@@ -805,6 +850,9 @@ function validateNamedAgent(
 
   // F-27 (ADR-0007): profile substitui model; os dois juntos são ambíguos.
   if (raw.profile !== undefined) {
+    if (raw.modelRouting !== undefined) {
+      fail(`config inválida: "${field}" não pode combinar profile com modelRouting`);
+    }
     const { profile, model } = resolveProfileField(field, raw, modelPool);
     return {
       model, maxSteps, tools, profile,
@@ -822,10 +870,14 @@ function validateNamedAgent(
   if (modelEntry && modelEntry.status !== "active") {
     fail(`config inválida: agent "${name}" referencia modelo "${model}" que não está active (status: "${modelEntry.status}")`);
   }
+  const modelRouting = raw.modelRouting === undefined
+    ? undefined
+    : validateModelRouting(raw.modelRouting, `${field}.modelRouting`, knownModels, allModels, model);
 
   return {
     model, maxSteps, tools,
     ...(permission === undefined ? {} : { permission }),
+    ...(modelRouting === undefined ? {} : { modelRouting }),
     ...(systemPrompt === undefined ? {} : { systemPrompt }),
   };
 }
