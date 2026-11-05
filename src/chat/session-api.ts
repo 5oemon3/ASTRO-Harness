@@ -4,7 +4,7 @@ import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { MAX_SESSION_BYTES, SessionStore, sanitizeSessionRecord, type SessionRecord } from "./store";
 
-const DATABASE_SCHEMA_VERSION = 2;
+const DATABASE_SCHEMA_VERSION = 3;
 
 interface SessionRow {
   record_json: string;
@@ -68,11 +68,15 @@ export class SessionApi {
   /** Cria uma sessão; falha se já houver uma sessão com o mesmo id. */
   create(value: SessionRecord): SessionRecord {
     const record = this.#prepare(value);
-    this.#db.run(
-      `INSERT INTO sessions (id, started_at, model, turns, cost_usd, name, record_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [record.id, record.startedAt, record.model, record.turns, record.costUsd, record.name ?? null, JSON.stringify(record)],
-    );
+    const transaction = this.#db.transaction(() => {
+      this.#db.run(
+        `INSERT INTO sessions (id, started_at, model, turns, cost_usd, name, record_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [record.id, record.startedAt, record.model, record.turns, record.costUsd, record.name ?? null, JSON.stringify(record)],
+      );
+      this.#markSqliteAuthoritative(record.id);
+    });
+    transaction();
     return record;
   }
 
@@ -106,24 +110,36 @@ export class SessionApi {
   /** Cria ou substitui uma sessão com a mesma sanitização de escrita do JSON v1. */
   save(value: SessionRecord): SessionRecord {
     const record = this.#prepare(value);
-    this.#db.run(
-      `INSERT INTO sessions (id, started_at, model, turns, cost_usd, name, record_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         started_at = excluded.started_at,
-         model = excluded.model,
-         turns = excluded.turns,
-         cost_usd = excluded.cost_usd,
-         name = excluded.name,
-         record_json = excluded.record_json`,
-      [record.id, record.startedAt, record.model, record.turns, record.costUsd, record.name ?? null, JSON.stringify(record)],
-    );
+    const transaction = this.#db.transaction(() => {
+      this.#db.run(
+        `INSERT INTO sessions (id, started_at, model, turns, cost_usd, name, record_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           started_at = excluded.started_at,
+           model = excluded.model,
+           turns = excluded.turns,
+           cost_usd = excluded.cost_usd,
+           name = excluded.name,
+           record_json = excluded.record_json`,
+        [record.id, record.startedAt, record.model, record.turns, record.costUsd, record.name ?? null, JSON.stringify(record)],
+      );
+      this.#markSqliteAuthoritative(record.id);
+    });
+    transaction();
     return record;
   }
 
   /** Remove uma sessão; retorna false quando o id não existe. */
   delete(id: string): boolean {
-    return this.#db.run("DELETE FROM sessions WHERE id = ?", [id]).changes > 0;
+    this.#migrateJsonSessions();
+    const transaction = this.#db.transaction(() => {
+      const deleted = this.#db.run("DELETE FROM sessions WHERE id = ?", [id]).changes > 0;
+      if (!deleted) return false;
+      this.#db.run("DELETE FROM session_overrides WHERE id = ?", [id]);
+      this.#db.run("INSERT OR IGNORE INTO session_tombstones (id) VALUES (?)", [id]);
+      return true;
+    });
+    return transaction();
   }
 
   close(): void {
@@ -145,6 +161,19 @@ export class SessionApi {
             record_json TEXT NOT NULL
           );
           CREATE INDEX sessions_started_at ON sessions (started_at DESC, id ASC);
+          CREATE TABLE session_overrides (id TEXT PRIMARY KEY NOT NULL);
+          CREATE TABLE session_tombstones (id TEXT PRIMARY KEY NOT NULL);
+          PRAGMA user_version = ${DATABASE_SCHEMA_VERSION};
+        `);
+      });
+      transaction();
+      return;
+    }
+    if (row.user_version === 2) {
+      const transaction = this.#db.transaction(() => {
+        this.#db.exec(`
+          CREATE TABLE session_overrides (id TEXT PRIMARY KEY NOT NULL);
+          CREATE TABLE session_tombstones (id TEXT PRIMARY KEY NOT NULL);
           PRAGMA user_version = ${DATABASE_SCHEMA_VERSION};
         `);
       });
@@ -230,6 +259,8 @@ export class SessionApi {
       for (const { record } of uniqueRecords) {
         const found = this.#db.query("SELECT id FROM sessions WHERE id = ?").get(record.id);
         if (found !== null) existing++;
+        if (this.#db.query("SELECT id FROM session_tombstones WHERE id = ?").get(record.id) !== null) continue;
+        if (this.#db.query("SELECT id FROM session_overrides WHERE id = ?").get(record.id) !== null) continue;
         this.#db.run(
           `INSERT INTO sessions
            (id, started_at, model, turns, cost_usd, name, record_json)
@@ -253,6 +284,11 @@ export class SessionApi {
     this.#jsonFileSignatures.clear();
     for (const [file, signature] of signatures) this.#jsonFileSignatures.set(file, signature);
     return { migrated, skipped, existing, diagnostics };
+  }
+
+  #markSqliteAuthoritative(id: string): void {
+    this.#db.run("DELETE FROM session_tombstones WHERE id = ?", [id]);
+    this.#db.run("INSERT OR IGNORE INTO session_overrides (id) VALUES (?)", [id]);
   }
 
   #prepare(value: SessionRecord): SessionRecord {

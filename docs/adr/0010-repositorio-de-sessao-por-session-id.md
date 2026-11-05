@@ -22,7 +22,7 @@ T1 (#62) persiste a conversa do REPL num JSON plano `.astro/sessions/<ts>.json`.
 - Ganho: T1/T4 desbloqueadas com um único modelo de dados; colisão D-12 resolvida sem quebrar o determinismo.
 - Custo: T1 muda do `<ts>.json` plano para o layout por `session_id`; resume depende do ledger intacto.
 - Invariantes afetadas: I-03 (sanitize na escrita), I-19 (resume determinístico via ledger, não via store).
-- Transição T4: até #366, o JSON continua sendo a fonte de escrita; `SessionApi.list()`/`load()` reconciliam o JSON antes de ler, refletindo auto-save e rename sem dual-write. IDs JSON duplicados colapsam para a sessão de `startedAt` mais recente (empate: caminho lexical); UI e rename identificam a sessão pelo `id`.
+- Transição T4: até #366, o JSON continua sendo a fonte de escrita do runtime; `SessionApi.list()`/`load()` reconciliam o JSON antes de ler, refletindo auto-save e rename sem dual-write. Escritas pela API passam a ter precedência no SQLite; exclusões deixam tombstones para impedir sobrescrita ou ressurreição durante a reconciliação. IDs JSON duplicados colapsam para a sessão de `startedAt` mais recente (empate: caminho lexical); UI e rename identificam a sessão pelo `id`.
 
 ## Alternativas descartadas
 
