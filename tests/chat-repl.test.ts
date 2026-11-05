@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -212,6 +213,26 @@ describe("REPL do chat (T1, #62)", () => {
       sessionApi.close();
     }
   });
+  test("/sessions reports SQLite lock errors and keeps the REPL alive", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-sessions-lock-"));
+    const astroDir = join(root, ".astro");
+    const sessionApi = new SessionApi(astroDir);
+    const lock = new Database(sessionApi.databasePath);
+    const session = new FakeSession();
+    const io = new ScriptedIO(["/sessions", "/exit"]);
+    lock.exec("BEGIN EXCLUSIVE");
+
+    try {
+      await expect(runRepl(session, io, { sessionApi })).resolves.toBeUndefined();
+      expect(io.outputs.some((line) => line.startsWith("erro:") && line.includes("locked"))).toBe(true);
+      expect(session.closed).toBe(1);
+    } finally {
+      lock.exec("ROLLBACK");
+      lock.close();
+      sessionApi.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   test("/sessions lista por resumo e /resume carrega o registro migrado pelo id", async () => {
     const root = mkdtempSync(join(tmpdir(), "astro-chat-resume-api-"));
     const astroDir = join(root, ".astro");
@@ -222,6 +243,7 @@ describe("REPL do chat (T1, #62)", () => {
       id: "session-old", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
       messages: [{ role: "user", content: "old" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null,
     });
+
     legacy.write({
       id: "session-new", startedAt: "2026-10-02T10:00:00.000Z", model: "p/m2",
       messages: [

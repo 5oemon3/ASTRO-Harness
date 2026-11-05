@@ -205,6 +205,51 @@ describe("session API JSON migration", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("reconciles one changed file without rereading the entire JSON directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-incremental-import-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    const content = "x".repeat(100_000);
+    for (let index = 0; index < 60; index++) {
+      legacy.write(makeRecord({
+        id: `session-${index}`,
+        startedAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+        messages: [{ role: "user", content }],
+      }));
+    }
+
+    let api: SessionApi | undefined;
+    try {
+      api = new SessionApi(astroDir);
+      legacy.write(makeRecord({
+        id: "session-30",
+        startedAt: new Date(Date.UTC(2026, 0, 31)).toISOString(),
+        turns: 2,
+        messages: [{ role: "user", content: `${content}updated` }],
+      }));
+
+      const started = performance.now();
+      expect(api.list().find(({ id }) => id === "session-30")?.turns).toBe(2);
+      expect(performance.now() - started).toBeLessThan(3_000);
+    } finally {
+      api?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, { timeout: 30_000 });
+
+  test("reads a JSON session by its validated path without listing siblings", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-store-path-read-"));
+    const store = new SessionStore(join(root, "sessions"));
+    const firstPath = store.write(makeRecord({ id: "first" }));
+    store.write(makeRecord({ id: "second" }));
+
+    try {
+      expect(store.readByPath(firstPath)).toMatchObject({ id: "first" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("session API", () => {
@@ -258,6 +303,28 @@ describe("session API", () => {
         upgraded.close();
       }
     } finally {
+      api?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("configures a busy timeout for concurrent SQLite connections", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-busy-timeout-"));
+    let api: SessionApi | undefined;
+    let lock: Database | undefined;
+    try {
+      const apiInstance = new SessionApi(join(root, ".astro"));
+      api = apiInstance;
+      lock = new Database(apiInstance.databasePath);
+      lock.exec("BEGIN EXCLUSIVE");
+      const started = performance.now();
+      expect(() => apiInstance.list()).toThrow(/locked/);
+      expect(performance.now() - started).toBeGreaterThanOrEqual(900);
+    } finally {
+      if (lock !== undefined) {
+        lock.exec("ROLLBACK");
+        lock.close();
+      }
       api?.close();
       rmSync(root, { recursive: true, force: true });
     }
