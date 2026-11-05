@@ -26,7 +26,7 @@ import { resolveCredentialValue } from "./credential-ref";
 import { Vault, vaultPath } from "./vault";
 import { isVaultRef } from "./secrets";
 import type { AuditEvent } from "./audit";
-import { budgetStatus, effectiveBudget, restrictBudget, BudgetExceededError, type BudgetDecider, type BudgetStatus } from "./budget";
+import { budgetStatus, effectiveBudget, raiseDeniedLabel, restrictBudget, BudgetExceededError, type BudgetDecider, type BudgetStatus } from "./budget";
 import { MaxStepsError, runSession, runMultiAgentSession, type EffectiveIdentity, type IdentityResolver, type MultiAgentSessionOptions } from "./session";
 import { assertResumeIdentity, planResume, ReplayIncompleteError } from "./resume";
 import { activeLocks, moveAgentLock, recoverCrashedAgents, recoverDeadAgentLocks } from "./agent-lock";
@@ -1118,7 +1118,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     if (error instanceof BudgetExceededError) {
       audit.append({ run, agent: activeAgent.name, tipo: "run.stopped",
         payload: { reason: "budget_exceeded", budget: error.reason } });
-      throw new Error(`budget esgotado (${error.reason}); run parado em ponto seguro`, { cause: error });
+      throw new Error(`budget esgotado (${error.reason})${error.raiseReason === undefined ? "" : ` — ${raiseDeniedLabel(error.raiseReason)}`}; run parado em ponto seguro`, { cause: error });
     }
     if (error instanceof SwapDeniedError) {
       audit.append({ run, agent: error.request.agent ?? activeAgent.name, tipo: "run.stopped",

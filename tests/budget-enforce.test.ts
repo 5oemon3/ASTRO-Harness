@@ -78,6 +78,9 @@ describe("aumento de budget com aprovação (D-30, #372)", () => {
       { old_limit_usd?: number; new_limit_usd?: number } | undefined;
     expect(raised?.old_limit_usd).toBe(1);
     expect(raised?.new_limit_usd).toBe(3);
+    expect(raised).not.toHaveProperty("confirmed_ceiling");
+    const auditRaised = opts.audit.readAll().find((e) => e.tipo === "budget.raised");
+    expect(auditRaised?.payload).not.toHaveProperty("confirmedCeiling");
     expect(opts.audit.readAll().some((e) => e.tipo === "budget.raised")).toBe(true);
   });
 
@@ -112,9 +115,12 @@ describe("aumento de budget com aprovação (D-30, #372)", () => {
     await expect(enforceBudget(opts)).resolves.toEqual({ choice: "raise", limitUsd: 5, hardCeilingUsd: 8, confirmedCeiling: true });
     expect(cfg.hardCeilingUsd).toBe(8);
     const raised = ledger.readAllEntries().find((e) => e.kind === "budget" && e.event === "raised") as
-      { old_ceiling_usd?: number; new_ceiling_usd?: number } | undefined;
+      { old_ceiling_usd?: number; new_ceiling_usd?: number; confirmed_ceiling?: boolean } | undefined;
     expect(raised?.old_ceiling_usd).toBe(3);
     expect(raised?.new_ceiling_usd).toBe(8);
+    expect(raised?.confirmed_ceiling).toBe(true);
+    const audit = opts.audit.readAll().find((e) => e.tipo === "budget.raised");
+    expect((audit?.payload as { confirmedCeiling?: boolean } | undefined)?.confirmedCeiling).toBe(true);
   });
 
   test("novo teto que não sobe é negado", async () => {
@@ -129,7 +135,10 @@ describe("aumento de budget com aprovação (D-30, #372)", () => {
     const ledger = ledgerWith(2);
     const cfg = budget({ limitUsd: 1, hardCeilingUsd: 3 });
     const opts = base(ledger, { budget: cfg, decide: () => ({ choice: "raise" as const, limitUsd: 5, hardCeilingUsd: 8 }) });
-    await expect(enforceBudget(opts)).rejects.toBeInstanceOf(BudgetExceededError);
+    const error = await enforceBudget(opts).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BudgetExceededError);
+    expect((error as BudgetExceededError).raiseReason).toBe("ceiling_not_confirmed");
+    expect((error as Error).message).toContain("não confirmado");
     expect(cfg.hardCeilingUsd).toBe(3);
     expect(opts.audit.readAll().some((e) => e.tipo === "budget.raise_denied"
       && (e.payload as { reason?: string }).reason === "ceiling_not_confirmed")).toBe(true);
@@ -157,11 +166,11 @@ describe("aumento de budget com aprovação (D-30, #372)", () => {
   });
 });
 
-interface RunOpts { usage?: number; priced?: boolean; final?: boolean; tool?: string; agents?: boolean; maxSteps?: number; finalAfter?: number }
+interface RunOpts { usage?: number; priced?: boolean; final?: boolean; tool?: string; agents?: boolean; maxSteps?: number; finalAfter?: number; context?: number }
 
 /** Run com provider sintético: tool call (ou resposta final) e custo `usage` por chamada. */
 async function runWithBudget(budgetCfg: Record<string, unknown>, opts: RunOpts = {}) {
-  const { usage = 1000, priced = true, final = false, tool = "ghost", agents = false, maxSteps = 4, finalAfter } = opts;
+  const { usage = 1000, priced = true, final = false, tool = "ghost", agents = false, maxSteps = 4, finalAfter, context = 8192 } = opts;
   const cwd = mkdtempSync(join(tmpdir(), "astro-budget-enf-run-"));
   let calls = 0;
   const server = Bun.serve({ port: 0, async fetch() {
@@ -181,7 +190,7 @@ async function runWithBudget(budgetCfg: Record<string, unknown>, opts: RunOpts =
       p: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "KEY" },
       backup: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "BACKUP_KEY" },
     },
-    models: [{ provider: "p", id: "m", tags: ["writing-code"], context: 8192,
+    models: [{ provider: "p", id: "m", tags: ["writing-code"], context,
       ...(priced ? { price: { inputPerM: 1000, outputPerM: 1000, fonte: "t", verificado: false } } : {}) }],
     agent: { model: "p/m", maxSteps, tools: agents ? ["handoff"] : [] },
     ...(agents ? { agents: {
@@ -321,6 +330,41 @@ describe("corte de budget no run (F-05, #132 parte 3)", () => {
         return { choice: "raise", limitUsd: 30 };
       } });
       expect(report.budget?.limitUsd).toBe(30);
+    } finally {
+      stop();
+    }
+  });
+
+  test("multi-agent: teto elevado vale depois do handoff (D-30, #393)", async () => {
+    // context 100 deixa a reserva da chamada (0,10) abaixo do teto inicial; com o default 8192 a reserva (8,19) já o estouraria.
+    const { cwd, configPath, calls, stop } = await runWithBudget(
+      { scope: "day", limitUsd: 1, hardCeilingUsd: 3 }, { usage: 2000, context: 100, tool: "handoff", agents: true });
+    let raised = false;
+    try {
+      await expect(runTask({ configPath, task: "x", cwd, env: { KEY: "k" }, onBudgetExceeded: () => {
+        if (raised) return "continue_same";
+        raised = true;
+        return { choice: "raise", limitUsd: 5, hardCeilingUsd: 8, confirmedCeiling: true };
+      } })).rejects.toThrow(/excedeu 2 passos/);
+      const entries = new Ledger(join(cwd, ".astro", "ledger.jsonl")).readAllEntries();
+      expect(entries.some((e) => e.kind === "budget" && e.event === "ceiling_hit")).toBe(false);
+      const raisedEntry = entries.find((e) => e.kind === "budget" && e.event === "raised") as
+        { new_ceiling_usd?: number; confirmed_ceiling?: boolean } | undefined;
+      expect(raisedEntry?.new_ceiling_usd).toBe(8);
+      expect(raisedEntry?.confirmed_ceiling).toBe(true);
+      expect(calls()).toBe(3);
+    } finally {
+      stop();
+    }
+  });
+
+  test("mensagem do runTask explica a recusa do aumento (#393)", async () => {
+    const { cwd, configPath, stop } = await runWithBudget(
+      { scope: "day", limitUsd: 1, hardCeilingUsd: 10 }, { usage: 1000 });
+    try {
+      await expect(runTask({ configPath, task: "x", cwd, env: { KEY: "k" }, onBudgetExceeded: () => ({
+        choice: "raise", limitUsd: 20, hardCeilingUsd: 30 }) }))
+        .rejects.toThrow(/teto físico não confirmado/);
     } finally {
       stop();
     }

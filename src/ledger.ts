@@ -122,6 +122,7 @@ export interface LedgerBudgetEntry {
   new_limit_usd?: number;
   old_ceiling_usd?: number;
   new_ceiling_usd?: number;
+  confirmed_ceiling?: boolean;
   session_id?: string;
   seq: number;
 }
@@ -662,6 +663,7 @@ export class Ledger {
     new_limit_usd: number;
     old_ceiling_usd?: number;
     new_ceiling_usd?: number;
+    confirmed_ceiling?: boolean;
   }): LedgerBudgetEntry {
     const entry: LedgerBudgetEntry = {
       schemaVersion: LEDGER_SCHEMA_VERSION,
@@ -675,6 +677,7 @@ export class Ledger {
       ...(opts.session_id === undefined ? {} : { session_id: redactSecrets(opts.session_id) }),
       ...(opts.old_ceiling_usd === undefined ? {} : { old_ceiling_usd: opts.old_ceiling_usd }),
       ...(opts.new_ceiling_usd === undefined ? {} : { new_ceiling_usd: opts.new_ceiling_usd }),
+      ...(opts.confirmed_ceiling === undefined ? {} : { confirmed_ceiling: opts.confirmed_ceiling }),
       seq: 0,
     };
     this.appendWithSeq(entry);

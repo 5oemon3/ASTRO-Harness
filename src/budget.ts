@@ -171,15 +171,33 @@ export interface BudgetDecisionContext {
   reserveUsd: number;
 }
 
+const RAISE_DENIED_LABEL: Record<BudgetRaiseDenied, string> = {
+  invalid_number: "valor inválido",
+  not_above_spend: "valor não supera o gasto + reserva",
+  not_above_limit: "valor não supera o limite atual",
+  ceiling_required: "valor excede o teto físico sem elevar o teto",
+  ceiling_not_raised: "novo teto não é maior que o atual",
+  ceiling_not_confirmed: "teto físico não confirmado",
+};
+
+/** Texto em português para o motivo de recusa (D-30), estável para a UI/testes. */
+export function raiseDeniedLabel(reason: BudgetRaiseDenied): string {
+  return RAISE_DENIED_LABEL[reason] ?? reason;
+}
+
 /** Parada por budget (I-17/I-19): esgotado, teto físico ou modo não interativo. */
 export class BudgetExceededError extends Error {
   readonly reason: "limit" | "ceiling" | "non_interactive" | "unknown_price";
   readonly status: BudgetStatus;
-  constructor(reason: BudgetExceededError["reason"], status: BudgetStatus) {
-    super(`budget esgotado (${reason}): ${status.estimate}${status.limitUsd === null ? "" : ` / US$ ${status.limitUsd}`}`);
+  /** Motivo da recusa quando o esgotamento veio de um pedido de aumento (D-30). */
+  readonly raiseReason?: BudgetRaiseDenied;
+  constructor(reason: BudgetExceededError["reason"], status: BudgetStatus, raiseReason?: BudgetRaiseDenied) {
+    const suffix = raiseReason === undefined ? "" : `; aumento recusado: ${raiseDeniedLabel(raiseReason)}`;
+    super(`budget esgotado (${reason}): ${status.estimate}${status.limitUsd === null ? "" : ` / US$ ${status.limitUsd}`}${suffix}`);
     this.name = "BudgetExceededError";
     this.reason = reason;
     this.status = status;
+    this.raiseReason = raiseReason;
   }
 }
 
@@ -250,7 +268,7 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
         limitUsd: status.limitUsd,
         ...(opts.budget.hardCeilingUsd === undefined ? {} : { hardCeilingUsd: opts.budget.hardCeilingUsd }),
       } });
-      throw new BudgetExceededError("limit", status);
+      throw new BudgetExceededError("limit", status, result.reason);
     }
     const oldLimit = opts.budget.limitUsd ?? 0;
     const oldCeiling = opts.budget.hardCeilingUsd;
@@ -263,7 +281,7 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
       oldLimitUsd: oldLimit,
       newLimitUsd: result.limitUsd,
       ...(oldCeiling === undefined ? {} : { oldHardCeilingUsd: oldCeiling }),
-      ...(result.hardCeilingUsd === undefined ? {} : { newHardCeilingUsd: result.hardCeilingUsd }),
+      ...(result.hardCeilingUsd === undefined ? {} : { newHardCeilingUsd: result.hardCeilingUsd, confirmedCeiling: true }),
     } });
     opts.ledger.recordBudgetRaised({
       run: opts.run,
@@ -272,7 +290,7 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
       old_limit_usd: oldLimit,
       new_limit_usd: result.limitUsd,
       ...(oldCeiling === undefined ? {} : { old_ceiling_usd: oldCeiling }),
-      ...(result.hardCeilingUsd === undefined ? {} : { new_ceiling_usd: result.hardCeilingUsd }),
+      ...(result.hardCeilingUsd === undefined ? {} : { new_ceiling_usd: result.hardCeilingUsd, confirmed_ceiling: true }),
     });
     return choice;
   }
