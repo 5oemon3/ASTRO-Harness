@@ -21,7 +21,7 @@ O ADR-0013 fixa `day|month|project|use-as-you-go`; `project` é o mês corrente 
 
 **Enforcement.** Verificação antes da chamada com `input + max_output`; reconciliação no ledger após a resposta; discrepância >20% gera nota. Subagente herda `min(parent.effective, child.declared)`. `outstandingReservations` conta sem filtro de sessão (B9, crash recovery). Cache de query = último `seq` do ledger; leitura stale invalida e re-consulta. Elevação de teto em runtime é #372 (D-30), aditiva a este ADR.
 
-**Versão.** O config usa `version` semver (não `schemaVersion` inteiro); a migração/deprecação é do ADR de config/semver (a abrir), uma major por vez.
+**Versão.** O config usa `version` semver (não `schemaVersion` inteiro); a migração/deprecação é do ADR-0028, uma major por vez.
 
 ## Consequências
 

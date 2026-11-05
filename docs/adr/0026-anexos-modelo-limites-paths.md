@@ -3,7 +3,7 @@
 - Status: aceita
 - Data: 2026-11-05
 - Issue: #382
-- Decisões relacionadas: ADR-0010, ADR-0015, ADR-0019, ADR-0020, ADR-0021, ADR-0023, ADR-0027, ADR-0028 (a abrir), I-01, I-02, I-03, I-11
+- Decisões relacionadas: ADR-0010, ADR-0015, ADR-0019, ADR-0020, ADR-0021, ADR-0023, ADR-0027, ADR-0028, I-01, I-02, I-03, I-11
 
 ## Contexto
 
