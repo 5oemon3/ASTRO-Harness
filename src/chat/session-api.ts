@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
-import { MAX_SESSION_BYTES, SessionStore, sanitizeSessionRecord, type SessionRecord } from "./store";
+import { redactSecrets } from "../sanitize-external";
+import { MAX_SESSION_BYTES, sanitizeSessionName, SessionStore, sanitizeSessionRecord, type SessionRecord } from "./store";
 
 const DATABASE_SCHEMA_VERSION = 3;
 
@@ -21,7 +22,8 @@ interface SessionSummaryRow {
 
 interface JsonSessionCacheEntry {
   signature: string;
-  record?: SessionRecord;
+  id?: string;
+  startedAt?: string;
 }
 
 export interface SessionSummary {
@@ -47,6 +49,19 @@ export interface SessionMigrationResult {
 
 function isMissingFile(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/** Abre a persistência SQLite sem impedir o chat quando o banco está indisponível. */
+export function openSessionApi(astroDir: string): SessionApi | undefined {
+  try {
+    return new SessionApi(astroDir);
+  } catch (error) {
+    const message = redactSecrets(error instanceof Error ? error.message : String(error));
+    console.error(
+      `aviso: sessões SQLite indisponíveis (${message}); /sessions e /resume desativados`,
+    );
+    return undefined;
+  }
 }
 
 /** CRUD e migração do store de sessões sanitizado para `.astro/sessions.db`. */
@@ -135,17 +150,26 @@ export class SessionApi {
     return record;
   }
 
+  /** Renomeia uma sessão existente, inclusive quando não há cópia JSON. */
+  rename(id: string, name: string): SessionRecord {
+    const record = this.load(id);
+    return this.save({ ...record, name: sanitizeSessionName(name) });
+  }
+
   /** Remove uma sessão; retorna false quando o id não existe. */
   delete(id: string): boolean {
     this.#migrateJsonSessions();
     const transaction = this.#db.transaction(() => {
       const deleted = this.#db.run("DELETE FROM sessions WHERE id = ?", [id]).changes > 0;
-      if (!deleted) return false;
-      this.#db.run("DELETE FROM session_overrides WHERE id = ?", [id]);
-      this.#db.run("INSERT OR IGNORE INTO session_tombstones (id) VALUES (?)", [id]);
-      return true;
+      if (deleted) {
+        this.#db.run("DELETE FROM session_overrides WHERE id = ?", [id]);
+        this.#db.run("INSERT OR IGNORE INTO session_tombstones (id) VALUES (?)", [id]);
+      }
+      return deleted;
     });
-    return transaction();
+    const deletedFromSqlite = transaction();
+    const deletedFromJson = new SessionStore(join(this.astroDir, "sessions")).deleteById(id);
+    return deletedFromSqlite || deletedFromJson;
   }
 
   close(): void {
@@ -206,6 +230,7 @@ export class SessionApi {
     const store = new SessionStore(legacyDir);
     const nextJsonFiles = new Map(this.#jsonFiles);
     const changedIds = new Set<string>();
+    const changedRecords = new Map<string, SessionRecord>();
     const diagnostics: SessionMigrationDiagnostic[] = [];
     let skipped = 0;
     let existing = 0;
@@ -238,7 +263,7 @@ export class SessionApi {
       if (signature === undefined) throw new Error("assinatura do arquivo de sessão ausente");
       const previous = nextJsonFiles.get(entry.name);
       if (previous?.signature === signature) continue;
-      if (previous?.record !== undefined) changedIds.add(previous.record.id);
+      if (previous?.id !== undefined) changedIds.add(previous.id);
       if (!entry.isFile()) {
         skipped++;
         diagnostics.push({ file: entry.name, reason: "não é um arquivo regular" });
@@ -247,7 +272,8 @@ export class SessionApi {
       }
       try {
         const record = store.readByPath(entry.name);
-        nextJsonFiles.set(entry.name, { signature, record });
+        nextJsonFiles.set(entry.name, { signature, id: record.id, startedAt: record.startedAt });
+        changedRecords.set(entry.name, record);
         changedIds.add(record.id);
       } catch {
         skipped++;
@@ -258,26 +284,26 @@ export class SessionApi {
 
     for (const [file, cached] of nextJsonFiles) {
       if (!signatures.has(file)) {
-        if (cached.record !== undefined) changedIds.add(cached.record.id);
+        if (cached.id !== undefined) changedIds.add(cached.id);
         nextJsonFiles.delete(file);
       }
     }
 
-    const canonicalRecords = new Map<string, { file: string; record: SessionRecord }>();
+    const canonicalFiles = new Map<string, { file: string; startedAt: string }>();
     for (const [file, cached] of nextJsonFiles) {
-      if (cached.record === undefined || !changedIds.has(cached.record.id)) continue;
-      const current = canonicalRecords.get(cached.record.id);
+      if (cached.id === undefined || cached.startedAt === undefined || !changedIds.has(cached.id)) continue;
+      const current = canonicalFiles.get(cached.id);
       if (
         current === undefined ||
-        cached.record.startedAt.localeCompare(current.record.startedAt) > 0 ||
-        (cached.record.startedAt === current.record.startedAt && file.localeCompare(current.file) < 0)
+        cached.startedAt.localeCompare(current.startedAt) > 0 ||
+        (cached.startedAt === current.startedAt && file.localeCompare(current.file) < 0)
       ) {
-        canonicalRecords.set(cached.record.id, { file, record: cached.record });
+        canonicalFiles.set(cached.id, { file, startedAt: cached.startedAt });
       }
     }
     for (const [file, cached] of nextJsonFiles) {
-      if (cached.record === undefined || !changedIds.has(cached.record.id)) continue;
-      if (canonicalRecords.get(cached.record.id)?.file !== file) {
+      if (cached.id === undefined || !changedIds.has(cached.id)) continue;
+      if (canonicalFiles.get(cached.id)?.file !== file) {
         skipped++;
         diagnostics.push({ file, reason: "id de sessão duplicado" });
       }
@@ -285,7 +311,9 @@ export class SessionApi {
 
     let migrated = 0;
     const transaction = this.#db.transaction(() => {
-      for (const { record } of canonicalRecords.values()) {
+      for (const [id, { file }] of canonicalFiles) {
+        const record = changedRecords.get(file) ?? store.readByPath(file);
+        if (record.id !== id) throw new Error("id da sessão mudou durante a reconciliação");
         const found = this.#db.query("SELECT id FROM sessions WHERE id = ?").get(record.id);
         if (found !== null) existing++;
         if (this.#db.query("SELECT id FROM session_tombstones WHERE id = ?").get(record.id) !== null) continue;

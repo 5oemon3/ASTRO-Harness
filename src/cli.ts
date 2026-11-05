@@ -1164,8 +1164,8 @@ async function main(argv: string[]): Promise<number> {
       });
       for (const warning of session.warnings) console.error(`aviso: ${warning}`);
       const store = new SessionStore(resolve(base, ".astro", "sessions"));
-      const { SessionApi } = await import("./chat/session-api");
-      sessionApi = new SessionApi(resolve(base, ".astro"));
+      const { openSessionApi } = await import("./chat/session-api");
+      sessionApi = openSessionApi(resolve(base, ".astro"));
       await runRepl(session, io, { store, sessionApi, signal: io.signal, style: interactive, cwd: base, manager });
       return 0;
     } catch (error) {

@@ -563,12 +563,12 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
         onRename={(chosen, name) => {
           if (store === undefined) return "sem persistência configurada";
           try {
-            const renamed = store.rename(chosen.id, name);
             if (sessionApi === undefined) {
-              setSessionList((current) => current.map((item) => item.id === chosen.id
-                ? { ...item, ...(renamed.name === undefined ? {} : { name: renamed.name }) }
-                : item));
+              store.rename(chosen.id, name);
+              setSessionList(store.list());
             } else {
+              if (store.list().some((item) => item.id === chosen.id)) store.rename(chosen.id, name);
+              sessionApi.rename(chosen.id, name);
               setSessionList(sessionApi.list());
             }
             return undefined;

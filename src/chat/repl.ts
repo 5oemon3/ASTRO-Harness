@@ -118,7 +118,9 @@ export function detailsLines(snapshot: SessionSnapshot, lastFile: string | undef
     ...(snapshot.resumedFrom === undefined
       ? []
       : [`retomada de ${snapshot.resumedFrom.id} (início ${snapshot.resumedFrom.startedAt})`]),
-    `arquivo: ${lastFile ?? "ainda não salvo"}`,
+    `arquivo: ${lastFile ?? (snapshot.resumedFrom === undefined
+      ? "ainda não salvo"
+      : `SessionApi (${snapshot.resumedFrom.id})`)}`,
   ];
 }
 

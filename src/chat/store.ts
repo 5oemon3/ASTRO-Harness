@@ -1,6 +1,6 @@
 /** Persistência sanitizada da sessão de chat (T1): schema 1, escrita atômica. */
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type { ChatMessage } from "../provider/types";
 import { redactSecrets } from "../sanitize-external";
@@ -55,6 +55,14 @@ function requireName(value: string): string {
   const clean = normalizeName(value);
   if (clean === undefined) throw new Error("nome da sessão inválido");
   return clean;
+}
+
+/** Nome de sessão sanitizado para gravação por qualquer backend de sessão. */
+export function sanitizeSessionName(value: string): string {
+  const sanitized = sanitizeValue(requireName(value));
+  const stored = typeof sanitized === "string" ? normalizeName(sanitized) : undefined;
+  if (stored === undefined) throw new Error("nome da sessão inválido");
+  return stored;
 }
 
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
@@ -204,14 +212,17 @@ export class SessionStore {
     return this.#read(this.#inside(path));
   }
 
+  /** Remove todos os arquivos que representam uma identidade de sessão duplicada. */
+  deleteById(id: string): boolean {
+    const paths = this.list().filter((item) => item.id === id).map((item) => item.path);
+    for (const path of paths) unlinkSync(path);
+    return paths.length > 0;
+  }
+
   /** Renomeia a sessão no próprio arquivo (atômico, sem duplicar) e devolve o resumo (#64). */
   rename(ref: string, name: string): SessionSummary {
     const { record, path } = this.load(ref);
-    // aplica a sanitização real antes de validar: redação pode expandir o texto e
-    // nomes JSON podem esconder controles/escapes; o que vale é o valor gravado
-    const sanitized = sanitizeValue(requireName(name));
-    const stored = typeof sanitized === "string" ? normalizeName(sanitized) : undefined;
-    if (stored === undefined) throw new Error("nome da sessão inválido");
+    const stored = sanitizeSessionName(name);
     const updated: SessionRecord = { ...record, name: stored };
     const json = JSON.stringify(sanitizeValue(updated), null, 2);
     if (Buffer.byteLength(json, "utf8") > MAX_SESSION_BYTES) {
