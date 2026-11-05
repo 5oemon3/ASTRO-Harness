@@ -157,9 +157,10 @@ export class SessionApi {
   rename(id: string, name: string): SessionRecord {
     const record = this.load(id);
     const hasJsonCopy = [...this.#jsonFiles.values()].some((entry) => entry.id === id);
+    const storedName = sanitizeSessionName(name);
     return this.#writeRecord(
-      this.#prepare({ ...record, name: sanitizeSessionName(name) }),
-      !hasJsonCopy,
+      this.#prepare({ ...record, name: storedName }),
+      !hasJsonCopy || record.name !== storedName,
     );
   }
 
