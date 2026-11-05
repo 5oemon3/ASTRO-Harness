@@ -231,6 +231,29 @@ describe("session API JSON migration", () => {
     }
   });
 
+  test("keeps a direct JSON-backed API rename authoritative", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-direct-rename-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write(makeRecord({ id: "direct-rename" }));
+    let api: SessionApi | undefined;
+    let reopened: SessionApi | undefined;
+
+    try {
+      api = new SessionApi(astroDir);
+      api.rename("direct-rename", "renamed in SQLite");
+      api.close();
+      api = undefined;
+
+      reopened = new SessionApi(astroDir);
+      expect(reopened.load("direct-rename").name).toBe("renamed in SQLite");
+    } finally {
+      api?.close();
+      reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("renames a SQLite-only session and keeps the new name authoritative", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-rename-"));
     let api: SessionApi | undefined;
