@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
@@ -8,6 +8,7 @@ import type { ConfigSummary } from "../src/chat/config-summary";
 import type { PermissionMode } from "../src/permissions";
 import { BudgetExceededError, type BudgetStatus } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
+import { SessionApi } from "../src/chat/session-api";
 import { AgentSession } from "../src/chat/agent-session";
 
 class ScriptedIO implements ReplIO {
@@ -198,6 +199,54 @@ describe("REPL do chat (T1, #62)", () => {
     expect(io.outputs).toContain("sessão retomada: xyz (2 turnos)");
     expect(io.outputs).toContain("índice fora da lista; use /sessions");
     expect(session.resumed).toHaveLength(1);
+  });
+  test("/sessions lista por resumo e /resume carrega o registro migrado pelo id", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-resume-api-"));
+    const astroDir = join(root, ".astro");
+    const initial = new SessionApi(astroDir);
+    initial.close();
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write({
+      id: "session-old", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
+      messages: [{ role: "user", content: "old" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null,
+    });
+    legacy.write({
+      id: "session-new", startedAt: "2026-10-02T10:00:00.000Z", model: "p/m2",
+      messages: [
+        { role: "user", content: "new" },
+        { role: "assistant", content: "", toolCalls: [{ id: "call", name: "tool", arguments: "{}" }] },
+        { role: "tool", toolCallId: "call", content: "result" },
+        { role: "assistant", content: "done" },
+      ],
+      turns: 2, tokensIn: 2, tokensOut: 2, costUsd: 0.1,
+      resumedFrom: { id: "session-old", startedAt: "2026-10-01T10:00:00.000Z" },
+    });
+    const api = new SessionApi(astroDir);
+    const session = new FakeSession();
+    const io = new ScriptedIO(["/sessions", "/resume session-new", "/exit"]);
+    try {
+      await runRepl(session, io, {
+        store: new SessionStore(join(root, "unrelated-json-store")),
+        sessionApi: api,
+      });
+      const firstListedSession = io.outputs.find((line) => line.startsWith("1."));
+      expect(firstListedSession).toBeDefined();
+      expect(firstListedSession).toContain("session-new");
+      expect(firstListedSession).not.toContain(".json");
+      expect(session.resumed[0]).toMatchObject({
+        id: "session-new",
+        messages: [
+          { role: "user", content: "new" },
+          { role: "assistant", toolCalls: [{ id: "call" }] },
+          { role: "tool", toolCallId: "call", content: "result" },
+          { role: "assistant", content: "done" },
+        ],
+        resumedFrom: { id: "session-old", startedAt: "2026-10-01T10:00:00.000Z" },
+      });
+    } finally {
+      api.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   test("/export grava Markdown e /init cria AGENTS.md no cwd", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-repl-export-"));

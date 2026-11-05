@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatSession } from "../src/chat/repl";
@@ -7,6 +7,7 @@ import type { SessionSnapshot } from "../src/chat/agent-session";
 import type { PermissionMode } from "../src/permissions";
 import type { BudgetStatus } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
+import { SessionApi } from "../src/chat/session-api";
 import { runCommand, type CommandState } from "../src/tui/commands";
 import type { Theme } from "../src/tui/theme";
 
@@ -147,6 +148,41 @@ describe("comandos da TUI (T2, #63)", () => {
     await runCommand({ kind: "clear" }, session, state as never, store);
     const afterClear = await runCommand({ kind: "session" }, session, state as never, store);
     expect(afterClear.entries[0]!.text).not.toContain("retomada de");
+  });
+  test("/resume da TUI carrega pelo resumo da SessionApi sem depender do caminho JSON", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-tui-resume-api-"));
+    const api = new SessionApi(join(root, ".astro"));
+    api.create({
+      schemaVersion: 1, id: "older", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
+      messages: [{ role: "user", content: "old" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null,
+    });
+    api.create({
+      schemaVersion: 1, id: "newer", startedAt: "2026-10-02T10:00:00.000Z", model: "p/m2",
+      messages: [
+        { role: "user", content: "new" },
+        { role: "assistant", content: "", toolCalls: [{ id: "call", name: "tool", arguments: "{}" }] },
+        { role: "tool", toolCallId: "call", content: "result" },
+      ],
+      turns: 2, tokensIn: 2, tokensOut: 2, costUsd: 0.1,
+      resumedFrom: { id: "older", startedAt: "2026-10-01T10:00:00.000Z" },
+    });
+    const session = new FakeSession();
+    try {
+      expect(api.list().map(({ id }) => id)).toEqual(["newer", "older"]);
+      const resumed = await runCommand(
+        { kind: "resume", ref: "1" }, session, {}, new SessionStore(join(root, "empty-json-store")), process.cwd(), api,
+      );
+      expect(resumed.entries[0]!.text).toBe("sessão retomada: newer (2 turnos)");
+      expect(resumed.lastFile).toBeNull();
+      expect(session.resumed[0]).toMatchObject({
+        id: "newer",
+        messages: [{ role: "user", content: "new" }, { role: "assistant", toolCalls: [{ id: "call" }] }, { role: "tool", content: "result" }],
+        resumedFrom: { id: "older", startedAt: "2026-10-01T10:00:00.000Z" },
+      });
+    } finally {
+      api.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   test("sem store, /session mantém a origem e avisa sobre a persistência", async () => {
     const session = new FakeSession();
