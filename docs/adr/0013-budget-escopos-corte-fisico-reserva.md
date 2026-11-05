@@ -1,6 +1,6 @@
 # ADR-0013: budget com escopos, aviso, corte físico e reserva da cadeia
 
-- Status: aceita
+- Status: substituída por ADR-0023
 - Data: 2026-10-28
 - Issue: #120
 - Decisões relacionadas: D-10, D-15, D-20, ADR-0007, ADR-0011
