@@ -138,6 +138,14 @@ describe("session API JSON migration", () => {
       expect(api.list()).toHaveLength(1);
       expect(api.load("duplicate")).toMatchObject({ startedAt: "2026-10-02T10:00:00.000Z", turns: 2 });
       expect(api.migrationResult).toMatchObject({ migrated: 1, skipped: 1, existing: 0 });
+      legacy.write(makeRecord({
+        id: "duplicate",
+        startedAt: "2026-10-02T10:00:00.000Z",
+        turns: 3,
+        messages: [{ role: "user", content: "updated latest" }],
+      }));
+      expect(api.list()).toHaveLength(1);
+      expect(api.load("duplicate")).toMatchObject({ startedAt: "2026-10-02T10:00:00.000Z", turns: 3 });
     } finally {
       api?.close();
       rmSync(root, { recursive: true, force: true });
@@ -162,6 +170,12 @@ describe("session API JSON migration", () => {
         { id: "new-json-session", turns: 2, name: undefined },
         { id: "saved-session", turns: 5, name: "saved in SQLite" },
       ]);
+      legacy.write(makeRecord({ id: "saved-session", turns: 7, name: "stale JSON" }));
+      expect(apiInstance.list().find(({ id }) => id === "saved-session")).toMatchObject({
+        turns: 5,
+        name: "saved in SQLite",
+      });
+      expect(apiInstance.load("saved-session")).toMatchObject({ turns: 5, name: "saved in SQLite" });
       apiInstance.close();
       api = undefined;
 
@@ -172,6 +186,27 @@ describe("session API JSON migration", () => {
     } finally {
       api?.close();
       reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("renames a SQLite-only session and keeps the new name authoritative", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-rename-"));
+    let api: SessionApi | undefined;
+    try {
+      const apiInstance = new SessionApi(join(root, ".astro"));
+      api = apiInstance;
+      apiInstance.create(makeRecord({ id: "sqlite-only" }));
+
+      expect(apiInstance.rename("sqlite-only", "renamed in SQLite")).toMatchObject({
+        id: "sqlite-only",
+        name: "renamed in SQLite",
+      });
+      expect(apiInstance.list()[0]?.name).toBe("renamed in SQLite");
+      expect(apiInstance.load("sqlite-only").name).toBe("renamed in SQLite");
+      expect(() => apiInstance.rename("sqlite-only", "   ")).toThrow(/nome da sessão inválido/);
+    } finally {
+      api?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -188,6 +223,7 @@ describe("session API JSON migration", () => {
       const apiInstance = new SessionApi(astroDir);
       api = apiInstance;
       expect(apiInstance.delete("deleted-session")).toBe(true);
+      expect(legacy.list().map(({ id }) => id)).toEqual([]);
       legacy.write(makeRecord({ id: "new-json-session", turns: 2 }));
 
       expect(apiInstance.list().map(({ id }) => id)).toEqual(["new-json-session"]);
@@ -231,7 +267,7 @@ describe("session API JSON migration", () => {
 
       const started = performance.now();
       expect(api.list().find(({ id }) => id === "session-30")?.turns).toBe(2);
-      expect(performance.now() - started).toBeLessThan(3_000);
+      expect(performance.now() - started).toBeLessThan(1_000);
     } finally {
       api?.close();
       rmSync(root, { recursive: true, force: true });
@@ -245,6 +281,7 @@ describe("session API JSON migration", () => {
     store.write(makeRecord({ id: "second" }));
 
     try {
+      store.list = () => { throw new Error("list must not be used by direct reads"); };
       expect(store.readByPath(firstPath)).toMatchObject({ id: "first" });
     } finally {
       rmSync(root, { recursive: true, force: true });

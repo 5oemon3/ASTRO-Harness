@@ -45,6 +45,7 @@ describe("listar e retomar sessões (T2, #63)", () => {
     expect(() => store.load("broken")).toThrow(/não encontrada/);
     expect(() => store.load("../escape.json")).toThrow(/não encontrada|fora do diretório/);
     expect(store.load(store.list()[0]!.path).record.id).toBe("ok");
+    expect(() => store.readByPath("../escape.json")).toThrow(/fora do diretório/);
   });
 
   test("linha de resumo numera e mostra turnos/custo", () => {
@@ -84,6 +85,7 @@ describe("confinamento e validação ao ler sessões (T2, #63)", () => {
     symlinkSync(outside, join(root, "link"), process.platform === "win32" ? "junction" : "dir");
     const store = new SessionStore(root);
     expect(() => store.load("link/evil.json")).toThrow(/fora do diretório/);
+    expect(() => store.readByPath(join(root, "link", "evil.json"))).toThrow(/fora do diretório/);
   });
 
   test("rejeita toolCalls fora do formato no arquivo", () => {

@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
@@ -9,7 +9,7 @@ import type { ConfigSummary } from "../src/chat/config-summary";
 import type { PermissionMode } from "../src/permissions";
 import { BudgetExceededError, type BudgetStatus } from "../src/budget";
 import { SessionStore } from "../src/chat/store";
-import { SessionApi } from "../src/chat/session-api";
+import { openSessionApi, SessionApi } from "../src/chat/session-api";
 import { AgentSession } from "../src/chat/agent-session";
 
 class ScriptedIO implements ReplIO {
@@ -67,14 +67,17 @@ class FakeSession implements ChatSession {
     return this.model;
   }
   resumed: SessionSnapshot[] = [];
+  resumedFrom: SessionSnapshot["resumedFrom"];
   resume(snapshot: SessionSnapshot): void {
     this.resumed.push(snapshot);
+    this.resumedFrom = { id: snapshot.id, startedAt: snapshot.startedAt };
   }
   snapshot(): SessionSnapshot {
     return {
       id: "s1", startedAt: "2026-10-28T12:00:00.000Z", model: this.model,
       messages: this.clearedFlag ? [{ role: "system", content: "sys" }] : [{ role: "user", content: "x" }],
       turns: this.sent.length, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
+      ...(this.resumedFrom === undefined ? {} : { resumedFrom: this.resumedFrom }),
     };
   }
   close(): void {
@@ -183,13 +186,14 @@ describe("REPL do chat (T1, #62)", () => {
     });
     const sessionApi = new SessionApi(astroDir);
     const session = new FakeSession();
-    const io = new ScriptedIO(["/sessions", "/resume 1", "/exit"]);
+    const io = new ScriptedIO(["/sessions", "/resume 1", "/session", "/exit"]);
     try {
       await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
       expect(io.outputs.some((line) => line.includes("abc"))).toBe(true);
       expect(session.resumed).toHaveLength(1);
       expect(session.resumed[0]!.messages[0]!.content).toBe("velho");
       expect(io.outputs).toContain("sessão retomada: abc (1 turnos)");
+      expect(io.outputs.some((line) => line.includes("arquivo: SessionApi (abc)"))).toBe(true);
     } finally {
       sessionApi.close();
     }
@@ -230,6 +234,28 @@ describe("REPL do chat (T1, #62)", () => {
       lock.exec("ROLLBACK");
       lock.close();
       sessionApi.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  test("chat continues accepting /exit when the SQLite database is corrupt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-corrupt-session-db-"));
+    const astroDir = join(root, ".astro");
+    mkdirSync(astroDir, { recursive: true });
+    writeFileSync(join(astroDir, "sessions.db"), "invalid SQLite bytes", "utf8");
+    const warning = spyOn(console, "error").mockImplementation(() => {});
+    const sessionApi = openSessionApi(astroDir);
+    const session = new FakeSession();
+    const io = new ScriptedIO(["/exit"]);
+
+    try {
+      expect(sessionApi).toBeUndefined();
+      await expect(runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi }))
+        .resolves.toBeUndefined();
+      expect(session.closed).toBe(1);
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("/sessions e /resume desativados"));
+    } finally {
+      warning.mockRestore();
+      sessionApi?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

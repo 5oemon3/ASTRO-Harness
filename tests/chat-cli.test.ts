@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,35 @@ test("bun src/cli.ts chat roda um turno e encerra com /exit", async () => {
   } finally {
     server.stop(true);
   }
+}, 20_000);
+
+test("chat continua com /exit quando o banco de sessões está corrompido", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-chat-cli-corrupt-sessions-"));
+  const astroDir = join(cwd, ".astro");
+  mkdirSync(astroDir, { recursive: true });
+  writeFileSync(join(astroDir, "sessions.db"), "not a SQLite database", "utf8");
+  const configPath = join(cwd, "astro.config.json");
+  writeFileSync(configPath, JSON.stringify({
+    providers: { p: { kind: "openai-compat", baseUrl: "http://127.0.0.1:1/v1", credentialRef: "KEY" } },
+    models: [{ provider: "p", id: "m1", tags: ["writing-code"], context: 8192 }],
+    agent: { model: "p/m1", maxSteps: 2, tools: [] },
+    paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
+  }));
+  const proc = Bun.spawn(["bun", "src/cli.ts", "chat", "--config", configPath, "--cwd", cwd], {
+    cwd: root, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, KEY: "k" } as Record<string, string>,
+  });
+  proc.stdin.write("/exit\n");
+  proc.stdin.end();
+
+  const exit = await proc.exited;
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  expect(exit).toBe(0);
+  expect(stdout).toContain("astro chat");
+  expect(stderr).toContain("aviso: sessões SQLite indisponíveis");
+  expect(stderr).toContain("/sessions e /resume desativados");
+  expect(stderr).not.toContain("erro:");
 }, 20_000);
 
 test("erro de provider não encerra o REPL e aceita /exit", async () => {
