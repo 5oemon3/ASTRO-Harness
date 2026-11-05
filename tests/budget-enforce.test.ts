@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { runTask } from "../src/app";
-import { BudgetExceededError, enforceBudget } from "../src/budget";
+import { BudgetExceededError, effectiveBudget, enforceBudget } from "../src/budget";
 import type { BudgetConfig } from "../src/config";
 import { Ledger } from "../src/ledger";
 
@@ -134,18 +134,40 @@ describe("aumento de budget com aprovação (D-30, #372)", () => {
     expect(opts.audit.readAll().some((e) => e.tipo === "budget.raise_denied"
       && (e.payload as { reason?: string }).reason === "ceiling_not_confirmed")).toBe(true);
   });
+
+  test("effectiveBudget aplica o último raise do run e ignora outros (#389)", () => {
+    const ledger = ledgerWith(0);
+    ledger.recordBudgetRaised({ run: "r1", agent: "a", old_limit_usd: 1, new_limit_usd: 5 });
+    ledger.recordBudgetRaised({ run: "r2", agent: "a", old_limit_usd: 1, new_limit_usd: 9 });
+    ledger.recordBudgetRaised({ run: "r1", agent: "a", old_limit_usd: 5, new_limit_usd: 7,
+      old_ceiling_usd: 3, new_ceiling_usd: 8 });
+    const cfg = budget({ limitUsd: 1, hardCeilingUsd: 3 });
+    const eff = effectiveBudget(cfg, ledger, "r1");
+    expect(eff.limitUsd).toBe(7);
+    expect(eff.hardCeilingUsd).toBe(8);
+    expect(cfg.limitUsd).toBe(1); // não muta o config
+    expect(effectiveBudget(cfg, ledger, "r3").limitUsd).toBe(1);
+  });
+
+  test("effectiveBudget não remove o teto quando o raise só sobe o limite (#389)", () => {
+    const ledger = ledgerWith(0);
+    ledger.recordBudgetRaised({ run: "r1", agent: "a", old_limit_usd: 1, new_limit_usd: 5 });
+    const cfg = budget({ limitUsd: 1, hardCeilingUsd: 3 });
+    expect(effectiveBudget(cfg, ledger, "r1").hardCeilingUsd).toBe(3);
+  });
 });
 
-interface RunOpts { usage?: number; priced?: boolean; final?: boolean; tool?: string; agents?: boolean; maxSteps?: number }
+interface RunOpts { usage?: number; priced?: boolean; final?: boolean; tool?: string; agents?: boolean; maxSteps?: number; finalAfter?: number }
 
 /** Run com provider sintético: tool call (ou resposta final) e custo `usage` por chamada. */
 async function runWithBudget(budgetCfg: Record<string, unknown>, opts: RunOpts = {}) {
-  const { usage = 1000, priced = true, final = false, tool = "ghost", agents = false, maxSteps = 4 } = opts;
+  const { usage = 1000, priced = true, final = false, tool = "ghost", agents = false, maxSteps = 4, finalAfter } = opts;
   const cwd = mkdtempSync(join(tmpdir(), "astro-budget-enf-run-"));
   let calls = 0;
   const server = Bun.serve({ port: 0, async fetch() {
     calls++;
-    const message = final
+    const last = final || (finalAfter !== undefined && calls > finalAfter);
+    const message = last
       ? { content: "fim", tool_calls: [] }
       : { content: "", tool_calls: [{ id: `c${calls}`, type: "function", function: { name: tool,
         arguments: tool === "handoff"
@@ -284,6 +306,21 @@ describe("corte de budget no run (F-05, #132 parte 3)", () => {
       expect(entries.some((e) => e.kind === "budget" && e.event === "ceiling_hit")).toBe(false);
       expect(entries.some((e) => e.kind === "budget" && e.event === "raised" && e.new_ceiling_usd === 40)).toBe(true);
       expect(calls()).toBe(8);
+    } finally {
+      stop();
+    }
+  });
+
+  test("relatório usa o limite elevado do run (#389)", async () => {
+    const { cwd, configPath, stop } = await runWithBudget({ scope: "day", limitUsd: 2 }, { finalAfter: 1 });
+    let raised = false;
+    try {
+      const report = await runTask({ configPath, task: "x", cwd, env: { KEY: "k" }, onBudgetExceeded: () => {
+        if (raised) return "stop";
+        raised = true;
+        return { choice: "raise", limitUsd: 30 };
+      } });
+      expect(report.budget?.limitUsd).toBe(30);
     } finally {
       stop();
     }

@@ -6,6 +6,7 @@
 import type { BudgetConfig } from "./config";
 import type { Auditor } from "./audit";
 import type { Ledger } from "./ledger";
+import { redactSecrets } from "./sanitize-external";
 
 export interface BudgetStatus {
   scope: BudgetConfig["scope"];
@@ -63,6 +64,22 @@ export function outstandingReservations(ledger: Ledger, inWindow: (ts: string) =
     }
   }
   return pending.reduce((total, item) => total + item.amount, 0);
+}
+
+/**
+ * Budget efetivo do run após aumentos aprovados (D-30): aplica o último
+ * `budget.raised` do próprio run. Sem evento, devolve o budget original; nunca muta.
+ */
+export function effectiveBudget(budget: BudgetConfig, ledger: Ledger, run: string): BudgetConfig {
+  const target = redactSecrets(run);
+  let limitUsd = budget.limitUsd;
+  let hardCeilingUsd = budget.hardCeilingUsd;
+  for (const entry of ledger.readAllEntries()) {
+    if (entry.kind !== "budget" || entry.event !== "raised" || entry.run !== target) continue;
+    if (typeof entry.new_limit_usd === "number") limitUsd = entry.new_limit_usd;
+    if (typeof entry.new_ceiling_usd === "number") hardCeilingUsd = entry.new_ceiling_usd;
+  }
+  return { ...budget, limitUsd, ...(hardCeilingUsd === undefined ? {} : { hardCeilingUsd }) };
 }
 
 /** Calcula o status do budget a partir do ledger (fonte única de custo). */

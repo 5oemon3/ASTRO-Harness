@@ -26,7 +26,7 @@ import { resolveCredentialValue } from "./credential-ref";
 import { Vault, vaultPath } from "./vault";
 import { isVaultRef } from "./secrets";
 import type { AuditEvent } from "./audit";
-import { budgetStatus, restrictBudget, BudgetExceededError, type BudgetDecider, type BudgetStatus } from "./budget";
+import { budgetStatus, effectiveBudget, restrictBudget, BudgetExceededError, type BudgetDecider, type BudgetStatus } from "./budget";
 import { MaxStepsError, runSession, runMultiAgentSession, type EffectiveIdentity, type IdentityResolver, type MultiAgentSessionOptions } from "./session";
 import { assertResumeIdentity, planResume, ReplayIncompleteError } from "./resume";
 import { activeLocks, moveAgentLock, recoverCrashedAgents, recoverDeadAgentLocks } from "./agent-lock";
@@ -859,7 +859,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     registry,
     ledger,
     ...(quotaLimits === undefined ? {} : { quotaLimits }),
-    ...(budget === undefined ? {} : { budget }),
+    ...(budget === undefined ? {} : { budget: effectiveBudget(budget, ledger, run) }),
   })));
   toolsByName.set("spawn_agent", createSpawnAgentTool({
     config,
@@ -870,7 +870,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     spawns,
     enabled: multiAgentRun,
     ...(quotaLimits === undefined ? {} : { quotaLimits }),
-    ...(budget === undefined ? {} : { budget }),
+    ...(budget === undefined ? {} : { budget: () => effectiveBudget(budget, ledger, run) }),
   }));
   // C4 (#58): delegação síncrona e isolada; o filho não herda mensagens do pai.
   toolsByName.set("task", createTaskTool({
@@ -1179,7 +1179,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     auditPath,
     agentsUsed: result.agentsUsed,
     ...(resumed === undefined ? {} : { resumedFrom: resumed.agent.agent_id }),
-    ...(budget === undefined ? {} : { budget: budgetStatus(budget, ledger) }),
+    ...(budget === undefined ? {} : { budget: budgetStatus(effectiveBudget(budget, ledger, run), ledger) }),
     ...(result.messages === undefined ? {} : { messages: result.messages }),
   };
 }

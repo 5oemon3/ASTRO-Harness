@@ -129,16 +129,17 @@ export interface SpawnToolDeps {
   /** false no caminho single/chat: a tool falha fechada com `spawn_unavailable`. */
   enabled: boolean;
   quotaLimits?: Record<string, QuotaLimit>;
-  budget?: BudgetConfig;
+  budget?: BudgetConfig | (() => BudgetConfig);
 }
 
 function candidateDeps(deps: SpawnToolDeps): CandidateDeps {
+  const budget = typeof deps.budget === "function" ? deps.budget() : deps.budget;
   return {
     config: deps.config,
     registry: deps.registry,
     ledger: deps.ledger,
     ...(deps.quotaLimits === undefined ? {} : { quotaLimits: deps.quotaLimits }),
-    ...(deps.budget === undefined ? {} : { budget: deps.budget }),
+    ...(budget === undefined ? {} : { budget }),
   };
 }
 
