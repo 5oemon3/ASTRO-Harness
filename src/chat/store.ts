@@ -150,6 +150,17 @@ function sanitizeValue(value: unknown): unknown {
   return redactSecrets(value);
 }
 
+/** Valida e sanitiza um registro v1 para persistência ou migração. */
+export function sanitizeSessionRecord(value: unknown): SessionRecord {
+  const record = sanitizeValue(parseRecord(value)) as SessionRecord;
+  if (INVISIBLE.test(record.model)) throw new Error("modelo da sessão inválido");
+  if (INVISIBLE.test(record.startedAt)) throw new Error("início de sessão inválido");
+  const name = normalizeName(record.name);
+  if (name === undefined) delete record.name;
+  else record.name = name;
+  return record;
+}
+
 export class SessionStore {
   constructor(readonly root: string) {}
 
