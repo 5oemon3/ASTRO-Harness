@@ -143,6 +143,68 @@ describe("session API JSON migration", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("preserves SQLite saves when an unrelated JSON session changes", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-save-reconcile-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write(makeRecord({ id: "saved-session", turns: 1 }));
+    let api: SessionApi | undefined;
+    let reopened: SessionApi | undefined;
+
+    try {
+      const apiInstance = new SessionApi(astroDir);
+      api = apiInstance;
+      apiInstance.save({ ...makeRecord({ id: "saved-session", turns: 5, name: "saved in SQLite" }) });
+      legacy.write(makeRecord({ id: "new-json-session", turns: 2 }));
+
+      expect(apiInstance.list().map(({ id, turns, name }) => ({ id, turns, name }))).toEqual([
+        { id: "new-json-session", turns: 2, name: undefined },
+        { id: "saved-session", turns: 5, name: "saved in SQLite" },
+      ]);
+      apiInstance.close();
+      api = undefined;
+
+      const reopenedApi = new SessionApi(astroDir);
+      reopened = reopenedApi;
+      expect(reopenedApi.load("saved-session")).toMatchObject({ turns: 5, name: "saved in SQLite" });
+      expect(reopenedApi.list().map(({ id }) => id)).toContain("new-json-session");
+    } finally {
+      api?.close();
+      reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("does not resurrect SQLite-deleted sessions after another JSON write", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-delete-reconcile-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write(makeRecord({ id: "deleted-session", turns: 1 }));
+    let api: SessionApi | undefined;
+    let reopened: SessionApi | undefined;
+
+    try {
+      const apiInstance = new SessionApi(astroDir);
+      api = apiInstance;
+      expect(apiInstance.delete("deleted-session")).toBe(true);
+      legacy.write(makeRecord({ id: "new-json-session", turns: 2 }));
+
+      expect(apiInstance.list().map(({ id }) => id)).toEqual(["new-json-session"]);
+      expect(() => apiInstance.load("deleted-session")).toThrow(/não encontrada/);
+      apiInstance.close();
+      api = undefined;
+
+      const reopenedApi = new SessionApi(astroDir);
+      reopened = reopenedApi;
+      expect(reopenedApi.list().map(({ id }) => id)).toEqual(["new-json-session"]);
+      expect(() => reopenedApi.load("deleted-session")).toThrow(/não encontrada/);
+    } finally {
+      api?.close();
+      reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("session API", () => {
@@ -157,6 +219,46 @@ describe("session API", () => {
     try {
       expect(() => new SessionApi(astroDir)).toThrow(/schema do banco de sessões não suportado: 1/);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("upgrades the SQLite v2 schema with durable import ownership markers", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-v2-upgrade-"));
+    const astroDir = join(root, ".astro");
+    mkdirSync(astroDir, { recursive: true });
+    const db = new Database(join(astroDir, "sessions.db"));
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        started_at TEXT NOT NULL,
+        model TEXT NOT NULL,
+        turns INTEGER NOT NULL,
+        cost_usd REAL,
+        name TEXT,
+        record_json TEXT NOT NULL
+      );
+      CREATE INDEX sessions_started_at ON sessions (started_at DESC, id ASC);
+      PRAGMA user_version = 2;
+    `);
+    db.close();
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write(makeRecord({ id: "legacy-after-upgrade" }));
+    let api: SessionApi | undefined;
+
+    try {
+      api = new SessionApi(astroDir);
+      const upgraded = new Database(api.databasePath, { readonly: true });
+      try {
+        expect((upgraded.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(3);
+        expect(upgraded.query("SELECT name FROM sqlite_master WHERE name = 'session_overrides'").get()).toBeDefined();
+        expect(upgraded.query("SELECT name FROM sqlite_master WHERE name = 'session_tombstones'").get()).toBeDefined();
+        expect(api.load("legacy-after-upgrade").id).toBe("legacy-after-upgrade");
+      } finally {
+        upgraded.close();
+      }
+    } finally {
+      api?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -201,7 +303,7 @@ describe("session API", () => {
       const stored = db.query("SELECT record_json FROM sessions").get() as { record_json: string };
       const schema = db.query("PRAGMA user_version").get() as { user_version: number };
       expect(stored.record_json).not.toContain(secret);
-      expect(schema.user_version).toBe(2);
+      expect(schema.user_version).toBe(3);
       if (process.platform !== "win32") {
         expect(statSync(apiInstance.databasePath).mode & 0o777).toBe(0o600);
       }
