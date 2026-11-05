@@ -37,7 +37,7 @@ import { createInterface } from "node:readline";
 import type { SwapApprover } from "./approval";
 import type { BudgetDecider } from "./budget";
 import { trustChoice, trustPrompt, type TrustAsk } from "./trust";
-import type { NoProgressDecider } from "./loop-guard";
+import { continueTask, findCheckpointAgents, loadCheckpoint, type NoProgressDecider } from "./loop-guard";
 
 /** Aprovação interativa de troca (F-19); sem TTY retorna undefined (runtime nega/pending). */
 function ttyApprover(): SwapApprover | undefined {
@@ -120,6 +120,16 @@ function ttyNoProgressDecider(): NoProgressDecider | undefined {
   };
 }
 
+/** Agente dono do checkpoint a continuar; exige --agent quando há mais de um. */
+function resolveContinueAgent(cwd: string, run: string): string {
+  const agents = findCheckpointAgents(cwd, run);
+  if (agents.length === 0) throw new Error(`checkpoint não encontrado para o run "${run}"`);
+  if (agents.length > 1) {
+    throw new Error(`run "${run}" tem checkpoints de vários agentes (${agents.join(", ")}); use --agent`);
+  }
+  return agents[0]!;
+}
+
 const USAGE = `Uso:
   astro run "<pedido>" [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro eval [--threshold <0..1>] [--golden <dir>] [--report <path>] [--baseline <path>] [--write-baseline]
@@ -129,6 +139,7 @@ const USAGE = `Uso:
   astro chat [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro tui [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro resume <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
+  astro continue <run-id> [--task "<pedido>"] [--agent <name>] [--config <path>] [--cwd <dir>]
   astro health [--config <path>]
   astro providers <health|list|test|vault-import> [--config <path>] [--apply] [--allow-plain]
   astro handoff show <handoff_id> [--config <path>]
@@ -204,6 +215,14 @@ interface ReplayCommand {
 
 interface ResumeCommand extends ReplayCommand {}
 
+interface ContinueCommand {
+  runId: string;
+  configPath: string;
+  cwd?: string;
+  task?: string;
+  agent?: string;
+}
+
 interface ChatCommand {
   configPath: string;
   cwd?: string;
@@ -275,6 +294,7 @@ type ParsedCommand =
   | { kind: "serve"; options: ServeCommand }
   | { kind: "replay"; options: ReplayCommand }
   | { kind: "resume"; options: ResumeCommand }
+  | { kind: "continue"; options: ContinueCommand }
   | { kind: "chat"; options: ChatCommand }
   | { kind: "tui"; options: TuiCommand }
   | { kind: "health"; options: HealthCommand }
@@ -317,6 +337,44 @@ function parseReplayLike(command: "replay" | "resume", rest: string[]): ReplayCo
   return { runId, task, configPath, ...(cwd === undefined ? {} : { cwd }) };
 }
 
+/** Parser de `continue`: run-id posicional, task opcional, agent opcional. */
+function parseContinue(rest: string[]): ContinueCommand {
+  let configPath = "astro.config.json";
+  let cwd: string | undefined;
+  let runId: string | undefined;
+  let task: string | undefined;
+  let agent: string | undefined;
+  const seen = new Set<string>();
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i] as string;
+    if (arg === "--config" || arg === "--cwd" || arg === "--task" || arg === "--agent") {
+      if (seen.has(arg)) throw new UsageError(`${arg} duplicado`);
+      seen.add(arg);
+      const value = rest.at(i + 1);
+      if (value === undefined || value.startsWith("-")) throw new UsageError(`falta o valor de ${arg}`);
+      i++;
+      if (arg === "--config") configPath = value;
+      else if (arg === "--cwd") cwd = value;
+      else if (arg === "--task") task = value;
+      else agent = value;
+      continue;
+    }
+    if (arg.startsWith("-")) throw new UsageError(`opção desconhecida: "${arg}"`);
+    if (runId !== undefined) throw new UsageError(`argumento inesperado: "${arg}"`);
+    runId = arg;
+  }
+  if (runId === undefined) {
+    throw new UsageError(`falta o run-id; use: continue <run-id> [--task "<pedido>"]`);
+  }
+  return {
+    runId,
+    configPath,
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(task === undefined ? {} : { task }),
+    ...(agent === undefined ? {} : { agent }),
+  };
+}
+
 /** Valor de `--permission-mode` validado; vence a config (CLI > config > ask). */
 function permissionModeValue(arg: string, value: string | undefined): PermissionMode {
   if (value === undefined || value.startsWith("-")) throw new UsageError(`falta o valor de ${arg}`);
@@ -335,7 +393,7 @@ function parseArgs(argv: string[]): ParsedCommand {
   }
 
   const [command, ...rest] = argv;
-  const commands = ["run", "eval", "bench", "serve", "replay", "resume", "chat", "tui", "health", "providers", "handoff", "cost", "pool", "agents", "models", "config", "skills", "mcp"];
+  const commands = ["run", "eval", "bench", "serve", "replay", "resume", "continue", "chat", "tui", "health", "providers", "handoff", "cost", "pool", "agents", "models", "config", "skills", "mcp"];
   if (command !== undefined && !commands.includes(command)) {
     throw new UsageError(`comando desconhecido: "${command}"`);
   }
@@ -629,6 +687,10 @@ function parseArgs(argv: string[]): ParsedCommand {
   if (command === "replay" || command === "resume") {
     const options = parseReplayLike(command, rest);
     return command === "replay" ? { kind: "replay", options } : { kind: "resume", options };
+  }
+
+  if (command === "continue") {
+    return { kind: "continue", options: parseContinue(rest) };
   }
 
   if (command === "chat" || command === "tui") {
@@ -953,6 +1015,37 @@ async function main(argv: string[]): Promise<number> {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`erro: ${message}`);
       return 1;
+    }
+  }
+
+  if (parsed.kind === "continue") {
+    const o = parsed.options;
+    const base = o.cwd ?? process.cwd();
+    const cancellation = installCancellation();
+    try {
+      const agent = o.agent ?? resolveContinueAgent(base, o.runId);
+      const checkpoint = loadCheckpoint(base, o.runId, agent);
+      const report = await runTask({
+        configPath: resolve(o.configPath),
+        task: continueTask(checkpoint, o.task),
+        cwd: base,
+        continuedFrom: { run: o.runId, agent },
+        signal: cancellation.signal,
+        ...(process.stdin.isTTY === true ? {} : { approveTool: nonInteractiveApprover() }),
+        approveSwap: ttyApprover(), onBudgetExceeded: ttyBudgetDecider(),
+        trustAsk: ttyTrustAsk(), onNoProgress: ttyNoProgressDecider(),
+      });
+      console.log(`continuado do run ${o.runId} (agente ${agent}) em ${report.runId}`);
+      console.log(report.final);
+      console.log("");
+      console.log(formatSummary(report));
+      return 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`erro: ${redactSecrets(message)}`);
+      return 1;
+    } finally {
+      cancellation.dispose();
     }
   }
 

@@ -15,7 +15,7 @@
 
 **Turno (L3).** Um turno = uma chamada de modelo + as tool calls que ela pede; completion sem tool calls encerra o loop (semântica atual de `maxSteps` preservada).
 
-**Checkpoint (L5).** A 80% do limite de turnos OU do orçamento restante, grava `{summary, changed files, next step}` sanitizado (I-03) no store do ADR-0010 (PS-2). Bater o limite para em estado seguro (I-19, via S-10); retomar é replay determinístico com `astro resume <run> --task <...>` e os limites da config (S-14; `run.maxTurns` só capa `agent.maxSteps`). Subir budget em runtime com aprovação é residual da #135, ainda não implementado; o B4 só escolhe `continue_same`/`lower_effort`/`stop` depois do estouro. O prompt de não-progresso (`onNoProgress`) é o ponto de "continuar" em runtime.
+**Checkpoint (L5).** A 80% do limite de turnos OU do orçamento restante, grava `{summary, changed files, next step}` sanitizado (I-03) no store do ADR-0010 (PS-2). Bater o limite para em estado seguro (I-19, via S-10); retomar o run pelo ledger é replay determinístico com `astro resume <run> --task <...>`; retomar do checkpoint é `astro continue <run> [--task] [--agent]` (run novo, D-27), com os limites da config (S-14; `run.maxTurns` só capa `agent.maxSteps`). Subir budget em runtime com aprovação é residual da #135, ainda não implementado; o B4 só escolhe `continue_same`/`lower_effort`/`stop` depois do estouro. O prompt de não-progresso (`onNoProgress`) é o ponto de "continuar" em runtime.
 
 **Não-progresso (L6).** Sinais por segmento: hash dos caminhos tocados pelas tools + número de falhas de tool (um teste que falha vira erro de tool). O tamanho do histórico não entra no hash porque cresce a cada turno e mascararia o loop. 3 segmentos sem mudança → pausa e pergunta.
 

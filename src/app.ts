@@ -92,6 +92,8 @@ export interface RunOptions {
   onBudgetExceeded?: BudgetDecider;
   /** Run-id a retomar (F-22): reconstrói a árvore do ledger e continua do agente ativo. */
   resume?: string;
+  /** Origem de um run novo criado por `astro continue` (audit/run.started). */
+  continuedFrom?: { run: string; agent: string };
   /** Histórico de conversa (T1): system + turnos anteriores; o `task` é o user do turno. */
   history?: ChatMessage[];
   /** Reusa um run-id (sessão de chat): mesmo run no ledger/audit por vários turnos. */
@@ -662,6 +664,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       providerSelection: usedSelection,
       ...(baseProfile === undefined ? {} : { profile: baseProfile }),
       ...(resumed === undefined ? {} : { resumedFrom: resumed.agent.agent_id }),
+      ...(opts.continuedFrom === undefined ? {} : { continuedFrom: opts.continuedFrom }),
     },
   });
 
