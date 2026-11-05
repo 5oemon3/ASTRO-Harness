@@ -190,6 +190,47 @@ describe("session API JSON migration", () => {
     }
   });
 
+  test("reconciles JSON autosaves after renaming a session", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-rename-autosave-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    const initial = makeRecord({ id: "renamed-session", turns: 1 });
+    legacy.write(initial);
+    let api: SessionApi | undefined;
+    let reopened: SessionApi | undefined;
+
+    try {
+      api = new SessionApi(astroDir);
+      legacy.rename(initial.id, "renamed session");
+      api.rename(initial.id, "renamed session");
+
+      const afterSecondTurn = {
+        ...initial,
+        turns: 2,
+        messages: [...initial.messages, { role: "assistant" as const, content: "second turn" }],
+      };
+      legacy.write(afterSecondTurn);
+      legacy.write({
+        ...afterSecondTurn,
+        turns: 3,
+        messages: [...afterSecondTurn.messages, { role: "user", content: "third turn" }],
+      });
+
+      api.close();
+      api = undefined;
+      reopened = new SessionApi(astroDir);
+
+      expect(reopened.load(initial.id)).toMatchObject({
+        turns: 3,
+        name: "renamed session",
+      });
+    } finally {
+      api?.close();
+      reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("renames a SQLite-only session and keeps the new name authoritative", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-rename-"));
     let api: SessionApi | undefined;
@@ -265,9 +306,13 @@ describe("session API JSON migration", () => {
         messages: [{ role: "user", content: `${content}updated` }],
       }));
 
-      const started = performance.now();
-      expect(api.list().find(({ id }) => id === "session-30")?.turns).toBe(2);
-      expect(performance.now() - started).toBeLessThan(1_000);
+      const readByPath = spyOn(SessionStore.prototype, "readByPath");
+      try {
+        expect(api.list().find(({ id }) => id === "session-30")?.turns).toBe(2);
+        expect(readByPath).toHaveBeenCalledTimes(1);
+      } finally {
+        readByPath.mockRestore();
+      }
     } finally {
       api?.close();
       rmSync(root, { recursive: true, force: true });
