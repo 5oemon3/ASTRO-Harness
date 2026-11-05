@@ -35,7 +35,7 @@ import { resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { SwapApprover } from "./approval";
-import type { BudgetDecider } from "./budget";
+import type { BudgetChoice, BudgetDecider, BudgetStatus } from "./budget";
 import { trustChoice, trustPrompt, type TrustAsk } from "./trust";
 import { continueTask, findCheckpointAgents, loadCheckpoint, type NoProgressDecider } from "./loop-guard";
 
@@ -66,23 +66,75 @@ function ttyApprover(): SwapApprover | undefined {
   };
 }
 
-/** Decisor interativo de budget (B4); sem TTY retorna undefined (não interativo). */
+/** Decisor interativo de budget (B4, D-30); sem TTY retorna undefined (não interativo). */
 function ttyBudgetDecider(): BudgetDecider | undefined {
   if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return undefined;
-  return async (status) => {
+  return async (status, context) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     try {
       const limit = status.limitUsd === null ? "sem limite" : `US$ ${status.limitUsd}`;
       const answer = await new Promise<string>((resolve) => {
         rl.once("close", () => resolve("p")); // EOF nega/para
-        rl.question(`budget esgotado (${status.estimate} / ${limit}). [c] continuar, [l] baixar esforço, [p] parar? `, resolve);
+        rl.question(`budget esgotado (${status.estimate} / ${limit}). [c] continuar, [l] baixar esforço, [a] aumentar limite, [p] parar? `, resolve);
       });
       const choice = answer.trim().toLowerCase();
+      if (choice.startsWith("a")) {
+        return askBudgetRaise(rl, status, context?.committedUsd ?? status.spentUsd ?? 0);
+      }
       return choice.startsWith("c") ? "continue_same" : choice.startsWith("l") ? "lower_effort" : "stop";
     } finally {
       rl.close();
     }
   };
+}
+
+/** Pergunta uma linha; EOF resolve vazio (o chamador trata como parar). */
+function askBudgetLine(rl: ReturnType<typeof createInterface>, question: string): Promise<string> {
+  return new Promise<string>((resolve) => {
+    rl.once("close", () => resolve(""));
+    rl.question(question, resolve);
+  });
+}
+
+/**
+ * Aumento aprovado (D-30): pede valor absoluto acima do gasto e do limite;
+ * acima do teto exige `CONFIRMAR` e um novo teto maior. Inválido repete.
+ */
+async function askBudgetRaise(
+  rl: ReturnType<typeof createInterface>,
+  status: BudgetStatus,
+  committedUsd: number,
+): Promise<BudgetChoice> {
+  const committed = committedUsd;
+  const ceiling = status.hardCeilingUsd ?? null;
+  const oldLimit = status.limitUsd === null ? "sem limite" : `US$ ${status.limitUsd}`;
+  for (;;) {
+    const raw = (await askBudgetLine(rl,
+      `novo limite absoluto em US$ (gasto + reserva atual US$ ${committed.toFixed(6)}, limite atual ${oldLimit}): `)).trim();
+    if (raw === "") return "stop";
+    const value = Number(raw.replace(",", "."));
+    if (!Number.isFinite(value) || value <= committed || (status.limitUsd !== null && value <= status.limitUsd)) {
+      process.stdout.write("o valor precisa ser maior que o gasto + reserva atual e que o limite atual\n");
+      continue;
+    }
+    if (ceiling === null || value <= ceiling) {
+      return { choice: "raise", limitUsd: value };
+    }
+    const confirmed = (await askBudgetLine(rl,
+      `o valor excede o teto físico US$ ${ceiling}; digite CONFIRMAR para elevar o teto: `)).trim();
+    if (confirmed !== "CONFIRMAR") return "stop";
+    for (;;) {
+      const rawCeiling = (await askBudgetLine(rl,
+        `novo teto absoluto em US$ (maior que US$ ${ceiling} e >= ao novo limite): `)).trim();
+      if (rawCeiling === "") return "stop";
+      const nextCeiling = Number(rawCeiling.replace(",", "."));
+      if (!Number.isFinite(nextCeiling) || nextCeiling <= ceiling || nextCeiling < value || nextCeiling <= committed) {
+        process.stdout.write("o teto precisa ser maior que o atual e pelo menos o novo limite\n");
+        continue;
+      }
+      return { choice: "raise", limitUsd: value, hardCeilingUsd: nextCeiling, confirmedCeiling: true };
+    }
+  }
 }
 
 /** Pergunta de trust da pasta (I-11, #267); sem TTY retorna undefined (run prossegue sem persistir). */

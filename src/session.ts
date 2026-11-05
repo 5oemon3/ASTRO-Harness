@@ -285,10 +285,12 @@ export async function runSession(
   let checkpointWritten = false;
   const touchedFiles: string[] = [];
   let budgetWarned = false;
+  // Aumento aprovado (D-30) vale só para este run; não vaza para o config compartilhado.
+  const runBudget = opts.budget === undefined ? undefined : { ...opts.budget };
   /** Aviso B3: antes e depois de cada step (o último step também avisa). */
   const maybeWarnBudget = (agent: string): void => {
-    if (opts.budget === undefined || budgetWarned) return;
-    const status = budgetStatus(opts.budget, opts.ledger);
+    if (runBudget === undefined || budgetWarned) return;
+    const status = budgetStatus(runBudget, opts.ledger);
     if (!status.warning) return;
     budgetWarned = true;
     opts.audit.append({ run: opts.run, agent, tipo: "budget.warning", payload: budgetWarningPayload(status) });
@@ -296,8 +298,8 @@ export async function runSession(
   let ceilingRecorded = false;
   /** Teto físico também é reavaliado após o uso (último step não escapa, B10). */
   const checkCeiling = (agent: string): void => {
-    if (opts.budget?.hardCeilingUsd === undefined || ceilingRecorded) return;
-    const status = budgetStatus(opts.budget, opts.ledger);
+    if (runBudget?.hardCeilingUsd === undefined || ceilingRecorded) return;
+    const status = budgetStatus(runBudget, opts.ledger);
     if (status.spentUsd === null) {
       ceilingRecorded = true;
       opts.audit.append({ run: opts.run, agent, tipo: "budget.exceeded",
@@ -308,7 +310,7 @@ export async function runSession(
     if (!status.ceilingHit) return;
     ceilingRecorded = true;
     opts.audit.append({ run: opts.run, agent, tipo: "budget.ceiling_hit",
-      payload: { scope: status.scope, spentUsd: status.spentUsd, hardCeilingUsd: opts.budget.hardCeilingUsd } });
+      payload: { scope: status.scope, spentUsd: status.spentUsd, hardCeilingUsd: runBudget.hardCeilingUsd } });
     opts.ledger.recordCeilingHit({ run: opts.run, agent, ceiling_hit: true });
     throw new BudgetExceededError("ceiling", status);
   };
@@ -337,7 +339,7 @@ export async function runSession(
       const reserveUsd = opts.budget === undefined ? 0 : (opts.budgetReserve?.(opts.model, opts.agentProfile) ?? 0);
       if (opts.budget !== undefined) {
         const choice = await enforceBudget({
-          budget: opts.budget, ledger: opts.ledger, run: opts.run, agent: opts.agent, audit: opts.audit,
+          budget: runBudget ?? opts.budget, ledger: opts.ledger, run: opts.run, agent: opts.agent, audit: opts.audit,
           reserveUsd,
           ...(opts.budgetDecide === undefined ? {} : { decide: opts.budgetDecide }),
         });
@@ -429,8 +431,8 @@ export async function runSession(
       if (opts.checkpointAt !== undefined && !checkpointWritten) {
         // Gasto do escopo (day/month/project/use-as-you-go), não só deste run:
         // um run que começa com o escopo já acima da fração precisa do checkpoint
-        const scope = opts.budget === undefined ? undefined : budgetStatus(opts.budget, opts.ledger);
-        const limitUsd = opts.budget?.limitUsd ?? opts.budget?.hardCeilingUsd ?? undefined;
+        const scope = runBudget === undefined ? undefined : budgetStatus(runBudget, opts.ledger);
+        const limitUsd = runBudget?.limitUsd ?? runBudget?.hardCeilingUsd ?? undefined;
         const turnDue = turnCheckpointDue(step, effectiveMaxSteps, opts.checkpointAt);
         const budgetDue = limitUsd !== undefined && scope?.spentUsd !== null && scope?.spentUsd !== undefined
           && budgetCheckpointDue(scope.spentUsd, limitUsd, opts.checkpointAt);
@@ -837,10 +839,12 @@ export async function runMultiAgentSession(
     }
   };
   let budgetWarned = false;
+  // Aumento aprovado (D-30) vale só para este run; não vaza para o config compartilhado.
+  const runBudget = opts.budget === undefined ? undefined : { ...opts.budget };
   /** Aviso B3: antes e depois de cada step (o último step também avisa). */
   const maybeWarnBudget = (agent: string): void => {
-    if (opts.budget === undefined || budgetWarned) return;
-    const status = budgetStatus(opts.budget, opts.ledger);
+    if (runBudget === undefined || budgetWarned) return;
+    const status = budgetStatus(runBudget, opts.ledger);
     if (!status.warning) return;
     budgetWarned = true;
     opts.audit.append({ run: opts.run, agent, tipo: "budget.warning", payload: budgetWarningPayload(status) });
@@ -848,8 +852,8 @@ export async function runMultiAgentSession(
   let ceilingRecorded = false;
   /** Teto físico também é reavaliado após o uso (último step não escapa, B10). */
   const checkCeiling = (agent: string): void => {
-    if (opts.budget?.hardCeilingUsd === undefined || ceilingRecorded) return;
-    const status = budgetStatus(opts.budget, opts.ledger);
+    if (runBudget?.hardCeilingUsd === undefined || ceilingRecorded) return;
+    const status = budgetStatus(runBudget, opts.ledger);
     if (status.spentUsd === null) {
       ceilingRecorded = true;
       opts.audit.append({ run: opts.run, agent, tipo: "budget.exceeded",
@@ -860,7 +864,7 @@ export async function runMultiAgentSession(
     if (!status.ceilingHit) return;
     ceilingRecorded = true;
     opts.audit.append({ run: opts.run, agent, tipo: "budget.ceiling_hit",
-      payload: { scope: status.scope, spentUsd: status.spentUsd, hardCeilingUsd: opts.budget.hardCeilingUsd } });
+      payload: { scope: status.scope, spentUsd: status.spentUsd, hardCeilingUsd: runBudget.hardCeilingUsd } });
     opts.ledger.recordCeilingHit({ run: opts.run, agent, ceiling_hit: true });
     throw new BudgetExceededError("ceiling", status);
   };
@@ -968,7 +972,7 @@ export async function runMultiAgentSession(
       const reserveUsd = opts.budget === undefined ? 0 : (opts.budgetReserve?.(currentModel, currentAgent.profile) ?? 0);
       if (opts.budget !== undefined) {
         const choice = await enforceBudget({
-          budget: opts.budget, ledger: opts.ledger, run: opts.run, agent: currentAgentName, audit: opts.audit,
+          budget: runBudget ?? opts.budget, ledger: opts.ledger, run: opts.run, agent: currentAgentName, audit: opts.audit,
           reserveUsd,
           ...(opts.budgetDecide === undefined ? {} : { decide: opts.budgetDecide }),
         });

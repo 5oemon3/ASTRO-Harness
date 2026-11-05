@@ -99,8 +99,8 @@ export interface LedgerAgentEntry {
   seq: number;
 }
 
-/** Evento de budget no ledger (S-05, B9, B10, B4). */
-export type BudgetEventKind = "reserved" | "released" | "exceeded" | "ceiling_hit" | "non_interactive";
+/** Evento de budget no ledger (S-05, B9, B10, B4, D-30). */
+export type BudgetEventKind = "reserved" | "released" | "exceeded" | "ceiling_hit" | "non_interactive" | "raised";
 
 /** Entrada de budget no ledger (S-05). */
 export interface LedgerBudgetEntry {
@@ -117,6 +117,12 @@ export interface LedgerBudgetEntry {
   exceeded_choice?: "continue_same" | "lower_effort" | "stop";
   ceiling_hit?: boolean;
   budget_exceeded_non_interactive?: boolean;
+  /** Aumento aprovado em runtime (D-30), valores absolutos. */
+  old_limit_usd?: number;
+  new_limit_usd?: number;
+  old_ceiling_usd?: number;
+  new_ceiling_usd?: number;
+  session_id?: string;
   seq: number;
 }
 
@@ -640,6 +646,35 @@ export class Ledger {
       kind: "budget",
       event: "non_interactive",
       budget_exceeded_non_interactive: opts.budget_exceeded_non_interactive,
+      seq: 0,
+    };
+    this.appendWithSeq(entry);
+    // onRecord só é chamado para entradas de uso (kind === "usage")
+    return entry;
+  }
+
+  /** Grava aumento aprovado de budget em runtime (D-30, I-17). */
+  recordBudgetRaised(opts: {
+    run: string;
+    agent: string;
+    session_id?: string;
+    old_limit_usd: number;
+    new_limit_usd: number;
+    old_ceiling_usd?: number;
+    new_ceiling_usd?: number;
+  }): LedgerBudgetEntry {
+    const entry: LedgerBudgetEntry = {
+      schemaVersion: LEDGER_SCHEMA_VERSION,
+      ts: new Date().toISOString(),
+      run: redactSecrets(opts.run),
+      agent: redactSecrets(opts.agent),
+      kind: "budget",
+      event: "raised",
+      old_limit_usd: opts.old_limit_usd,
+      new_limit_usd: opts.new_limit_usd,
+      ...(opts.session_id === undefined ? {} : { session_id: redactSecrets(opts.session_id) }),
+      ...(opts.old_ceiling_usd === undefined ? {} : { old_ceiling_usd: opts.old_ceiling_usd }),
+      ...(opts.new_ceiling_usd === undefined ? {} : { new_ceiling_usd: opts.new_ceiling_usd }),
       seq: 0,
     };
     this.appendWithSeq(entry);

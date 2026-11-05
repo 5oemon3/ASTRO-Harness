@@ -10,6 +10,8 @@ import type { Ledger } from "./ledger";
 export interface BudgetStatus {
   scope: BudgetConfig["scope"];
   limitUsd: number | null;
+  /** Teto físico absoluto (B10, I-17); null/ausente quando não configurado. */
+  hardCeilingUsd?: number | null;
   /** null quando alguma entrada de uso não tem preço (B6). */
   spentUsd: number | null;
   ratio: number | null;
@@ -79,6 +81,7 @@ export function budgetStatus(budget: BudgetConfig, ledger: Ledger, now: Date = n
   return {
     scope: budget.scope,
     limitUsd,
+    hardCeilingUsd: budget.hardCeilingUsd ?? null,
     spentUsd,
     ratio,
     warnAt: budget.warnAt,
@@ -92,8 +95,64 @@ export function budgetStatus(budget: BudgetConfig, ledger: Ledger, now: Date = n
 }
 
 /** Escolha no esgotamento (B4). */
-export type BudgetChoice = "continue_same" | "lower_effort" | "stop";
-export type BudgetDecider = (status: BudgetStatus) => Promise<BudgetChoice> | BudgetChoice;
+export type BudgetChoice = "continue_same" | "lower_effort" | "stop" | BudgetRaise;
+
+/** Aumento aprovado no esgotamento (D-30, I-17): valores absolutos, nunca incremento. */
+export interface BudgetRaise {
+  choice: "raise";
+  limitUsd: number;
+  /** Novo teto; só é aceito com `confirmedCeiling: true` (segunda confirmação). */
+  hardCeilingUsd?: number;
+  /** Segunda confirmação explícita do teto (D-30); o CLI só marca após `CONFIRMAR`. */
+  confirmedCeiling?: boolean;
+}
+
+/** Motivo de recusa de um aumento (D-30); o run continua esgotado. */
+export type BudgetRaiseDenied =
+  | "invalid_number"
+  | "not_above_spend"
+  | "not_above_limit"
+  | "ceiling_required"
+  | "ceiling_not_raised"
+  | "ceiling_not_confirmed";
+
+/**
+ * Valida um pedido de aumento (D-30): valor absoluto acima do gasto e do limite
+ * antigo; acima do teto exige o novo teto, que só pode subir. Nunca adivinha.
+ */
+export function validateBudgetRaise(
+  status: BudgetStatus,
+  committedUsd: number | null,
+  raise: BudgetRaise,
+): { ok: true; limitUsd: number; hardCeilingUsd?: number } | { ok: false; reason: BudgetRaiseDenied } {
+  const limit = raise.limitUsd;
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) return { ok: false, reason: "invalid_number" };
+  if (committedUsd === null) return { ok: false, reason: "invalid_number" };
+  if (limit <= committedUsd) return { ok: false, reason: "not_above_spend" };
+  if (status.limitUsd !== null && limit <= status.limitUsd) return { ok: false, reason: "not_above_limit" };
+  const oldCeiling = status.hardCeilingUsd ?? null;
+  const newCeiling = raise.hardCeilingUsd;
+  if (newCeiling !== undefined) {
+    if (typeof newCeiling !== "number" || !Number.isFinite(newCeiling) || newCeiling <= 0) {
+      return { ok: false, reason: "invalid_number" };
+    }
+    if (raise.confirmedCeiling !== true) return { ok: false, reason: "ceiling_not_confirmed" };
+    if (oldCeiling !== null && newCeiling <= oldCeiling) return { ok: false, reason: "ceiling_not_raised" };
+    if (newCeiling <= committedUsd) return { ok: false, reason: "ceiling_not_raised" };
+    if (limit > newCeiling) return { ok: false, reason: "ceiling_required" };
+    return { ok: true, limitUsd: limit, hardCeilingUsd: newCeiling };
+  }
+  if (oldCeiling !== null && limit > oldCeiling) return { ok: false, reason: "ceiling_required" };
+  return { ok: true, limitUsd: limit };
+}
+export type BudgetDecider = (status: BudgetStatus, context?: BudgetDecisionContext) => Promise<BudgetChoice> | BudgetChoice;
+
+/** Números efetivos do corte, incluindo a reserva da próxima chamada (B9). */
+export interface BudgetDecisionContext {
+  /** `spentUsd + reserveUsd`; null quando o preço é desconhecido. */
+  committedUsd: number | null;
+  reserveUsd: number;
+}
 
 /** Parada por budget (I-17/I-19): esgotado, teto físico ou modo não interativo. */
 export class BudgetExceededError extends Error {
@@ -162,7 +221,44 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
     throw new BudgetExceededError("limit", status);
   }
 
-  const choice = await opts.decide(status);
+  const choice = await opts.decide(status, { committedUsd, reserveUsd });
+  if (typeof choice === "object" && choice !== null) {
+    const result = validateBudgetRaise(status, committedUsd, choice);
+    if (!result.ok) {
+      opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "budget.raise_denied", payload: {
+        reason: result.reason,
+        requestedLimitUsd: choice.limitUsd,
+        ...(choice.hardCeilingUsd === undefined ? {} : { requestedHardCeilingUsd: choice.hardCeilingUsd }),
+        spentUsd: status.spentUsd,
+        limitUsd: status.limitUsd,
+        ...(opts.budget.hardCeilingUsd === undefined ? {} : { hardCeilingUsd: opts.budget.hardCeilingUsd }),
+      } });
+      throw new BudgetExceededError("limit", status);
+    }
+    const oldLimit = opts.budget.limitUsd ?? 0;
+    const oldCeiling = opts.budget.hardCeilingUsd;
+    opts.budget.limitUsd = result.limitUsd;
+    if (result.hardCeilingUsd !== undefined) opts.budget.hardCeilingUsd = result.hardCeilingUsd;
+    opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "budget.raised", payload: {
+      run: opts.run,
+      agent: opts.agent,
+      sessionId: opts.run,
+      oldLimitUsd: oldLimit,
+      newLimitUsd: result.limitUsd,
+      ...(oldCeiling === undefined ? {} : { oldHardCeilingUsd: oldCeiling }),
+      ...(result.hardCeilingUsd === undefined ? {} : { newHardCeilingUsd: result.hardCeilingUsd }),
+    } });
+    opts.ledger.recordBudgetRaised({
+      run: opts.run,
+      agent: opts.agent,
+      session_id: opts.run,
+      old_limit_usd: oldLimit,
+      new_limit_usd: result.limitUsd,
+      ...(oldCeiling === undefined ? {} : { old_ceiling_usd: oldCeiling }),
+      ...(result.hardCeilingUsd === undefined ? {} : { new_ceiling_usd: result.hardCeilingUsd }),
+    });
+    return choice;
+  }
   opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "budget.exceeded", payload: { ...payload, choice } });
   opts.ledger.recordBudgetExceeded({ run: opts.run, agent: opts.agent, exceeded_choice: choice });
   if (choice === "stop") throw new BudgetExceededError("limit", status);
