@@ -130,7 +130,10 @@ export class SessionApi {
 
   /** Cria ou substitui uma sessão com a mesma sanitização de escrita do JSON v1. */
   save(value: SessionRecord): SessionRecord {
-    const record = this.#prepare(value);
+    return this.#writeRecord(this.#prepare(value), true);
+  }
+
+  #writeRecord(record: SessionRecord, markSqliteAuthoritative: boolean): SessionRecord {
     const transaction = this.#db.transaction(() => {
       this.#db.run(
         `INSERT INTO sessions (id, started_at, model, turns, cost_usd, name, record_json)
@@ -144,7 +147,7 @@ export class SessionApi {
            record_json = excluded.record_json`,
         [record.id, record.startedAt, record.model, record.turns, record.costUsd, record.name ?? null, JSON.stringify(record)],
       );
-      this.#markSqliteAuthoritative(record.id);
+      if (markSqliteAuthoritative) this.#markSqliteAuthoritative(record.id);
     });
     transaction();
     return record;
@@ -153,7 +156,11 @@ export class SessionApi {
   /** Renomeia uma sessão existente, inclusive quando não há cópia JSON. */
   rename(id: string, name: string): SessionRecord {
     const record = this.load(id);
-    return this.save({ ...record, name: sanitizeSessionName(name) });
+    const hasJsonCopy = [...this.#jsonFiles.values()].some((entry) => entry.id === id);
+    return this.#writeRecord(
+      this.#prepare({ ...record, name: sanitizeSessionName(name) }),
+      !hasJsonCopy,
+    );
   }
 
   /** Remove uma sessão; retorna false quando o id não existe. */
