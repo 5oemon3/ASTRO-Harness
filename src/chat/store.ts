@@ -187,7 +187,8 @@ export class SessionStore {
         // arquivo corrompido ou de outro schema: não aparece na lista
       }
     }
-    return out.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    return out.sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt) || a.path.localeCompare(b.path));
   }
 
   /** Carrega por id, índice não é aceito aqui; aceita também um nome `.json` relativo. */

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, readdirSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { MAX_SESSION_BYTES, SessionStore, sanitizeSessionRecord, type SessionRecord } from "./store";
@@ -49,6 +49,7 @@ export class SessionApi {
   readonly databasePath: string;
   readonly migrationResult: SessionMigrationResult;
   readonly #db: Database;
+  readonly #jsonFileSignatures = new Map<string, string>();
 
   constructor(readonly astroDir: string = join(process.cwd(), ".astro")) {
     mkdirSync(astroDir, { recursive: true });
@@ -77,6 +78,7 @@ export class SessionApi {
 
   /** Lista metadados de sessão por início decrescente, sem carregar mensagens. */
   list(): SessionSummary[] {
+    this.#migrateJsonSessions();
     const rows = this.#db.query(
       `SELECT id, started_at, model, turns, cost_usd, name
        FROM sessions ORDER BY started_at DESC, id ASC`,
@@ -93,6 +95,7 @@ export class SessionApi {
 
   /** Carrega uma sessão pelo id. */
   load(id: string): SessionRecord {
+    this.#migrateJsonSessions();
     const row = this.#db.query(
       "SELECT record_json FROM sessions WHERE id = ?",
     ).get(id) as SessionRow | null;
@@ -173,6 +176,26 @@ export class SessionApi {
     const candidates = files
       .filter((entry) => entry.name.endsWith(".json"))
       .sort((a, b) => a.name.localeCompare(b.name));
+    const signatures = new Map<string, string>();
+    for (const entry of candidates) {
+      if (!entry.isFile()) {
+        signatures.set(entry.name, "non-file");
+        continue;
+      }
+      try {
+        const stat = statSync(join(legacyDir, entry.name));
+        signatures.set(entry.name, `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`);
+      } catch (error) {
+        if (!isMissingFile(error)) throw error;
+        signatures.set(entry.name, "missing");
+      }
+    }
+    if (
+      signatures.size === this.#jsonFileSignatures.size &&
+      [...signatures].every(([file, signature]) => this.#jsonFileSignatures.get(file) === signature)
+    ) {
+      return { migrated: 0, skipped: 0, existing: 0, diagnostics: [] };
+    }
 
     for (const entry of candidates) {
       if (!entry.isFile()) {
@@ -188,32 +211,47 @@ export class SessionApi {
       }
     }
 
+    records.sort((a, b) =>
+      b.record.startedAt.localeCompare(a.record.startedAt) || a.file.localeCompare(b.file));
+    const uniqueRecords: typeof records = [];
+    const seenIds = new Set<string>();
+    for (const item of records) {
+      if (seenIds.has(item.record.id)) {
+        skipped++;
+        diagnostics.push({ file: item.file, reason: "id de sessão duplicado" });
+        continue;
+      }
+      seenIds.add(item.record.id);
+      uniqueRecords.push(item);
+    }
+
     let migrated = 0;
     const transaction = this.#db.transaction(() => {
-      for (const { file, record } of records) {
+      for (const { record } of uniqueRecords) {
         const found = this.#db.query("SELECT id FROM sessions WHERE id = ?").get(record.id);
-        if (found !== null) {
-          existing++;
-          continue;
-        }
-        const result = this.#db.run(
-          `INSERT OR IGNORE INTO sessions
+        if (found !== null) existing++;
+        this.#db.run(
+          `INSERT INTO sessions
            (id, started_at, model, turns, cost_usd, name, record_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             started_at = excluded.started_at,
+             model = excluded.model,
+             turns = excluded.turns,
+             cost_usd = excluded.cost_usd,
+             name = excluded.name,
+             record_json = excluded.record_json`,
           [
             record.id, record.startedAt, record.model, record.turns, record.costUsd,
             record.name ?? null, JSON.stringify(record),
           ],
         );
-        if (result.changes === 0) {
-          skipped++;
-          diagnostics.push({ file, reason: "id de sessão duplicado" });
-        } else {
-          migrated++;
-        }
+        if (found === null) migrated++;
       }
     });
     transaction();
+    this.#jsonFileSignatures.clear();
+    for (const [file, signature] of signatures) this.#jsonFileSignatures.set(file, signature);
     return { migrated, skipped, existing, diagnostics };
   }
 

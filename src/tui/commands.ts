@@ -39,6 +39,13 @@ export interface CommandOutcome {
 
 type SlashCommand = Exclude<ReplCommand, { kind: "prompt" } | { kind: "empty" }>;
 
+export interface RunCommandOptions {
+  store?: SessionStore;
+  sessionApi?: SessionApi;
+  cwd?: string;
+  resumeId?: string;
+}
+
 function messageOf(error: unknown): string {
   return redactSecrets(error instanceof Error ? error.message : String(error));
 }
@@ -48,11 +55,9 @@ export async function runCommand(
   command: SlashCommand,
   session: ChatSession,
   state: CommandState,
-  store?: SessionStore,
-  cwd = process.cwd(),
-  sessionApi?: SessionApi,
-  resumeId?: string,
+  options: RunCommandOptions = {},
 ): Promise<CommandOutcome> {
+  const { store, sessionApi, resumeId, cwd = process.cwd() } = options;
   switch (command.kind) {
     case "help":
       return { entries: [{ kind: "info", text: HELP_TEXT }] };

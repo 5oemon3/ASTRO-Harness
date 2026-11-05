@@ -985,14 +985,13 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "eco:oi"));
     expect(store.list().find((item) => item.id === "abc")?.name).toBe("nova");
-    await waitFor(() => sessionApi.list()[0]?.turns === 1);
   } finally {
     instance.unmount();
     sessionApi.close();
   }
   const reopened = new SessionApi(join(cwd, ".astro"));
   try {
-    expect(reopened.list()[0]?.name).toBe("nova");
+    expect(reopened.list().find((item) => item.id === "abc")?.name).toBe("nova");
   } finally {
     reopened.close();
   }

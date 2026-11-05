@@ -183,12 +183,15 @@ describe("REPL do chat (T1, #62)", () => {
     const sessionApi = new SessionApi(astroDir);
     const session = new FakeSession();
     const io = new ScriptedIO(["/sessions", "/resume 1", "/exit"]);
-    await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
-    expect(io.outputs.some((line) => line.includes("abc"))).toBe(true);
-    expect(session.resumed).toHaveLength(1);
-    expect(session.resumed[0]!.messages[0]!.content).toBe("velho");
-    expect(io.outputs).toContain("sessão retomada: abc (1 turnos)");
-    sessionApi.close();
+    try {
+      await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
+      expect(io.outputs.some((line) => line.includes("abc"))).toBe(true);
+      expect(session.resumed).toHaveLength(1);
+      expect(session.resumed[0]!.messages[0]!.content).toBe("velho");
+      expect(io.outputs).toContain("sessão retomada: abc (1 turnos)");
+    } finally {
+      sessionApi.close();
+    }
   });
   test("/resume 1 sem /sessions recarrega a lista; índice inválido avisa", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-resume2-"));
@@ -200,11 +203,14 @@ describe("REPL do chat (T1, #62)", () => {
     const sessionApi = new SessionApi(astroDir);
     const session = new FakeSession();
     const io = new ScriptedIO(["/resume 1", "/resume 9", "/exit"]);
-    await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
-    expect(io.outputs).toContain("sessão retomada: xyz (2 turnos)");
-    expect(io.outputs).toContain("índice fora da lista; use /sessions");
-    expect(session.resumed).toHaveLength(1);
-    sessionApi.close();
+    try {
+      await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
+      expect(io.outputs).toContain("sessão retomada: xyz (2 turnos)");
+      expect(io.outputs).toContain("índice fora da lista; use /sessions");
+      expect(session.resumed).toHaveLength(1);
+    } finally {
+      sessionApi.close();
+    }
   });
   test("/sessions lista por resumo e /resume carrega o registro migrado pelo id", async () => {
     const root = mkdtempSync(join(tmpdir(), "astro-chat-resume-api-"));

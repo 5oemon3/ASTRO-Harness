@@ -15,7 +15,7 @@ function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 describe("session API JSON migration", () => {
-  test("migrates valid v1 records once and reports corrupt records without deleting source files", () => {
+  test("re-runs migration and reports corrupt records without deleting source files", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-migration-"));
     const astroDir = join(root, ".astro");
     const legacyDir = join(astroDir, "sessions");
@@ -44,32 +44,44 @@ describe("session API JSON migration", () => {
     const invalidPath = join(legacyDir, "invalid.json");
     writeFileSync(validPath, JSON.stringify(fixture), "utf8");
     writeFileSync(invalidPath, "{invalid json", "utf8");
+    let api: SessionApi | undefined;
+    let reopened: SessionApi | undefined;
+    let rerun: SessionApi | undefined;
 
     try {
-      const api = new SessionApi(astroDir);
+      api = new SessionApi(astroDir);
       expect(api.migrationResult).toMatchObject({ migrated: 1, skipped: 1, existing: 0 });
       expect(api.migrationResult.diagnostics).toEqual([
         { file: "invalid.json", reason: "registro inválido ou ilegível" },
       ]);
       expect(api.load("session-1")).toEqual(fixture);
       expect(api.load("session-1").messages).toEqual(messages);
-      api.close();
 
       expect(readdirSync(legacyDir).sort()).toEqual(["invalid.json", "valid.json"]);
       expect(readFileSync(validPath, "utf8")).toBe(JSON.stringify(fixture));
 
       const lateFixture: SessionRecord = { ...fixture, id: "session-late", name: undefined };
       writeFileSync(join(legacyDir, "late.json"), JSON.stringify(lateFixture), "utf8");
-      const reopened = new SessionApi(astroDir);
-      expect(reopened.migrationResult).toMatchObject({ migrated: 1, skipped: 1, existing: 1 });
-      expect(reopened.list().map((session) => session.id)).toEqual(["session-1", "session-late"]);
-      reopened.close();
+      expect(api.list().map((session) => session.id)).toEqual(["session-1", "session-late"]);
+      const currentApi = api;
+      currentApi.close();
+      api = undefined;
 
-      const rerun = new SessionApi(astroDir);
+      reopened = new SessionApi(astroDir);
+      expect(reopened.migrationResult).toMatchObject({ migrated: 0, skipped: 1, existing: 2 });
+      expect(reopened.list()).toHaveLength(2);
+      reopened.close();
+      reopened = undefined;
+
+      rerun = new SessionApi(astroDir);
       expect(rerun.migrationResult).toMatchObject({ migrated: 0, skipped: 1, existing: 2 });
       expect(rerun.list()).toHaveLength(2);
       rerun.close();
+      rerun = undefined;
     } finally {
+      api?.close();
+      reopened?.close();
+      rerun?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -91,6 +103,12 @@ describe("session API JSON migration", () => {
       });
 
       expect(api.list()[0]).toMatchObject({ id: "continued", turns: 2 });
+      expect(api.load("continued")).toMatchObject({
+        turns: 2,
+        messages: [...initial.messages, { role: "assistant", content: "second turn" }],
+      });
+      api.close();
+      api = new SessionApi(astroDir);
       expect(api.load("continued")).toMatchObject({
         turns: 2,
         messages: [...initial.messages, { role: "assistant", content: "second turn" }],
@@ -119,6 +137,7 @@ describe("session API JSON migration", () => {
       api = new SessionApi(astroDir);
       expect(api.list()).toHaveLength(1);
       expect(api.load("duplicate")).toMatchObject({ startedAt: "2026-10-02T10:00:00.000Z", turns: 2 });
+      expect(api.migrationResult).toMatchObject({ migrated: 1, skipped: 1, existing: 0 });
     } finally {
       api?.close();
       rmSync(root, { recursive: true, force: true });
@@ -166,27 +185,32 @@ describe("session API", () => {
       tokensIn: 20,
       tokensOut: 5,
     });
+    let api: SessionApi | undefined;
+    let reopened: SessionApi | undefined;
+    let db: Database | undefined;
 
     try {
-      const api = new SessionApi(astroDir);
-      expect(api.create(record)).toMatchObject({ id: record.id });
-      expect(api.load(record.id).messages[0]?.content).not.toContain(secret);
-      expect(api.load(record.id).messages[1]?.toolCalls?.[0]?.arguments).not.toContain(secret);
-      expect(() => api.create(record)).toThrow();
+      const apiInstance = new SessionApi(astroDir);
+      api = apiInstance;
+      expect(apiInstance.create(record)).toMatchObject({ id: record.id });
+      expect(apiInstance.load(record.id).messages[0]?.content).not.toContain(secret);
+      expect(apiInstance.load(record.id).messages[1]?.toolCalls?.[0]?.arguments).not.toContain(secret);
+      expect(() => apiInstance.create(record)).toThrow();
 
-      const db = new Database(api.databasePath, { readonly: true });
+      db = new Database(apiInstance.databasePath, { readonly: true });
       const stored = db.query("SELECT record_json FROM sessions").get() as { record_json: string };
       const schema = db.query("PRAGMA user_version").get() as { user_version: number };
       expect(stored.record_json).not.toContain(secret);
       expect(schema.user_version).toBe(2);
       if (process.platform !== "win32") {
-        expect(statSync(api.databasePath).mode & 0o777).toBe(0o600);
+        expect(statSync(apiInstance.databasePath).mode & 0o777).toBe(0o600);
       }
       db.close();
+      db = undefined;
 
-      const updated = { ...api.load(record.id), turns: 2, name: "saved" };
-      api.save(updated);
-      expect(api.list()).toEqual([{
+      const updated = { ...apiInstance.load(record.id), turns: 2, name: "saved" };
+      apiInstance.save(updated);
+      expect(apiInstance.list()).toEqual([{
         id: record.id,
         startedAt: record.startedAt,
         model: record.model,
@@ -194,15 +218,21 @@ describe("session API", () => {
         costUsd: null,
         name: "saved",
       }]);
-      api.close();
+      apiInstance.close();
+      api = undefined;
 
-      const reopened = new SessionApi(astroDir);
-      expect(reopened.load(record.id)).toMatchObject({ turns: 2, name: "saved" });
-      expect(reopened.delete(record.id)).toBe(true);
-      expect(reopened.delete(record.id)).toBe(false);
-      expect(() => reopened.load(record.id)).toThrow(/não encontrada/);
-      reopened.close();
+      const reopenedApi = new SessionApi(astroDir);
+      reopened = reopenedApi;
+      expect(reopenedApi.load(record.id)).toMatchObject({ turns: 2, name: "saved" });
+      expect(reopenedApi.delete(record.id)).toBe(true);
+      expect(reopenedApi.delete(record.id)).toBe(false);
+      expect(() => reopenedApi.load(record.id)).toThrow(/não encontrada/);
+      reopenedApi.close();
+      reopened = undefined;
     } finally {
+      db?.close();
+      api?.close();
+      reopened?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

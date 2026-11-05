@@ -300,7 +300,7 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
       // `/theme` precisa do tema vivo e do aplicador que persiste em .astro/tui.json (#64)
       commandState.current.theme = theme;
       commandState.current.setTheme = persistTheme;
-      const outcome = await runCommand(command, session, commandState.current, store, cwd, sessionApi);
+      const outcome = await runCommand(command, session, commandState.current, { store, cwd, sessionApi });
       if (outcome.openProviders !== undefined) {
         if (manager === undefined) {
           setEntries((current) => [...current, { kind: "error", text: "tela de providers indisponível" }]);
@@ -539,7 +539,8 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
         onResume={(chosen) => {
           void (async () => {
             const outcome = await runCommand(
-              { kind: "resume", ref: chosen.id }, session, commandState.current, store, cwd, sessionApi, chosen.id,
+              { kind: "resume", ref: chosen.id }, session, commandState.current,
+              { store, cwd, sessionApi, resumeId: chosen.id },
             );
             if (outcome.lastFile !== undefined) commandState.current.lastFile = outcome.lastFile ?? undefined;
             const added = [...outcome.entries];
@@ -563,9 +564,13 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
           if (store === undefined) return "sem persistência configurada";
           try {
             const renamed = store.rename(chosen.id, name);
-            setSessionList((current) => current.map((item) => item.id === chosen.id
-              ? { ...item, ...(renamed.name === undefined ? {} : { name: renamed.name }) }
-              : item));
+            if (sessionApi === undefined) {
+              setSessionList((current) => current.map((item) => item.id === chosen.id
+                ? { ...item, ...(renamed.name === undefined ? {} : { name: renamed.name }) }
+                : item));
+            } else {
+              setSessionList(sessionApi.list());
+            }
             return undefined;
           } catch (error) {
             return `erro: ${messageOf(error)}`;
