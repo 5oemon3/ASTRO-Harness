@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionApi } from "../src/chat/session-api";
-import type { SessionRecord } from "../src/chat/store";
+import { SessionStore, type SessionRecord } from "../src/chat/store";
 
 function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -70,6 +70,57 @@ describe("session API JSON migration", () => {
       expect(rerun.list()).toHaveLength(2);
       rerun.close();
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reconciles continued JSON sessions before listing and loading", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-continuation-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    const initial = makeRecord({ id: "continued", turns: 1 });
+    legacy.write(initial);
+    let api: SessionApi | undefined;
+
+    try {
+      api = new SessionApi(astroDir);
+      legacy.write({
+        ...initial,
+        turns: 2,
+        messages: [...initial.messages, { role: "assistant", content: "second turn" }],
+      });
+
+      expect(api.list()[0]).toMatchObject({ id: "continued", turns: 2 });
+      expect(api.load("continued")).toMatchObject({
+        turns: 2,
+        messages: [...initial.messages, { role: "assistant", content: "second turn" }],
+      });
+    } finally {
+      api?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("duplicate JSON ids resolve consistently to the latest session identity", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-duplicate-id-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    const storeRecord = (record: SessionRecord) => {
+      legacy.write(record);
+    };
+    storeRecord(makeRecord({ id: "duplicate", startedAt: "2026-10-01T10:00:00.000Z", turns: 1 }));
+    storeRecord(makeRecord({
+      id: "duplicate", startedAt: "2026-10-02T10:00:00.000Z", turns: 2,
+      messages: [{ role: "user", content: "latest" }],
+    }));
+    let api: SessionApi | undefined;
+
+    try {
+      api = new SessionApi(astroDir);
+      expect(api.list()).toHaveLength(1);
+      expect(api.load("duplicate")).toMatchObject({ startedAt: "2026-10-02T10:00:00.000Z", turns: 2 });
+    } finally {
+      api?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
