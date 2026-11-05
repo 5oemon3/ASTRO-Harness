@@ -2,7 +2,8 @@
 import { HELP_TEXT, modeListText, resolveModeCommand, unknownCommandMessage, type ReplCommand } from "../chat/commands";
 import { detailsLines, providerLine, type ChatSession } from "../chat/repl";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from "../permissions";
-import type { SessionStore, SessionSummary } from "../chat/store";
+import type { SessionStore } from "../chat/store";
+import type { SessionApi, SessionSummary as ApiSessionSummary } from "../chat/session-api";
 import { redactSecrets } from "../sanitize-external";
 import { exportSession } from "../chat/export";
 import { initAgents } from "../chat/init";
@@ -49,6 +50,8 @@ export async function runCommand(
   state: CommandState,
   store?: SessionStore,
   cwd = process.cwd(),
+  sessionApi?: SessionApi,
+  resumeId?: string,
 ): Promise<CommandOutcome> {
   switch (command.kind) {
     case "help":
@@ -142,33 +145,33 @@ export async function runCommand(
       return { entries: [], openProviders: { mode: command.action, target: command.target } };
     }
     case "sessions": {
-      if (store === undefined) {
+      if (sessionApi === undefined) {
         return { entries: [{ kind: "info", text: "sem persistência configurada" }] };
       }
       // na TUI o modal lista/renomeia/retoma; o REPL mantém a listagem em texto (#64)
       return { entries: [], openSessions: true };
     }
     case "resume": {
-      if (store === undefined) {
+      if (sessionApi === undefined) {
         return { entries: [{ kind: "info", text: "sem persistência configurada" }] };
       }
       if (command.ref === undefined) {
         return { entries: [{ kind: "info", text: "uso: /resume <número|id> (veja /sessions)" }] };
       }
       try {
-        let chosen: SessionSummary | undefined;
-        if (/^\d+$/.test(command.ref)) {
-          chosen = store.list()[Number(command.ref) - 1]; // sempre relê a lista (#64)
+        let chosen: ApiSessionSummary | undefined;
+        if (resumeId === undefined && /^\d+$/.test(command.ref)) {
+          chosen = sessionApi.list()[Number(command.ref) - 1]; // sempre relê a lista (#64)
           if (chosen === undefined) {
             return { entries: [{ kind: "info", text: "índice fora da lista; use /sessions" }] };
           }
         }
-        const loaded = chosen === undefined ? store.load(command.ref) : store.load(chosen.id);
-        session.resume(loaded.record);
-        state.lastFile = loaded.path;
+        const loaded = sessionApi.load(resumeId ?? chosen?.id ?? command.ref);
+        session.resume(loaded);
+        state.lastFile = undefined;
         return {
-          entries: [{ kind: "info", text: `sessão retomada: ${loaded.record.id} (${loaded.record.turns} turnos)` }],
-          lastFile: loaded.path,
+          entries: [{ kind: "info", text: `sessão retomada: ${loaded.id} (${loaded.turns} turnos)` }],
+          lastFile: null,
         };
       } catch (error) {
         return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }] };
@@ -217,4 +220,3 @@ export async function runCommand(
     }
   }
 }
-

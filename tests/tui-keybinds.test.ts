@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { KEYBINDS, LEADER, runKeybind, type KeybindContext } from "../src/tui/keybinds";
-import type { SessionSummary } from "../src/chat/store";
+import type { SessionSummary } from "../src/chat/session-api";
 import type { Entry } from "../src/tui/commands";
 
 const summary: SessionSummary = {
-  path: "/tmp/a.json", id: "abc", startedAt: "2026-10-01T10:00:00.000Z",
+  id: "abc", startedAt: "2026-10-01T10:00:00.000Z",
   model: "p/m1", turns: 2, costUsd: 0.001,
 };
 
@@ -54,7 +54,7 @@ describe("keybindings da TUI (T2, #197)", () => {
     const models = setup();
     runKeybind("ctrl+x m", models.context);
     expect(models.entries.at(-1)?.text).toBe("p/m1\np/m2");
-    const sessions = setup({ store: { list: () => [summary] } });
+    const sessions = setup({ sessionApi: { list: () => [summary] } });
     runKeybind("ctrl+x l", sessions.context);
     expect(sessions.entries.at(-1)?.text).toContain("abc");
     const noStore = setup();
@@ -63,7 +63,7 @@ describe("keybindings da TUI (T2, #197)", () => {
   });
 
   test("erro de keybind é redigido", () => {
-    const { context, entries } = setup({ store: { list: () => { throw new Error("token=segredo123"); } } });
+    const { context, entries } = setup({ sessionApi: { list: () => { throw new Error("token=segredo123"); } } });
     expect(runKeybind("ctrl+x l", context)).toBe(true);
     expect(entries.at(-1)?.text).toBe("erro: token=[REDACTED]");
   });

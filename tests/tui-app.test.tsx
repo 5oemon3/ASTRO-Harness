@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TuiApp } from "../src/tui/app";
 import { SessionStore } from "../src/chat/store";
+import { SessionApi } from "../src/chat/session-api";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import type { ConfigSummary } from "../src/chat/config-summary";
@@ -470,15 +471,15 @@ test("segundo ctrl+c força a saída mesmo com o provider travado", async () => 
   }
 });
 test("/sessions abre o painel e /resume por id retoma a sessão vista (#64)", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "astro-tui-panel-sessions-"));
-  const store = new SessionStore(dir);
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-resume-"));
+  const store = new SessionStore(join(cwd, ".astro", "sessions"));
   store.write({
     id: "xyz", startedAt: "2026-10-02T10:00:00.000Z", model: "p/m1",
     messages: [{ role: "user", content: "guardado" }], turns: 2, tokensIn: 20, tokensOut: 10, costUsd: 0.002,
   });
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-resume-"));
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
   try {
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
@@ -500,6 +501,7 @@ test("/sessions abre o painel e /resume por id retoma a sessão vista (#64)", as
     await waitFor(() => instance.lastFrame()?.includes("retomada de xyz") === true);
   } finally {
     instance.unmount();
+    sessionApi.close();
   }
 });
 test("Tab completa comando e @arquivo no painel", async () => {
@@ -960,8 +962,9 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
     id: "abc", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
     messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
   });
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
   try {
     await waitFor(() => frameHas(instance, "turno(s)"));
     instance.stdin.write("/sessions");
@@ -985,6 +988,7 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
     expect(store.list().find((item) => item.id === "abc")?.name).toBe("nova");
   } finally {
     instance.unmount();
+    sessionApi.close();
   }
 });
 
@@ -997,8 +1001,9 @@ test("80x24 e resize encolhem o picker sem quebrar o input (#64)", async () => {
       messages: [{ role: "user", content: "x" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null,
     });
   }
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
   try {
     await waitFor(() => frameHas(instance, "turno(s)"));
     instance.stdin.write("/sessions");
@@ -1019,18 +1024,19 @@ test("80x24 e resize encolhem o picker sem quebrar o input (#64)", async () => {
     instance.stdin.write("oi");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "eco:oi"));
-  } finally { instance.unmount(); }
+  } finally { instance.unmount(); sessionApi.close(); }
 });
 
-test("picker: enter retoma a sessão selecionada pelo path (#64)", async () => {
+test("picker: enter retoma a sessão selecionada pelo id (#64)", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-picker-enter-"));
   const store = new SessionStore(join(cwd, ".astro", "sessions"));
   const saved = { model: "p/m1", messages: [{ role: "user" as const, content: "x" }], turns: 1, tokensIn: 1, tokensOut: 1, costUsd: null };
   // id numérico: um resume por id o trataria como índice da lista
   store.write({ ...saved, id: "7", startedAt: "2026-10-01T10:00:00.000Z" });
   store.write({ ...saved, id: "abc", startedAt: "2026-10-03T10:00:00.000Z" });
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
   try {
     await waitFor(() => frameHas(instance, "turno(s)"));
     instance.stdin.write("/sessions");
@@ -1044,5 +1050,5 @@ test("picker: enter retoma a sessão selecionada pelo path (#64)", async () => {
     await waitFor(() => frameHas(instance, "sessão retomada: 7"));
     expect(JSON.parse(readFileSync(join(cwd, ".astro", "tui.json"), "utf8")).lastModel).toBe("p/m1");
     expect(frameHas(instance, "Sessões")).toBe(false);
-  } finally { instance.unmount(); }
+  } finally { instance.unmount(); sessionApi.close(); }
 });

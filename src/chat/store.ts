@@ -289,7 +289,10 @@ export class SessionStore {
   }
 }
 
-export function sessionSummaryLine(item: SessionSummary, index: number): string {
+export function sessionSummaryLine(
+  item: Pick<SessionSummary, "id" | "startedAt" | "model" | "turns" | "costUsd" | "name">,
+  index: number,
+): string {
   const cost = item.costUsd === null ? "n/d" : `US$ ${item.costUsd.toFixed(6)}`;
   const label = item.name === undefined ? item.id : `${item.name} (${item.id})`;
   return `${index + 1}. ${item.startedAt} ${label} ${item.model} turnos=${item.turns} custo=${cost}`;

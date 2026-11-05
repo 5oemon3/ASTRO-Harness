@@ -1,7 +1,8 @@
 /** Modal de sessões da TUI (#64): listar, renomear e retomar. */
 import { Box, Text, useInput, useWindowSize } from "ink";
 import { useRef, useState, type ReactElement } from "react";
-import { sessionSummaryLine, type SessionSummary } from "../chat/store";
+import { sessionSummaryLine } from "../chat/store";
+import type { SessionSummary } from "../chat/session-api";
 import type { ThemeColors } from "./theme";
 import { listRows, listWindow } from "./viewport";
 
@@ -120,7 +121,7 @@ export function SessionPicker({
       {sessions.slice(visible.start, visible.end).map((item, offset) => {
         const position = visible.start + offset;
         return (
-          <Text key={item.path} color={position === index ? colors.accent : undefined}>
+          <Text key={item.id} color={position === index ? colors.accent : undefined}>
             {position === index ? "> " : "  "}
             {sessionSummaryLine(item, position)}
           </Text>

@@ -1147,6 +1147,7 @@ async function main(argv: string[]): Promise<number> {
     const o = parsed.options;
     const base = o.cwd ?? process.cwd();
     const io = nodeReplIO();
+    let sessionApi: import("./chat/session-api").SessionApi | undefined;
     try {
       const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
       const configPath = resolve(o.configPath);
@@ -1163,13 +1164,16 @@ async function main(argv: string[]): Promise<number> {
       });
       for (const warning of session.warnings) console.error(`aviso: ${warning}`);
       const store = new SessionStore(resolve(base, ".astro", "sessions"));
-      await runRepl(session, io, { store, signal: io.signal, style: interactive, cwd: base, manager });
+      const { SessionApi } = await import("./chat/session-api");
+      sessionApi = new SessionApi(resolve(base, ".astro"));
+      await runRepl(session, io, { store, sessionApi, signal: io.signal, style: interactive, cwd: base, manager });
       return 0;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`erro: ${redactSecrets(message)}`);
       return 1;
     } finally {
+      sessionApi?.close();
       io.close();
     }
   }

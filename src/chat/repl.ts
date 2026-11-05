@@ -9,6 +9,7 @@ import type { ModelInfo, ProviderInfo, SessionSnapshot, TurnResult } from "./age
 import type { HealthCheck, HealthReport } from "../health";
 import type { CodexLoginStart } from "../provider/codex-login";
 import type { SessionStore } from "./store";
+import type { SessionApi, SessionSummary } from "./session-api";
 import { sessionSummaryLine } from "./store";
 import { exportSession } from "./export";
 import { initAgents } from "./init";
@@ -65,6 +66,7 @@ export interface ChatSession {
 
 export interface ReplOptions {
   store?: SessionStore;
+  sessionApi?: SessionApi;
   signal?: AbortSignal;
   /** Cores ANSI apenas quando o I/O é um terminal. */
   style?: boolean;
@@ -152,7 +154,7 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
   const cwd = opts.cwd ?? process.cwd();
   let lastFile: string | undefined;
   let lastPersistError: string | undefined;
-  let storeList: ReturnType<SessionStore["list"]> = [];
+  let storeList: SessionSummary[] = [];
   const persist = (report = false): string | undefined => {
     if (opts.store === undefined) return undefined;
     try {
@@ -287,18 +289,18 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
         continue;
       }
       if (command.kind === "sessions") {
-        if (opts.store === undefined) {
+        if (opts.sessionApi === undefined) {
           io.write("sem persistência configurada");
           continue;
         }
-        storeList = opts.store.list();
+        storeList = opts.sessionApi.list();
         io.write(storeList.length === 0
           ? "nenhuma sessão salva"
           : storeList.map((item, index) => sessionSummaryLine(item, index)).join("\n"));
         continue;
       }
       if (command.kind === "resume") {
-        if (opts.store === undefined) {
+        if (opts.sessionApi === undefined) {
           io.write("sem persistência configurada");
           continue;
         }
@@ -309,7 +311,7 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
         try {
           let chosen: (typeof storeList)[number] | undefined;
           if (/^\d+$/.test(command.ref)) {
-            if (storeList.length === 0) storeList = opts.store.list();
+            if (storeList.length === 0) storeList = opts.sessionApi.list();
             chosen = storeList[Number(command.ref) - 1];
             if (chosen === undefined) {
               io.write("índice fora da lista; use /sessions");
@@ -318,10 +320,10 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
           } else {
             chosen = storeList.find((item) => item.id === command.ref);
           }
-          const loaded = chosen === undefined ? opts.store.load(command.ref) : opts.store.load(chosen.id);
-          session.resume(loaded.record);
-          lastFile = loaded.path;
-          io.write(`sessão retomada: ${loaded.record.id} (${loaded.record.turns} turnos)`);
+          const loaded = opts.sessionApi.load(chosen?.id ?? command.ref);
+          session.resume(loaded);
+          lastFile = undefined;
+          io.write(`sessão retomada: ${loaded.id} (${loaded.turns} turnos)`);
         } catch (error) {
           io.write(`erro: ${messageOf(error)}`);
         }

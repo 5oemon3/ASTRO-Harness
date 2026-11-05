@@ -3,7 +3,8 @@ import { Box, Static, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { parseCommand, type ReplCommand } from "../chat/commands";
 import { statusLine, type ChatSession } from "../chat/repl";
-import type { SessionStore, SessionSummary } from "../chat/store";
+import type { SessionStore } from "../chat/store";
+import type { SessionApi, SessionSummary } from "../chat/session-api";
 import type { SessionSnapshot } from "../chat/agent-session";
 import { isFatalSessionError } from "../chat/session-errors";
 import { DEFAULT_PERMISSION_MODE } from "../permissions";
@@ -36,6 +37,7 @@ export interface TuiAppProps {
   cwd: string;
   branch?: string;
   store?: SessionStore;
+  sessionApi?: SessionApi;
   approvals?: ApprovalBridge;
   shell?: ShellRunner;
   manager?: ProfileManager;
@@ -110,7 +112,7 @@ export function activateProvider(
   persistLastModel(cwd, session.snapshot().model, onWarning);
 }
 
-export function TuiApp({ session, cwd, branch, store, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS, streamThrottleMs = STREAM_THROTTLE_MS, historyLimit = HISTORY_LIMIT, saveSecret, discardSecret }: TuiAppProps): ReactElement {
+export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS, streamThrottleMs = STREAM_THROTTLE_MS, historyLimit = HISTORY_LIMIT, saveSecret, discardSecret }: TuiAppProps): ReactElement {
   const [entries, setEntries] = useState<Entry[]>([{ kind: "info", text: WELCOME }]);
   const [question, setQuestion] = useState<ApprovalQuestion | undefined>(() => approvals?.current());
   const [files, setFiles] = useState<string[]>([]);
@@ -298,7 +300,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       // `/theme` precisa do tema vivo e do aplicador que persiste em .astro/tui.json (#64)
       commandState.current.theme = theme;
       commandState.current.setTheme = persistTheme;
-      const outcome = await runCommand(command, session, commandState.current, store, cwd);
+      const outcome = await runCommand(command, session, commandState.current, store, cwd, sessionApi);
       if (outcome.openProviders !== undefined) {
         if (manager === undefined) {
           setEntries((current) => [...current, { kind: "error", text: "tela de providers indisponível" }]);
@@ -318,7 +320,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       }
       if (outcome.openSessions === true) {
         try {
-          setSessionList(store?.list() ?? []);
+          setSessionList(sessionApi?.list() ?? []);
           setSessionPicker(true);
         } catch (error) {
           setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
@@ -416,7 +418,7 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
       leader.current = false;
       runKeybind(`${LEADER} ${value.toLowerCase()}`, {
         session,
-        ...(store === undefined ? {} : { store }),
+        ...(sessionApi === undefined ? {} : { sessionApi }),
         theme,
         addEntries: (added) => setEntries((current) => [...current, ...added]),
         setTheme: persistTheme,
@@ -535,9 +537,10 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         onClose={() => setSessionPicker(false)}
         onExit={finish}
         onResume={(chosen) => {
-          // por path: id numérico não vira índice e ids duplicados não pegam a sessão errada
           void (async () => {
-            const outcome = await runCommand({ kind: "resume", ref: chosen.path }, session, commandState.current, store, cwd);
+            const outcome = await runCommand(
+              { kind: "resume", ref: chosen.id }, session, commandState.current, store, cwd, sessionApi, chosen.id,
+            );
             if (outcome.lastFile !== undefined) commandState.current.lastFile = outcome.lastFile ?? undefined;
             const added = [...outcome.entries];
             const failed = added.some((entry) => entry.kind === "error");
@@ -559,9 +562,10 @@ export function TuiApp({ session, cwd, branch, store, approvals, shell, manager,
         onRename={(chosen, name) => {
           if (store === undefined) return "sem persistência configurada";
           try {
-            // por path: ids duplicados (sessão copiada) não renomeiam a errada
-            store.rename(chosen.path, name);
-            setSessionList(store.list());
+            const renamed = store.rename(chosen.id, name);
+            setSessionList((current) => current.map((item) => item.id === chosen.id
+              ? { ...item, ...(renamed.name === undefined ? {} : { name: renamed.name }) }
+              : item));
             return undefined;
           } catch (error) {
             return `erro: ${messageOf(error)}`;

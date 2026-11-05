@@ -49,7 +49,7 @@ describe("listar e retomar sessões (T2, #63)", () => {
 
   test("linha de resumo numera e mostra turnos/custo", () => {
     const line = sessionSummaryLine(
-      { path: "/tmp/a.json", id: "s1", startedAt: "2026-10-28T12:00:00.000Z", model: "p/m1", turns: 2, costUsd: 0.5 },
+      { id: "s1", startedAt: "2026-10-28T12:00:00.000Z", model: "p/m1", turns: 2, costUsd: 0.5 },
       0,
     );
     expect(line.startsWith("1. 2026-10-28T12:00:00.000Z s1 p/m1 turnos=2")).toBe(true);

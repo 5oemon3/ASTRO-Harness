@@ -1,6 +1,7 @@
 /** Keybindings da TUI (T2): leader `ctrl+x`; puro, sem React e sem I/O. */
 import type { ChatSession } from "../chat/repl";
-import { sessionSummaryLine, type SessionStore } from "../chat/store";
+import { sessionSummaryLine } from "../chat/store";
+import type { SessionApi } from "../chat/session-api";
 import { redactSecrets } from "../sanitize-external";
 import type { Entry } from "./commands";
 import { nextTheme, type Theme } from "./theme";
@@ -9,7 +10,7 @@ export const LEADER = "ctrl+x";
 
 export interface KeybindContext {
   session: Pick<ChatSession, "clear" | "listModels">;
-  store?: Pick<SessionStore, "list">;
+  sessionApi?: Pick<SessionApi, "list">;
   theme: Theme;
   addEntries(entries: Entry[]): void;
   setTheme(theme: Theme): void;
@@ -22,7 +23,7 @@ function clearContext(context: KeybindContext): void {
 }
 
 function listSessions(context: KeybindContext): void {
-  const sessions = context.store?.list();
+  const sessions = context.sessionApi?.list();
   if (sessions === undefined) {
     context.addEntries([{ kind: "info", text: "sem persistência configurada" }]);
     return;

@@ -128,26 +128,29 @@ describe("comandos da TUI (T2, #63)", () => {
 
   test("sessions abre o picker e resume carrega a sessão pelo número (#64)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-tui-resume-"));
-    const store = new SessionStore(dir);
+    const astroDir = join(dir, ".astro");
+    const store = new SessionStore(join(astroDir, "sessions"));
     store.write({
       id: "abc", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
       messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
     });
+    const api = new SessionApi(astroDir);
     const session = new FakeSession();
     const state: { lastFile?: string } = {};
-    const list = await runCommand({ kind: "sessions" }, session, state as never, store);
+    const list = await runCommand({ kind: "sessions" }, session, state as never, store, process.cwd(), api);
     // na TUI o /sessions abre o modal; a lista não vai mais como texto para o histórico
     expect(list).toMatchObject({ entries: [], openSessions: true });
-    const resumed = await runCommand({ kind: "resume", ref: "1" }, session, state as never, store);
+    const resumed = await runCommand({ kind: "resume", ref: "1" }, session, state as never, store, process.cwd(), api);
     expect(resumed.entries[0]!.text).toBe("sessão retomada: abc (1 turnos)");
-    expect(resumed.lastFile).toMatch(/\.json$/);
+    expect(resumed.lastFile).toBeNull();
     expect(session.resumed[0]!.id).toBe("abc");
-    const sessionInfo = await runCommand({ kind: "session" }, session, state as never, store);
+    const sessionInfo = await runCommand({ kind: "session" }, session, state as never, store, process.cwd(), api);
     expect(sessionInfo.entries[0]!.text).toContain("retomada de abc");
 
-    await runCommand({ kind: "clear" }, session, state as never, store);
-    const afterClear = await runCommand({ kind: "session" }, session, state as never, store);
+    await runCommand({ kind: "clear" }, session, state as never, store, process.cwd(), api);
+    const afterClear = await runCommand({ kind: "session" }, session, state as never, store, process.cwd(), api);
     expect(afterClear.entries[0]!.text).not.toContain("retomada de");
+    api.close();
   });
   test("/resume da TUI carrega pelo resumo da SessionApi sem depender do caminho JSON", async () => {
     const root = mkdtempSync(join(tmpdir(), "astro-tui-resume-api-"));
@@ -217,17 +220,20 @@ describe("comandos da TUI (T2, #63)", () => {
   });
   test("resume sem /sessions recarrega a lista e valida o índice", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-tui-resume2-"));
-    const store = new SessionStore(dir);
+    const astroDir = join(dir, ".astro");
+    const store = new SessionStore(join(astroDir, "sessions"));
     store.write({
       id: "xyz", startedAt: "2026-10-02T10:00:00.000Z", model: "p/m1",
       messages: [{ role: "user", content: "guardado" }], turns: 2, tokensIn: 20, tokensOut: 10, costUsd: 0.002,
     });
+    const api = new SessionApi(astroDir);
     const session = new FakeSession();
-    const ok = await runCommand({ kind: "resume", ref: "1" }, session, {}, store);
+    const ok = await runCommand({ kind: "resume", ref: "1" }, session, {}, store, process.cwd(), api);
     expect(ok.entries[0]!.text).toBe("sessão retomada: xyz (2 turnos)");
-    const bad = await runCommand({ kind: "resume", ref: "9" }, session, {}, store);
+    const bad = await runCommand({ kind: "resume", ref: "9" }, session, {}, store, process.cwd(), api);
     expect(bad.entries[0]!.text).toBe("índice fora da lista; use /sessions");
     expect(session.resumed).toHaveLength(1);
+    api.close();
   });
 
   test("/compact force repassa force=true ao compactar (CMP-6)", async () => {
