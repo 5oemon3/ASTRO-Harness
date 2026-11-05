@@ -293,10 +293,14 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
           io.write("sem persistência configurada");
           continue;
         }
-        storeList = opts.sessionApi.list();
-        io.write(storeList.length === 0
-          ? "nenhuma sessão salva"
-          : storeList.map((item, index) => sessionSummaryLine(item, index)).join("\n"));
+        try {
+          storeList = opts.sessionApi.list();
+          io.write(storeList.length === 0
+            ? "nenhuma sessão salva"
+            : storeList.map((item, index) => sessionSummaryLine(item, index)).join("\n"));
+        } catch (error) {
+          io.write(`erro: ${messageOf(error)}`);
+        }
         continue;
       }
       if (command.kind === "resume") {

@@ -19,6 +19,11 @@ interface SessionSummaryRow {
   name: string | null;
 }
 
+interface JsonSessionCacheEntry {
+  signature: string;
+  record?: SessionRecord;
+}
+
 export interface SessionSummary {
   id: string;
   startedAt: string;
@@ -49,13 +54,14 @@ export class SessionApi {
   readonly databasePath: string;
   readonly migrationResult: SessionMigrationResult;
   readonly #db: Database;
-  readonly #jsonFileSignatures = new Map<string, string>();
+  #jsonFiles = new Map<string, JsonSessionCacheEntry>();
 
   constructor(readonly astroDir: string = join(process.cwd(), ".astro")) {
     mkdirSync(astroDir, { recursive: true });
     this.databasePath = join(astroDir, "sessions.db");
     this.#db = new Database(this.databasePath, { create: true });
     try {
+      this.#db.exec("PRAGMA busy_timeout = 1000");
       if (process.platform !== "win32") chmodSync(this.databasePath, 0o600);
       this.#initialize();
       this.migrationResult = this.#migrateJsonSessions();
@@ -198,7 +204,8 @@ export class SessionApi {
     }
 
     const store = new SessionStore(legacyDir);
-    const records: Array<{ file: string; record: SessionRecord }> = [];
+    const nextJsonFiles = new Map(this.#jsonFiles);
+    const changedIds = new Set<string>();
     const diagnostics: SessionMigrationDiagnostic[] = [];
     let skipped = 0;
     let existing = 0;
@@ -220,43 +227,65 @@ export class SessionApi {
       }
     }
     if (
-      signatures.size === this.#jsonFileSignatures.size &&
-      [...signatures].every(([file, signature]) => this.#jsonFileSignatures.get(file) === signature)
+      signatures.size === this.#jsonFiles.size &&
+      [...signatures].every(([file, signature]) => this.#jsonFiles.get(file)?.signature === signature)
     ) {
       return { migrated: 0, skipped: 0, existing: 0, diagnostics: [] };
     }
 
     for (const entry of candidates) {
+      const signature = signatures.get(entry.name);
+      if (signature === undefined) throw new Error("assinatura do arquivo de sessão ausente");
+      const previous = nextJsonFiles.get(entry.name);
+      if (previous?.signature === signature) continue;
+      if (previous?.record !== undefined) changedIds.add(previous.record.id);
       if (!entry.isFile()) {
         skipped++;
         diagnostics.push({ file: entry.name, reason: "não é um arquivo regular" });
+        nextJsonFiles.set(entry.name, { signature });
         continue;
       }
       try {
-        records.push({ file: entry.name, record: store.load(entry.name).record });
+        const record = store.readByPath(entry.name);
+        nextJsonFiles.set(entry.name, { signature, record });
+        changedIds.add(record.id);
       } catch {
         skipped++;
         diagnostics.push({ file: entry.name, reason: "registro inválido ou ilegível" });
+        nextJsonFiles.set(entry.name, { signature });
       }
     }
 
-    records.sort((a, b) =>
-      b.record.startedAt.localeCompare(a.record.startedAt) || a.file.localeCompare(b.file));
-    const uniqueRecords: typeof records = [];
-    const seenIds = new Set<string>();
-    for (const item of records) {
-      if (seenIds.has(item.record.id)) {
-        skipped++;
-        diagnostics.push({ file: item.file, reason: "id de sessão duplicado" });
-        continue;
+    for (const [file, cached] of nextJsonFiles) {
+      if (!signatures.has(file)) {
+        if (cached.record !== undefined) changedIds.add(cached.record.id);
+        nextJsonFiles.delete(file);
       }
-      seenIds.add(item.record.id);
-      uniqueRecords.push(item);
+    }
+
+    const canonicalRecords = new Map<string, { file: string; record: SessionRecord }>();
+    for (const [file, cached] of nextJsonFiles) {
+      if (cached.record === undefined || !changedIds.has(cached.record.id)) continue;
+      const current = canonicalRecords.get(cached.record.id);
+      if (
+        current === undefined ||
+        cached.record.startedAt.localeCompare(current.record.startedAt) > 0 ||
+        (cached.record.startedAt === current.record.startedAt && file.localeCompare(current.file) < 0)
+      ) {
+        canonicalRecords.set(cached.record.id, { file, record: cached.record });
+      }
+    }
+    for (const [file, cached] of nextJsonFiles) {
+      if (cached.record === undefined || !changedIds.has(cached.record.id)) continue;
+      if (canonicalRecords.get(cached.record.id)?.file !== file) {
+        skipped++;
+        diagnostics.push({ file, reason: "id de sessão duplicado" });
+      }
     }
 
     let migrated = 0;
     const transaction = this.#db.transaction(() => {
-      for (const { record } of uniqueRecords) {
+      for (const { record } of canonicalRecords.values()) {
         const found = this.#db.query("SELECT id FROM sessions WHERE id = ?").get(record.id);
         if (found !== null) existing++;
         if (this.#db.query("SELECT id FROM session_tombstones WHERE id = ?").get(record.id) !== null) continue;
@@ -281,8 +310,7 @@ export class SessionApi {
       }
     });
     transaction();
-    this.#jsonFileSignatures.clear();
-    for (const [file, signature] of signatures) this.#jsonFileSignatures.set(file, signature);
+    this.#jsonFiles = nextJsonFiles;
     return { migrated, skipped, existing, diagnostics };
   }
 

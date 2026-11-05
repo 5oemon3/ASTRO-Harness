@@ -196,7 +196,12 @@ export class SessionStore {
     const found = this.list().find((item) => item.id === ref);
     const path = found?.path ?? (ref.endsWith(".json") ? this.#inside(ref) : undefined);
     if (path === undefined) throw new Error(`sessão "${ref}" não encontrada`);
-    return { record: this.#read(path), path };
+    return { record: this.readByPath(path), path };
+  }
+
+  /** Lê um arquivo conhecido sem listar ou abrir os outros registros. */
+  readByPath(path: string): SessionRecord {
+    return this.#read(this.#inside(path));
   }
 
   /** Renomeia a sessão no próprio arquivo (atômico, sem duplicar) e devolve o resumo (#64). */
