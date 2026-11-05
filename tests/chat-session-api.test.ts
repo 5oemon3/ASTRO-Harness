@@ -71,6 +71,65 @@ describe("session API JSON migration", () => {
 });
 
 describe("session API", () => {
+  test("migrates the previous SQLite v1 layout and backfills session summaries", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-v1-db-"));
+    const astroDir = join(root, ".astro");
+    mkdirSync(astroDir, { recursive: true });
+    const databasePath = join(astroDir, "sessions.db");
+    const db = new Database(databasePath);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        started_at TEXT NOT NULL,
+        record_json TEXT NOT NULL
+      );
+      CREATE TABLE migrations (name TEXT PRIMARY KEY NOT NULL);
+      PRAGMA user_version = 1;
+    `);
+    const record: SessionRecord = {
+      schemaVersion: 1,
+      id: "session-v1-db",
+      startedAt: "2026-11-04T14:00:00.000Z",
+      model: "provider/model",
+      messages: [
+        { role: "user", content: "preserve this message" },
+        { role: "assistant", content: "and this response" },
+      ],
+      turns: 2,
+      tokensIn: 40,
+      tokensOut: 15,
+      costUsd: 0.002,
+      name: "existing database",
+    };
+    db.run(
+      "INSERT INTO sessions (id, started_at, record_json) VALUES (?, ?, ?)",
+      [record.id, record.startedAt, JSON.stringify(record)],
+    );
+    db.close();
+
+    let api: SessionApi | undefined;
+    try {
+      api = new SessionApi(astroDir);
+      expect(api.load(record.id)).toEqual(record);
+      expect(api.list()).toEqual([{
+        id: record.id,
+        startedAt: record.startedAt,
+        model: record.model,
+        turns: record.turns,
+        costUsd: record.costUsd,
+        name: record.name,
+      }]);
+      api.close();
+
+      const migrated = new Database(databasePath, { readonly: true });
+      expect(migrated.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
+      migrated.close();
+    } finally {
+      api?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CRUD roundtrip sanitizes content and persists across close", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-crud-"));
     const astroDir = join(root, ".astro");
