@@ -4,7 +4,7 @@ import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { MAX_SESSION_BYTES, SessionStore, sanitizeSessionRecord, type SessionRecord } from "./store";
 
-const DATABASE_SCHEMA_VERSION = 1;
+const DATABASE_SCHEMA_VERSION = 2;
 
 interface SessionRow {
   record_json: string;
@@ -36,6 +36,7 @@ export interface SessionMigrationDiagnostic {
 export interface SessionMigrationResult {
   migrated: number;
   skipped: number;
+  existing: number;
   diagnostics: SessionMigrationDiagnostic[];
 }
 
@@ -168,6 +169,7 @@ export class SessionApi {
     const records: Array<{ file: string; record: SessionRecord }> = [];
     const diagnostics: SessionMigrationDiagnostic[] = [];
     let skipped = 0;
+    let existing = 0;
     const candidates = files
       .filter((entry) => entry.name.endsWith(".json"))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -189,6 +191,11 @@ export class SessionApi {
     let migrated = 0;
     const transaction = this.#db.transaction(() => {
       for (const { file, record } of records) {
+        const found = this.#db.query("SELECT id FROM sessions WHERE id = ?").get(record.id);
+        if (found !== null) {
+          existing++;
+          continue;
+        }
         const result = this.#db.run(
           `INSERT OR IGNORE INTO sessions
            (id, started_at, model, turns, cost_usd, name, record_json)
@@ -207,7 +214,7 @@ export class SessionApi {
       }
     });
     transaction();
-    return { migrated, skipped, diagnostics };
+    return { migrated, skipped, existing, diagnostics };
   }
 
   #prepare(value: SessionRecord): SessionRecord {

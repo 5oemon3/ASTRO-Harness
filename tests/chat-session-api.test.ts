@@ -6,6 +6,14 @@ import { join } from "node:path";
 import { SessionApi } from "../src/chat/session-api";
 import type { SessionRecord } from "../src/chat/store";
 
+function makeRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
+  return {
+    schemaVersion: 1, id: "session", startedAt: "2026-11-04T12:00:00.000Z",
+    model: "provider/model", messages: [{ role: "user", content: "hello" }],
+    turns: 1, tokensIn: 10, tokensOut: 5, costUsd: null, ...overrides,
+  };
+}
+
 describe("session API JSON migration", () => {
   test("migrates valid v1 records once and reports corrupt records without deleting source files", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-migration-"));
@@ -22,11 +30,8 @@ describe("session API JSON migration", () => {
       { role: "tool", toolCallId: "call-1", content: "file contents" },
       { role: "assistant", content: "done" },
     ];
-    const fixture: SessionRecord = {
-      schemaVersion: 1,
+    const fixture = makeRecord({
       id: "session-1",
-      startedAt: "2026-11-04T12:00:00.000Z",
-      model: "provider/model",
       messages,
       turns: 2,
       tokensIn: 100,
@@ -34,7 +39,7 @@ describe("session API JSON migration", () => {
       costUsd: 0.001,
       name: "migration fixture",
       resumedFrom: { id: "session-0", startedAt: "2026-11-03T12:00:00.000Z" },
-    };
+    });
     const validPath = join(legacyDir, "valid.json");
     const invalidPath = join(legacyDir, "invalid.json");
     writeFileSync(validPath, JSON.stringify(fixture), "utf8");
@@ -42,7 +47,7 @@ describe("session API JSON migration", () => {
 
     try {
       const api = new SessionApi(astroDir);
-      expect(api.migrationResult).toMatchObject({ migrated: 1, skipped: 1 });
+      expect(api.migrationResult).toMatchObject({ migrated: 1, skipped: 1, existing: 0 });
       expect(api.migrationResult.diagnostics).toEqual([
         { file: "invalid.json", reason: "registro inválido ou ilegível" },
       ]);
@@ -56,12 +61,12 @@ describe("session API JSON migration", () => {
       const lateFixture: SessionRecord = { ...fixture, id: "session-late", name: undefined };
       writeFileSync(join(legacyDir, "late.json"), JSON.stringify(lateFixture), "utf8");
       const reopened = new SessionApi(astroDir);
-      expect(reopened.migrationResult).toMatchObject({ migrated: 1, skipped: 2 });
+      expect(reopened.migrationResult).toMatchObject({ migrated: 1, skipped: 1, existing: 1 });
       expect(reopened.list().map((session) => session.id)).toEqual(["session-1", "session-late"]);
       reopened.close();
 
       const rerun = new SessionApi(astroDir);
-      expect(rerun.migrationResult).toMatchObject({ migrated: 0, skipped: 3 });
+      expect(rerun.migrationResult).toMatchObject({ migrated: 0, skipped: 1, existing: 2 });
       expect(rerun.list()).toHaveLength(2);
       rerun.close();
     } finally {
@@ -71,61 +76,17 @@ describe("session API JSON migration", () => {
 });
 
 describe("session API", () => {
-  test("migrates the previous SQLite v1 layout and backfills session summaries", () => {
+  test("fails closed on the previous SQLite v1 layout", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-v1-db-"));
     const astroDir = join(root, ".astro");
     mkdirSync(astroDir, { recursive: true });
-    const databasePath = join(astroDir, "sessions.db");
-    const db = new Database(databasePath);
-    db.exec(`
-      CREATE TABLE sessions (
-        id TEXT PRIMARY KEY NOT NULL,
-        started_at TEXT NOT NULL,
-        record_json TEXT NOT NULL
-      );
-      CREATE TABLE migrations (name TEXT PRIMARY KEY NOT NULL);
-      PRAGMA user_version = 1;
-    `);
-    const record: SessionRecord = {
-      schemaVersion: 1,
-      id: "session-v1-db",
-      startedAt: "2026-11-04T14:00:00.000Z",
-      model: "provider/model",
-      messages: [
-        { role: "user", content: "preserve this message" },
-        { role: "assistant", content: "and this response" },
-      ],
-      turns: 2,
-      tokensIn: 40,
-      tokensOut: 15,
-      costUsd: 0.002,
-      name: "existing database",
-    };
-    db.run(
-      "INSERT INTO sessions (id, started_at, record_json) VALUES (?, ?, ?)",
-      [record.id, record.startedAt, JSON.stringify(record)],
-    );
+    const db = new Database(join(astroDir, "sessions.db"));
+    db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, started_at TEXT, record_json TEXT); CREATE TABLE migrations (name TEXT PRIMARY KEY); PRAGMA user_version = 1");
     db.close();
 
-    let api: SessionApi | undefined;
     try {
-      api = new SessionApi(astroDir);
-      expect(api.load(record.id)).toEqual(record);
-      expect(api.list()).toEqual([{
-        id: record.id,
-        startedAt: record.startedAt,
-        model: record.model,
-        turns: record.turns,
-        costUsd: record.costUsd,
-        name: record.name,
-      }]);
-      api.close();
-
-      const migrated = new Database(databasePath, { readonly: true });
-      expect(migrated.query("PRAGMA user_version").get()).toEqual({ user_version: 2 });
-      migrated.close();
+      expect(() => new SessionApi(astroDir)).toThrow(/schema do banco de sessões não suportado: 1/);
     } finally {
-      api?.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -134,11 +95,9 @@ describe("session API", () => {
     const root = mkdtempSync(join(tmpdir(), "astro-session-api-crud-"));
     const astroDir = join(root, ".astro");
     const secret = ["ghp", "_", "session", "secret", "123456"].join("");
-    const record: SessionRecord = {
-      schemaVersion: 1,
+    const record = makeRecord({
       id: "session-crud",
       startedAt: "2026-11-04T13:00:00.000Z",
-      model: "provider/model",
       messages: [
         { role: "user" as const, content: `task ${secret}` },
         {
@@ -155,8 +114,7 @@ describe("session API", () => {
       turns: 1,
       tokensIn: 20,
       tokensOut: 5,
-      costUsd: null,
-    };
+    });
 
     try {
       const api = new SessionApi(astroDir);
@@ -169,7 +127,7 @@ describe("session API", () => {
       const stored = db.query("SELECT record_json FROM sessions").get() as { record_json: string };
       const schema = db.query("PRAGMA user_version").get() as { user_version: number };
       expect(stored.record_json).not.toContain(secret);
-      expect(schema.user_version).toBe(1);
+      expect(schema.user_version).toBe(2);
       if (process.platform !== "win32") {
         expect(statSync(api.databasePath).mode & 0o777).toBe(0o600);
       }
@@ -193,21 +151,6 @@ describe("session API", () => {
       expect(reopened.delete(record.id)).toBe(false);
       expect(() => reopened.load(record.id)).toThrow(/não encontrada/);
       reopened.close();
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("fails closed when the database schema version is unsupported", () => {
-    const root = mkdtempSync(join(tmpdir(), "astro-session-api-schema-"));
-    const astroDir = join(root, ".astro");
-    mkdirSync(astroDir, { recursive: true });
-    const db = new Database(join(astroDir, "sessions.db"));
-    db.exec("PRAGMA user_version = 2");
-    db.close();
-
-    try {
-      expect(() => new SessionApi(astroDir)).toThrow(/schema do banco de sessões não suportado: 2/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
