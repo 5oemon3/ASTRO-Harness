@@ -2,11 +2,15 @@
  * Diagnóstico local do ambiente, sem rede: versões, dependências, artefatos,
  * config, credenciais por NOME e ASTRO_HOME. Nunca imprime valor de segredo (I-03).
  */
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { loadConfig } from "../src/config";
+import { DEFAULT_ATTACHMENTS, loadConfig } from "../src/config";
+import { loadEffectiveConfig } from "../src/provider/profiles";
+import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "../src/attachments/store";
+import { resolveAstroHome } from "../src/permissions";
 import { redactSecrets } from "../src/sanitize-external";
 
 export type CheckLevel = "ok" | "warn" | "fail";
@@ -39,6 +43,17 @@ export interface DoctorFacts {
     providers?: ProviderFact[];
   };
   astroHome: { path: string; exists: boolean; writable: boolean };
+  attachments: {
+    root: string;
+    realpath?: string;
+    exists: boolean;
+    invalidReason?: string;
+    ttlDays: number;
+    maxBytes: number;
+    usageBytes?: number;
+    artifacts?: number;
+    lastGc?: string;
+  };
   env: Record<string, string | undefined>;
 }
 
@@ -91,6 +106,13 @@ function credentialChecks(
   });
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${bytes} B`;
+}
+
 /** Avalia fatos coletados. Puro: não lê fs, env nem rede. */
 export function runChecks(facts: DoctorFacts): DoctorReport {
   const checks: Check[] = [];
@@ -126,6 +148,22 @@ export function runChecks(facts: DoctorFacts): DoctorReport {
     checks.push({ level: "fail", label: "astro home", detail: `${facts.astroHome.path} sem permissão de escrita` });
   } else {
     checks.push({ level: "ok", label: "astro home", detail: `${facts.astroHome.path} gravável` });
+  }
+
+  const attachments = facts.attachments;
+  if (attachments.invalidReason !== undefined) {
+    checks.push({ level: "fail", label: "anexos", detail: redactSecrets(attachments.invalidReason) });
+  } else if (!attachments.exists) {
+    checks.push({ level: "warn", label: "anexos", detail: `${attachments.root} ausente; criada no primeiro anexo de imagem` });
+  } else {
+    const count = attachments.artifacts ?? 0;
+    checks.push({
+      level: "ok",
+      label: "anexos",
+      detail: `${attachments.realpath ?? attachments.root} · ${count} artefato${count === 1 ? "" : "s"} · `
+        + `${formatBytes(attachments.usageBytes ?? 0)}/${formatBytes(attachments.maxBytes)} · `
+        + `TTL ${attachments.ttlDays}d · último GC ${attachments.lastGc ?? "nunca"}`,
+    });
   }
 
   return { checks };
@@ -206,9 +244,115 @@ function readAstroHome(env: Record<string, string | undefined>): DoctorFacts["as
   }
 }
 
-/** Coleta fatos reais do checkout e do ambiente atual. */
-export function collectFacts(root: string): DoctorFacts {
-  const env = process.env;
+function readAttachmentConfig(env: NodeJS.ProcessEnv): { ttlDays: number; maxBytes: number } {
+  try {
+    const effective = loadEffectiveConfig(join(process.cwd(), "astro.config.json"), { env, allowMissing: true });
+    return {
+      ttlDays: effective.config.attachments.artifactTtlDays,
+      maxBytes: effective.config.attachments.artifactMaxBytes,
+    };
+  } catch {
+    return { ttlDays: DEFAULT_ATTACHMENTS.artifactTtlDays, maxBytes: DEFAULT_ATTACHMENTS.artifactMaxBytes };
+  }
+}
+
+const ARTIFACT_KEY = /^(?:session|run)-[a-f0-9]{64}$/;
+
+function readArtifactUsage(root: string): { usageBytes: number; artifacts: number } {
+  let usageBytes = 0;
+  let artifacts = 0;
+  try {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !ARTIFACT_KEY.test(entry.name)) continue;
+      const dir = join(root, entry.name);
+      try {
+        for (const name of readdirSync(dir, { withFileTypes: true })) {
+          if (!name.isFile() || !/^[a-f0-9]{64}$/.test(name.name)) continue;
+          usageBytes += statSync(join(dir, name.name)).size;
+          artifacts += 1;
+        }
+      } catch {
+        // subdiretório removido durante a leitura: o próximo doctor recalcula
+      }
+    }
+  } catch {
+    // raiz removida durante a leitura
+  }
+  return { usageBytes, artifacts };
+}
+
+/** `accessSync` não reflete ACL do Windows nem o bit de execução POSIX; prova escrita/leitura/listagem. */
+function writableDirectory(root: string): boolean {
+  const probe = join(root, `.doctor-${randomUUID()}.tmp`);
+  try {
+    // O store cria um subdiretório por chave antes de gravar; no Windows AD e WD são direitos distintos.
+    mkdirSync(probe, { mode: 0o700 });
+    const file = join(probe, "probe");
+    writeFileSync(file, "", { flag: "wx", mode: 0o600 });
+    if (!readdirSync(root).some((name) => name.startsWith(".doctor-"))) return false;
+    readFileSync(file);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try { rmSync(probe, { recursive: true, force: true }); } catch { /* melhor esforço */ }
+  }
+}
+
+function collectAttachmentFacts(
+  env: NodeJS.ProcessEnv,
+  checkPrivate?: (path: string) => boolean,
+  probeWritable?: (path: string) => boolean,
+): DoctorFacts["attachments"] {
+  const config = readAttachmentConfig(env);
+  const astroHome = resolveAstroHome(env);
+  const root = resolveArtifactRoot({ env, astroHome });
+  const base = { root, ttlDays: config.ttlDays, maxBytes: config.maxBytes };
+  try {
+    validateArtifactRoot(root, {
+      cwd: process.cwd(),
+      astroHome,
+      ...(checkPrivate === undefined ? {} : { checkPrivate }),
+    });
+    if (!existsSync(root)) return { ...base, exists: false };
+    try {
+      if (!statSync(root).isDirectory()) {
+        return { ...base, exists: true, invalidReason: `raiz de artefato não é um diretório: ${root}` };
+      }
+      accessSync(root, constants.R_OK | constants.W_OK | constants.X_OK);
+      if (!(probeWritable ?? writableDirectory)(root)) {
+        return { ...base, exists: true, invalidReason: `raiz de artefato não é gravável: ${root}` };
+      }
+    } catch (error) {
+      return {
+        ...base,
+        exists: true,
+        invalidReason: redactSecrets(error instanceof Error ? error.message : String(error)),
+      };
+    }
+    const realpath = realpathSync(root);
+    const usage = readArtifactUsage(root);
+    const marker = readGcMarker(root);
+    return { ...base, exists: true, realpath, ...usage, ...(marker === undefined ? {} : { lastGc: marker.at }) };
+  } catch (error) {
+    return {
+      ...base,
+      exists: existsSync(root),
+      invalidReason: redactSecrets(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+/** Coleta fatos reais do checkout e do ambiente atual (env/checkPrivate injetáveis). */
+export function collectFacts(
+  root: string,
+  options: {
+    env?: NodeJS.ProcessEnv;
+    checkPrivate?: (path: string) => boolean;
+    probeWritable?: (path: string) => boolean;
+  } = {},
+): DoctorFacts {
+  const env = options.env ?? process.env;
   return {
     bunVersion: Bun.version,
     nodeVersion: readNodeVersion(),
@@ -217,6 +361,7 @@ export function collectFacts(root: string): DoctorFacts {
     artifacts: ARTIFACTS.map((path) => ({ path, exists: existsSync(join(root, path)) })),
     config: readConfig(),
     astroHome: readAstroHome(env),
+    attachments: collectAttachmentFacts(env, options.checkPrivate, options.probeWritable),
     env,
   };
 }

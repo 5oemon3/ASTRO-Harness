@@ -19,6 +19,24 @@ function toolSummary(call: { name: string; id: string; arguments: string }): str
   return `- \`${call.name}\` (${call.id}): \`${short}\``;
 }
 
+/** Remove controles/newlines e redige antes de interpolar metadado no Markdown. */
+function safeLabel(value: string): string {
+  return redactSecrets(value).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]|\p{Cf}/gu, " ");
+}
+
+/** Metadados de anexo; `ref`/hash, nunca bytes, caminho ou conteúdo (ADR-0026). */
+function attachmentLines(message: ChatMessage): string[] {
+  if (message.attachments === undefined || message.attachments.length === 0) return [];
+  const lines = ["Anexos:", ""];
+  for (const attachment of message.attachments) {
+    const range = attachment.range === undefined ? "" : ` - linhas ${attachment.range.start}-${attachment.range.end}`;
+    const ref = attachment.ref === undefined ? "" : ` - ref ${safeLabel(attachment.ref)}`;
+    lines.push(`- ${safeLabel(attachment.kind)} ${safeLabel(attachment.name)} (${attachment.sizeBytes} bytes, ${safeLabel(attachment.mediaType)})${range}${ref}`);
+  }
+  lines.push("");
+  return lines;
+}
+
 /** Markdown da conversa (sem o system prompt) com metadados da sessão. */
 export function renderMarkdown(snapshot: SessionSnapshot): string {
   const cost = snapshot.costUsd === null ? "n/d" : `US$ ${snapshot.costUsd.toFixed(6)}`;
@@ -39,6 +57,9 @@ export function renderMarkdown(snapshot: SessionSnapshot): string {
   for (const message of snapshot.messages) {
     if (SYSTEM.has(message.role)) continue;
     body.push(`## ${roleTitle(message.role)}`, "", redactSecrets(message.content).trim(), "");
+    if (message.attachments !== undefined && message.attachments.length > 0) {
+      body.push(...attachmentLines(message));
+    }
     if (message.toolCalls !== undefined && message.toolCalls.length > 0) {
       body.push("Chamadas de tool:", "");
       for (const call of message.toolCalls) body.push(toolSummary(call));

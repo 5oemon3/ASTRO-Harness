@@ -12,6 +12,7 @@ function facts(over: Partial<DoctorFacts> = {}): DoctorFacts {
     artifacts: [{ path: "dist/cli.js", exists: true }, { path: "dist/launcher.js", exists: true }],
     config: { path: "astro.config.json", present: false },
     astroHome: { path: "~/.astro", exists: true, writable: true },
+    attachments: { root: "~/.astro/attachments", exists: true, ttlDays: 7, maxBytes: 1024 ** 3, usageBytes: 0, artifacts: 0 },
     env: {},
     ...over,
   };
@@ -104,6 +105,28 @@ test("credencial ausente no ambiente é warn", () => {
   expect(check?.level).toBe("warn");
   expect(check?.detail).toContain("NVIDIA_API_KEY");
   expect(exitCode(report)).toBe(0);
+});
+
+test("anexos inválidos falham, ausentes avisam e válidos reportam uso", () => {
+  const base = facts().attachments;
+  const invalid = runChecks(facts({ attachments: { ...base, invalidReason: "raiz dentro do cwd" } }));
+  expect(invalid.checks.find((item) => item.label === "anexos")?.level).toBe("fail");
+  expect(exitCode(invalid)).toBe(1);
+
+  const missing = runChecks(facts({ attachments: { ...base, exists: false } }));
+  const missingCheck = missing.checks.find((item) => item.label === "anexos");
+  expect(missingCheck?.level).toBe("warn");
+  expect(missingCheck?.detail).toContain("ausente");
+
+  const valid = runChecks(facts({ attachments: {
+    ...base, realpath: "/real/attachments", usageBytes: 3, artifacts: 1, lastGc: "2026-11-16T12:00:00.000Z",
+  } }));
+  const validCheck = valid.checks.find((item) => item.label === "anexos");
+  expect(validCheck?.level).toBe("ok");
+  expect(validCheck?.detail).toContain("1 artefato");
+  expect(validCheck?.detail).toContain("3 B");
+  expect(validCheck?.detail).toContain("TTL 7d");
+  expect(validCheck?.detail).toContain("2026-11-16T12:00:00.000Z");
 });
 
 test("ASTRO_HOME existente e não gravável falha", () => {

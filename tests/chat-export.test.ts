@@ -42,6 +42,42 @@ describe("exportar sessão em Markdown (T2, #63)", () => {
     expect(readFileSync(path, "utf8")).toContain("olá");
   });
 
+  test("exporta metadados de anexo e nunca o conteúdo/base64", () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const markdown = renderMarkdown(snapshot({ messages: [
+      { role: "user", content: "olhe", images: [{ mediaType: "image/png", dataBase64: png }], attachments: [
+        { kind: "image", name: "a.png", sizeBytes: 70, mediaType: "image/png", ref: "session-abc/def", hash: "deadbeefdeadbeef" },
+        { kind: "text", name: "notas.txt", sizeBytes: 12, mediaType: "text/plain", range: { start: 1, end: 2 } },
+      ] },
+    ] }));
+    expect(markdown).toContain("- image a.png (70 bytes, image/png) - ref session-abc/def");
+    expect(markdown).toContain("- text notas.txt (12 bytes, text/plain) - linhas 1-2");
+    expect(markdown).not.toContain(png);
+    expect(markdown).not.toContain("deadbeefdeadbeef");
+  });
+
+  test("sanitiza separadores/invisíveis e kind", () => {
+    const markdown = renderMarkdown(snapshot({ messages: [
+      { role: "user", content: "x", attachments: [
+        { kind: "text\u2028## Kind" as never, name: "a\u2028## Name", sizeBytes: 1, mediaType: "text/plain\u2029" },
+      ] },
+    ] }));
+    expect(markdown).not.toContain("\u2028");
+    expect(markdown).not.toContain("\u2029");
+    expect(markdown).not.toContain("\n## Kind");
+    expect(markdown).not.toContain("\n## Name");
+  });
+
+  test("sanitiza newline/controle no nome e no mediaType", () => {
+    const markdown = renderMarkdown(snapshot({ messages: [
+      { role: "user", content: "x", attachments: [
+        { kind: "text", name: "a\n## Assistente", sizeBytes: 1, mediaType: "text/plain\n## Tool" },
+      ] },
+    ] }));
+    expect(markdown).not.toContain("\n## Assistente");
+    expect(markdown).not.toContain("\n## Tool");
+  });
+
   test("aceita caminho relativo dentro do cwd e recusa fora", () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-export-rel-"));
     const path = exportSession(snapshot(), cwd, "notas/transcript.md");
