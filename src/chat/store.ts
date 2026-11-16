@@ -20,6 +20,8 @@ export interface SessionRecord {
   name?: string;
   /** Origem quando a sessão foi retomada de outra. */
   resumedFrom?: { id: string; startedAt: string };
+  /** Cadeia de sessões retomadas, do mais antigo ao mais novo (ADR-0010/#392). */
+  lineage?: string[];
 }
 
 const SECRET_KEY = /(token(?!s)|secret|password|api[-_]?key|access[-_]?key)/i;
@@ -148,7 +150,19 @@ function parseRecord(raw: unknown): SessionRecord {
     costUsd,
     ...(name === undefined ? {} : { name }),
     ...parseResumedFrom(record.resumedFrom),
+    ...parseLineage(record.lineage),
   };
+}
+
+function parseLineage(value: unknown): { lineage?: string[] } {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) throw new Error("linhagem da sessão inválida");
+  if (value.length > 32) throw new Error("linhagem da sessão excede 32 ids");
+  const ids = value.map((id) => {
+    if (typeof id !== "string" || !/^[A-Za-z0-9-]+$/.test(id)) throw new Error("linhagem da sessão inválida");
+    return id;
+  });
+  return { lineage: [...new Set(ids)] };
 }
 
 function parseResumedFrom(value: unknown): { resumedFrom?: { id: string; startedAt: string } } {
@@ -317,7 +331,7 @@ export class SessionStore {
     // `name` vindo de chamador JS é descartado: só `rename` muda o nome (runtime)
     const base = { ...snapshot } as Record<string, unknown>;
     delete base.name;
-    const record = sanitizeValue({ schemaVersion: 1, ...base, ...(name === undefined ? {} : { name }) }) as SessionRecord;
+    const record = sanitizeValue(parseRecord({ schemaVersion: 1, ...base, ...(name === undefined ? {} : { name }) })) as SessionRecord;
     // nunca grava um arquivo que o #read recusaria (sessão salva mas invisível)
     if (record.model === "" || INVISIBLE.test(record.model)) throw new Error("modelo da sessão inválido");
     const json = JSON.stringify(record, null, 2);

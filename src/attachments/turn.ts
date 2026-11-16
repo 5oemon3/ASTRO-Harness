@@ -10,7 +10,7 @@ export interface AttachmentApprovalItem { name: string; path?: string; mediaType
 /** Aprovação explícita do lote de imagens; ausente nega (fail closed). */
 export type AttachmentApprover = (items: readonly AttachmentApprovalItem[]) => Promise<boolean> | boolean;
 
-export interface PrepareTurnInput { attachments: readonly LoadedAttachment[]; owner: ArtifactOwner; approver?: AttachmentApprover; store?: ArtifactStore; audit?: (tipo: string, payload: Record<string, unknown>) => void }
+export interface PrepareTurnInput { attachments: readonly LoadedAttachment[]; owner: ArtifactOwner; approver?: AttachmentApprover; store?: ArtifactStore | (() => ArtifactStore); audit?: (tipo: string, payload: Record<string, unknown>) => void }
 
 export interface PreparedTurn { images: ImagePart[]; metas: AttachmentMeta[] }
 
@@ -41,7 +41,8 @@ export async function prepareTurnAttachments(input: PrepareTurnInput): Promise<P
   if (images.length > 0) {
     if (input.approver === undefined) throw new AttachmentError("attachment_image_denied", "imagem anexada exige aprovação explícita; sem aprovador o turno é negado");
     if (!(await input.approver(images.map(approvalItem)))) throw new AttachmentError("attachment_image_denied", "envio de imagem não aprovado pelo usuário");
-    const store = input.store;
+    // O store é criado só depois da aprovação: negar não cria raiz nem grava GC.
+    const store = typeof input.store === "function" ? input.store() : input.store;
     if (store === undefined) throw new AttachmentError("attachment_root_invalid", "artifact store indisponível para persistir a imagem");
     for (const attachment of images) stored.set(attachment, store.save(input.owner, Buffer.from(attachment.data, "base64"), attachment.mediaType));
   }

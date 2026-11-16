@@ -58,4 +58,13 @@ describe("store de sessão do chat (T1, #62)", () => {
     expect(text).not.toContain("abc");
     expect(text).toContain('"tokens":7');
   });
+  test("lineage deduplica ids e recusa traversal ou mais de 32", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-chat-store-"));
+    const store = new SessionStore(dir);
+    const path = store.write(snapshot({ lineage: ["s0", "s0", "s1"] }));
+    expect((JSON.parse(readFileSync(path, "utf8")) as SessionRecord).lineage).toEqual(["s0", "s1"]);
+    expect(() => store.write(snapshot({ lineage: ["../x"] }))).toThrow(/linhagem|inválid/i);
+    expect(() => store.write(snapshot({ lineage: Array.from({ length: 33 }, (_, index) => `s${index}`) })))
+      .toThrow(/linhagem|32/i);
+  });
 });

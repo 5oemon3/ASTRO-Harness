@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession, type SendTurnOptions, type TurnResult } from "../src/chat/agent-session";
@@ -183,7 +183,7 @@ describe("imagem no turno do REPL (ADR-0026, #392)", () => {
       await runRepl(session, io, { cwd, interactive: true });
       expect(bodies).toHaveLength(0);
       expect(io.outputs.join("\n")).toContain("não aprovado");
-      expect(readdirSync(join(home, "attachments"))).toHaveLength(0);
+      expect(existsSync(join(home, "attachments"))).toBe(false);
       expect(existsSync(join(cwd, ".astro", "audit.jsonl")) ? readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8") : "").not.toContain("attachment.approved");
     } finally { stop(); }
   });
@@ -195,7 +195,7 @@ describe("imagem no turno do REPL (ADR-0026, #392)", () => {
       expect(bodies).toHaveLength(0);
       expect(io.outputs.join("\n")).toContain("não aprovado");
       expect(io.prompts.join("\n")).not.toContain("aprovar envio?");
-      expect(readdirSync(join(home, "attachments"))).toHaveLength(0);
+      expect(existsSync(join(home, "attachments"))).toBe(false);
     } finally { stop(); }
   });
 
@@ -225,7 +225,7 @@ describe("imagem no turno do REPL (ADR-0026, #392)", () => {
       expect(io.outputs).toContain("1. a.png (70 bytes)"); // pendente mantido após a recusa
       expect(bodies).toHaveLength(0);
       const root = join(home, "attachments");
-      expect(existsSync(root) ? readdirSync(root) : []).toHaveLength(0);
+      expect(existsSync(root)).toBe(false);
       expect(readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8")).not.toContain("attachment.approved");
     } finally {
       stop();

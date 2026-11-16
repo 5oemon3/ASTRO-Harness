@@ -1,6 +1,6 @@
 /** Artifact store de anexos de imagem (ADR-0026, #392): raiz validada, hash e GC. */
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { canonicalize, isWithin } from "../tools/paths";
@@ -43,7 +43,7 @@ export interface StoredArtifact {
   bytes: number;
 }
 
-interface ArtifactMeta {
+export interface ArtifactMeta {
   schema: "artifact/v1";
   ref: string;
   hash: string;
@@ -55,10 +55,29 @@ interface ArtifactMeta {
   createdAt: string;
 }
 
+/** Marcador do último GC (escrito em `gc.json`; lido pelo doctor). */
+export interface GcMarker {
+  at: string;
+  removed: number;
+}
+
 const REF_PATTERN = /^(?:session|run)-[a-f0-9]{64}\/[a-f0-9]{64}$/;
 const KEY_PATTERN = /^(?:session|run)-[a-f0-9]{64}$/;
+const GC_FILE = "gc.json";
 const DEFAULT_TTL_DAYS = 7;
 const DEFAULT_MAX_BYTES = 1024 ** 3;
+
+/** Marcador de GC puro e read-only; ausente/inválido é `undefined`, nunca cria a raiz. */
+export function readGcMarker(root: string): GcMarker | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(join(root, GC_FILE), "utf8")) as Partial<GcMarker>;
+    if (typeof raw.at !== "string" || Number.isNaN(Date.parse(raw.at))) return undefined;
+    if (typeof raw.removed !== "number" || !Number.isInteger(raw.removed) || raw.removed < 0) return undefined;
+    return { at: raw.at, removed: raw.removed };
+  } catch {
+    return undefined;
+  }
+}
 
 function fold(path: string): string {
   return process.platform === "win32" || process.platform === "darwin" ? path.toLowerCase() : path;
@@ -201,20 +220,24 @@ export class ArtifactStore {
     return total;
   }
 
-  /** Grava os bytes e o metadado; recusa acima do teto do store. */
+  /** Grava os bytes e o metadado; recusa acima do teto do store. Idempotente por hash. */
   save(owner: ArtifactOwner, bytes: Uint8Array, mediaType: string): StoredArtifact {
-    if (bytes.length > MAX_ATTACHMENT_BYTES) {
-      throw new AttachmentError("attachment_too_large", `artefato excede ${MAX_ATTACHMENT_BYTES} bytes`);
-    }
-    if (this.usageBytes() + bytes.length > this.#maxBytes) {
-      throw new AttachmentError("attachment_too_large", `artifact store atingiu o teto de ${this.#maxBytes} bytes`);
-    }
     const key = ownerKey(owner);
     const hash = sha256(bytes);
     const dir = join(this.root, key);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileSync(join(dir, hash), bytes, { mode: 0o600 });
+    const path = join(dir, hash);
+    const metaPath = join(dir, `${hash}.json`);
     const ref = `${key}/${hash}`;
+    const bytesExist = existsSync(path);
+    if (bytesExist && existsSync(metaPath)) return { ref, hash, bytes: bytes.length };
+    if (bytes.length > MAX_ATTACHMENT_BYTES) {
+      throw new AttachmentError("attachment_too_large", `artefato excede ${MAX_ATTACHMENT_BYTES} bytes`);
+    }
+    if (!bytesExist && this.usageBytes() + bytes.length > this.#maxBytes) {
+      throw new AttachmentError("attachment_too_large", `artifact store atingiu o teto de ${this.#maxBytes} bytes`);
+    }
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (!bytesExist) this.#writeAtomic(path, bytes);
     const meta: ArtifactMeta = {
       schema: "artifact/v1",
       ref,
@@ -226,8 +249,44 @@ export class ArtifactStore {
       ...(owner.lineage === undefined ? {} : { lineage: owner.lineage }),
       createdAt: new Date(this.#now()).toISOString(),
     };
-    writeFileSync(join(dir, `${hash}.json`), JSON.stringify(meta), { mode: 0o600 });
+    this.#writeAtomic(metaPath, JSON.stringify(meta));
     return { ref, hash, bytes: bytes.length };
+  }
+
+  /** Lê e valida o metadado do artefato; ref/sidecar ausente ou adulterado falha tipado. */
+  meta(ref: string): ArtifactMeta {
+    if (!REF_PATTERN.test(ref)) {
+      throw new AttachmentError("attachment_image_invalid", `ref de artefato inválido: ${ref}`);
+    }
+    const [key, hash] = ref.split("/") as [string, string];
+    const path = join(this.root, key, `${hash}.json`);
+    const rel = relative(this.root, path);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+      throw new AttachmentError("attachment_image_invalid", `ref fora da raiz de artefato: ${ref}`);
+    }
+    let meta: ArtifactMeta;
+    try {
+      meta = JSON.parse(readFileSync(path, "utf8")) as ArtifactMeta;
+    } catch {
+      throw new AttachmentError("attachment_image_invalid", `metadado ausente ou ilegível: ${ref}`);
+    }
+    if (
+      meta === null || typeof meta !== "object" || meta.schema !== "artifact/v1" ||
+      meta.ref !== ref || meta.hash !== hash || typeof meta.mediaType !== "string" ||
+      typeof meta.bytes !== "number" || !Number.isFinite(meta.bytes) || meta.bytes < 0 ||
+      typeof meta.runId !== "string" || typeof meta.createdAt !== "string" ||
+      (meta.sessionId !== undefined && typeof meta.sessionId !== "string") ||
+      (meta.lineage !== undefined && (!Array.isArray(meta.lineage) ||
+        meta.lineage.some((id) => typeof id !== "string" || !/^[A-Za-z0-9-]+$/.test(id))))
+    ) {
+      throw new AttachmentError("attachment_image_invalid", `metadado adulterado: ${ref}`);
+    }
+    return meta;
+  }
+
+  /** Marcador do último GC; ausente/inválido é `undefined`. */
+  lastGc(): GcMarker | undefined {
+    return readGcMarker(this.root);
   }
 
   /** Lê e valida o hash; ref ausente/adulterado falha tipado. */
@@ -278,7 +337,23 @@ export class ArtifactStore {
         removed.push(ref);
       }
     }
+    this.#writeAtomic(
+      join(this.root, GC_FILE),
+      JSON.stringify({ at: new Date(this.#now()).toISOString(), removed: removed.length }),
+    );
     return removed;
+  }
+
+  /** Escrita atômica do harness: tmp exclusivo + rename; limpa o tmp em erro. */
+  #writeAtomic(path: string, data: string | Uint8Array): void {
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(tmp, data, { mode: 0o600, flag: "wx" });
+      renameSync(tmp, path);
+    } catch (error) {
+      try { unlinkSync(tmp); } catch { /* melhor esforço */ }
+      throw error;
+    }
   }
 
   #keys(): string[] {

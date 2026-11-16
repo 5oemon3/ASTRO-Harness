@@ -124,6 +124,8 @@ export interface SessionSnapshot {
   costUsd: number | null;
   /** Sessão de origem quando o histórico foi retomado de um arquivo. */
   resumedFrom?: { id: string; startedAt: string };
+  /** Cadeia de sessões retomadas, do mais antigo ao mais novo (ADR-0010/#392). */
+  lineage?: string[];
 }
 
 function resolvePath(cwd: string, path: string): string {
@@ -134,6 +136,14 @@ function resolvePath(cwd: string, path: string): string {
 function withoutImages(message: ChatMessage): ChatMessage {
   const { images: _images, ...rest } = message;
   return rest;
+}
+
+/** Refs de imagem presentes nas mensagens (para o GC preservar o turno atual). */
+function imageRefs(messages: readonly ChatMessage[]): string[] {
+  return messages.flatMap((message) =>
+    (message.attachments ?? [])
+      .filter((attachment) => attachment.kind === "image" && attachment.ref !== undefined)
+      .map((attachment) => attachment.ref!));
 }
 
 /** Sobe até achar `.git`; usado para não gravar credenciais dentro do repositório. */
@@ -189,6 +199,7 @@ export class AgentSession {
   #fatal = false;
   #busy = false;
   #resumedFrom: { id: string; startedAt: string } | undefined;
+  #lineage: string[] = [];
 
   constructor(opts: AgentSessionOptions) {
     this.#configPath = opts.configPath;
@@ -285,11 +296,16 @@ export class AgentSession {
   }
 
   /** Store de imagem criado só na primeira imagem; raiz resolvida uma vez no construtor. */
-  #imageStore(): ArtifactStore {
-    return this.#imageStoreInstance ??= new ArtifactStore(this.#artifactRoot, { cwd: this.#cwd, astroHome: resolveAstroHome(this.#env),
+  #imageStore(keepRefs?: readonly string[]): ArtifactStore {
+    if (this.#imageStoreInstance !== undefined) return this.#imageStoreInstance;
+    const store = new ArtifactStore(this.#artifactRoot, { cwd: this.#cwd, astroHome: resolveAstroHome(this.#env),
       ttlDays: this.#config.attachments.artifactTtlDays, maxBytes: this.#config.attachments.artifactMaxBytes,
       ...(this.#artifactCheckPrivate === undefined ? {} : { checkPrivate: this.#artifactCheckPrivate }),
       ...(this.#artifactHardenPrivate === undefined ? {} : { hardenPrivate: this.#artifactHardenPrivate }) });
+    this.#imageStoreInstance = store;
+    // GC uma vez ao abrir o store; nunca remove os refs do turno/sessão atual (ADR-0026).
+    store.gc(keepRefs ?? imageRefs(this.#messages));
+    return store;
   }
 
   get messages(): readonly ChatMessage[] {
@@ -501,6 +517,7 @@ export class AgentSession {
     if (this.#busy) throw new Error("turno em andamento");
     this.#messages = [{ role: "system", content: this.#systemPrompt }];
     this.#resumedFrom = undefined;
+    this.#lineage = [];
   }
 
   /** Compacta o histórico: pede ao provider um sumário sem tools, substitui mensagens (mantém system). */
@@ -565,10 +582,21 @@ export class AgentSession {
 
     const summary = response.content.trim();
 
+    // O sumário mantém só o metadado dos anexos (inclusive o sumário anterior);
+    // os bytes continuam fora do store e o export conserva os refs.
+    const preservedAttachments = new Map<string, AttachmentMeta>();
+    for (const message of this.#messages) {
+      for (const attachment of message.attachments ?? []) {
+        const key = attachment.ref ?? `${attachment.kind}:${attachment.name}:${attachment.sizeBytes}:${attachment.mediaType}`;
+        preservedAttachments.set(key, attachment);
+      }
+    }
+
     // Substitui histórico pelo system + sumário
     this.#messages = [
       { role: "system", content: this.#systemPrompt },
-      { role: "assistant", content: summary },
+      { role: "assistant", content: summary,
+        ...(preservedAttachments.size === 0 ? {} : { attachments: [...preservedAttachments.values()] }) },
     ];
 
     // Atualiza contadores da sessão
@@ -590,13 +618,41 @@ export class AgentSession {
     return summary;
   }
 
+  /** Reidrata imagens do artifact store validando hash e linhagem; falha não altera a sessão. */
+  #rehydrate(messages: readonly ChatMessage[], lineage: readonly string[]): ChatMessage[] {
+    const refs = imageRefs(messages);
+    if (refs.length === 0) return messages.map(withoutImages);
+    const store = this.#imageStore(refs);
+    return messages.map((message) => {
+      const clean = withoutImages(message);
+      // Só mensagem de usuário carrega imagem no wire; o metadado do sumário
+      // (assistant) fica no store/export, mas não vira image_url de assistant.
+      if (message.role !== "user") return clean;
+      const images: ImagePart[] = [];
+      for (const attachment of message.attachments ?? []) {
+        if (attachment.kind !== "image" || attachment.ref === undefined) continue;
+        const meta = store.meta(attachment.ref);
+        const allowed = meta.sessionId !== undefined && lineage.includes(meta.sessionId);
+        if (!allowed) {
+          throw new AttachmentError("attachment_image_invalid", `imagem de outra sessão: ${attachment.ref}`);
+        }
+        const bytes = store.read(attachment.ref);
+        images.push({ mediaType: meta.mediaType, dataBase64: Buffer.from(bytes).toString("base64") });
+      }
+      return images.length === 0 ? clean : { ...clean, images };
+    });
+  }
+
   /** Retoma uma sessão gravada: troca o system, mantém mensagens e acumulados. */
   resume(snapshot: SessionSnapshot): void {
     if (this.#busy) throw new Error("turno em andamento");
     if (this.#closed || this.#fatal) throw new Error("sessão de chat encerrada");
+    const lineage = [...new Set([...(snapshot.lineage ?? []), snapshot.id])].slice(-32);
+    const messages = this.#rehydrate(snapshot.messages.filter((message) => message.role !== "system"), lineage);
+    this.#lineage = lineage;
     this.#messages = [
       { role: "system", content: this.#systemPrompt },
-      ...snapshot.messages.filter((message) => message.role !== "system").map(withoutImages),
+      ...messages,
     ];
     if (this.#registry.get(snapshot.model)?.status === "active") this.#modelRef = snapshot.model;
     this.#turns = snapshot.turns;
@@ -626,9 +682,10 @@ export class AgentSession {
       let metas = attachments;
       let images: ImagePart[] | undefined;
       if (turn?.attachments !== undefined) {
-        const prepared = await prepareTurnAttachments({ attachments: turn.attachments, owner: { sessionId: this.id, runId: this.id },
+        const prepared = await prepareTurnAttachments({ attachments: turn.attachments, owner: { sessionId: this.id, runId: this.id,
+          ...(this.#lineage.length === 0 ? {} : { lineage: this.#lineage }) },
           ...(turn.approveAttachment === undefined ? {} : { approver: turn.approveAttachment }),
-          ...(turn.attachments.some((a) => a.kind === "image") ? { store: this.#imageStore() } : {}),
+          ...(turn.attachments.some((a) => a.kind === "image") ? { store: () => this.#imageStore() } : {}),
           audit: (tipo, payload) => this.#append(tipo, payload) });
         metas = prepared.metas.length === 0 ? undefined : prepared.metas;
         images = prepared.images.length === 0 ? undefined : prepared.images;
@@ -725,12 +782,13 @@ export class AgentSession {
       id: this.id,
       startedAt: this.startedAt,
       model: this.modelName(),
-      messages: this.messages.slice(),
+      messages: this.#messages.map(withoutImages),
       turns: this.#turns,
       tokensIn: this.#tokensIn,
       tokensOut: this.#tokensOut,
       costUsd: this.#costKnown ? this.#costUsd : null,
       ...(this.#resumedFrom === undefined ? {} : { resumedFrom: this.#resumedFrom }),
+      ...(this.#lineage.length === 0 ? {} : { lineage: this.#lineage }),
     };
   }
 
