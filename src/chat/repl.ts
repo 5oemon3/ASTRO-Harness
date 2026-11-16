@@ -14,9 +14,8 @@ import type { ProfileManager, ProfileView } from "../provider/profile-manager";
 import type { ModelInfo, ProviderInfo, SendTurnOptions, SessionSnapshot, TurnResult } from "./agent-session";
 import type { HealthCheck, HealthReport } from "../health";
 import type { CodexLoginStart } from "../provider/codex-login";
-import type { SessionStore } from "./store";
 import type { SessionApi, SessionSummary } from "./session-api";
-import { sessionSummaryLine } from "./store";
+import { sessionSummaryLine, toSessionRecord } from "./store";
 import { exportSession } from "./export";
 import { initAgents } from "./init";
 import { isFatalSessionError } from "./session-errors";
@@ -71,7 +70,6 @@ export interface ChatSession {
 }
 
 export interface ReplOptions {
-  store?: SessionStore;
   sessionApi?: SessionApi;
   signal?: AbortSignal;
   /** Cores ANSI apenas quando o I/O é um terminal. */
@@ -168,9 +166,10 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
   let lastPersistError: string | undefined;
   let storeList: SessionSummary[] = [];
   const persist = (report = false): string | undefined => {
-    if (opts.store === undefined) return undefined;
+    if (opts.sessionApi === undefined) return undefined;
     try {
-      lastFile = opts.store.write(session.snapshot());
+      opts.sessionApi.save(toSessionRecord(session.snapshot()));
+      lastFile = opts.sessionApi.databasePath;
       lastPersistError = undefined;
       return lastFile;
     } catch (error) {
@@ -304,12 +303,12 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
       }
       if (command.kind === "session" || command.kind === "details") {
         const lines = detailsLines(session.snapshot(), lastFile);
-        if (opts.store === undefined) lines[lines.length - 1] = "arquivo: sem persistência";
+        if (opts.sessionApi === undefined) lines[lines.length - 1] = "arquivo: sem persistência";
         io.write(lines.join("\n"));
         continue;
       }
       if (command.kind === "save") {
-        if (opts.store === undefined) {
+        if (opts.sessionApi === undefined) {
           io.write("sem persistência configurada");
           continue;
         }

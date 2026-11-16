@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { HELP_TEXT, parseCommand } from "../src/chat/commands";
 import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
-import { SessionStore } from "../src/chat/store";
+import { SessionApi } from "../src/chat/session-api";
+import type { SessionRecord } from "../src/chat/store";
 import { nodeReplOptions } from "../src/chat/node-io";
 
 class ScriptedIO implements ReplIO {
@@ -60,11 +61,11 @@ class FakeSession implements ChatSession {
   close(): void {}
 }
 
-class CountingStore extends SessionStore {
+class CountingApi extends SessionApi {
   writes = 0;
-  override write(snapshot: Parameters<SessionStore["write"]>[0]): string {
+  override save(value: Parameters<SessionApi["save"]>[0]): SessionRecord {
     this.writes++;
-    return super.write(snapshot);
+    return super.save(value);
   }
 }
 
@@ -78,30 +79,33 @@ describe("comandos de sessão e estilo do chat (T1.5, #173)", () => {
 
   test("/session mostra id, início, modelo, turnos, tokens, custo e arquivo", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-session-"));
+    const sessionApi = new SessionApi(join(dir, ".astro"));
     const io = new ScriptedIO(["olá", "/session", "/exit"]);
-    await runRepl(new FakeSession(), io, { store: new SessionStore(dir) });
+    await runRepl(new FakeSession(), io, { sessionApi });
     const line = io.outputs.find((item) => item.startsWith("sessão s1"))!;
     expect(line).toContain("início 2026-10-28T12:00:00.000Z");
     expect(line).toContain("modelo p/m1");
     expect(line).toContain("turnos 1");
     expect(line).toContain("tokens 10/5");
     expect(line).toContain("custo US$ 0.001000");
-    expect(io.outputs.some((item) => item.includes("arquivo:") && item.includes(dir))).toBe(true);
+    expect(io.outputs.some((item) => item.includes("arquivo:") && item.includes(sessionApi.databasePath))).toBe(true);
+    sessionApi.close();
   });
 
   test("/save força a gravação e imprime o caminho existente", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-save-"));
-    const store = new CountingStore(dir);
+    const sessionApi = new CountingApi(join(dir, ".astro"));
     const io = new ScriptedIO(["/save", "/exit"]);
-    await runRepl(new FakeSession(), io, { store });
+    await runRepl(new FakeSession(), io, { sessionApi });
     const saved = io.outputs.find((item) => item.startsWith("sessão salva em "))!;
     const path = saved.slice("sessão salva em ".length);
     expect(existsSync(path)).toBe(true);
     expect(statSync(path).isFile()).toBe(true);
-    expect(store.writes).toBe(2); // /save + fechamento
+    expect(sessionApi.writes).toBe(2); // /save + fechamento
+    sessionApi.close();
   });
 
-  test("sem store, /save e /session avisam e não quebram", async () => {
+  test("sem persistência, /save e /session avisam e não quebram", async () => {
     const io = new ScriptedIO(["/save", "/session", "/exit"]);
     await runRepl(new FakeSession(), io);
     expect(io.outputs).toContain("sem persistência configurada");
@@ -126,40 +130,52 @@ describe("comandos de sessão e estilo do chat (T1.5, #173)", () => {
 
   test("falha de gravação vira erro e o REPL continua", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-savefail-"));
-    const blocked = join(dir, "sessions");
-    writeFileSync(blocked, "não é diretório");
+    class FailingApi extends SessionApi {
+      override save(): SessionRecord {
+        throw new Error("disco cheio");
+      }
+    }
+    const sessionApi = new FailingApi(join(dir, ".astro"));
     const io = new ScriptedIO(["/save", "olá", "/exit"]);
     const session = new FakeSession();
-    await runRepl(session, io, { store: new SessionStore(blocked) });
+    await runRepl(session, io, { sessionApi });
     const errors = io.outputs.filter((item) => item.startsWith("erro:"));
     expect(errors).toHaveLength(1); // mesma falha não vira spam
     expect(io.outputs.some((item) => item.startsWith("sessão salva em"))).toBe(false);
     expect(session.sent).toEqual(["olá"]); // não encerrou
+    sessionApi.close();
   });
 
   test("falha depois de um save não deixa o caminho antigo como atual", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-saveflaky-"));
-    class Flaky extends SessionStore {
+    class Flaky extends SessionApi {
       calls = 0;
-      override write(snapshot: Parameters<SessionStore["write"]>[0]): string {
+      override save(value: Parameters<SessionApi["save"]>[0]): SessionRecord {
         this.calls++;
         if (this.calls > 1) throw new Error("disco cheio");
-        return super.write(snapshot);
+        return super.save(value);
       }
     }
+    const sessionApi = new Flaky(join(dir, ".astro"));
     const io = new ScriptedIO(["/save", "olá", "/session", "/exit"]);
-    await runRepl(new FakeSession(), io, { store: new Flaky(dir) });
+    await runRepl(new FakeSession(), io, { sessionApi });
     expect(io.outputs.some((item) => item.includes("sessão salva em"))).toBe(true);
     const sessionLine = io.outputs.find((item) => item.startsWith("sessão s1"))!;
     expect(sessionLine).toContain("arquivo: ainda não salvo");
+    sessionApi.close();
   });
 
   test("/save explícito responde mesmo repetindo a falha do turno", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-saveecho-"));
-    const blocked = join(dir, "sessions");
-    writeFileSync(blocked, "não é diretório");
+    class FailingApi extends SessionApi {
+      override save(): SessionRecord {
+        throw new Error("disco cheio");
+      }
+    }
+    const sessionApi = new FailingApi(join(dir, ".astro"));
     const io = new ScriptedIO(["olá", "/save", "/exit"]);
-    await runRepl(new FakeSession(), io, { store: new SessionStore(blocked) });
+    await runRepl(new FakeSession(), io, { sessionApi });
     expect(io.outputs.filter((item) => item.startsWith("erro:"))).toHaveLength(2);
+    sessionApi.close();
   });
 });

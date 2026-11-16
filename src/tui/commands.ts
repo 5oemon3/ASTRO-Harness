@@ -2,7 +2,7 @@
 import { HELP_TEXT, modeListText, resolveModeCommand, unknownCommandMessage, type ReplCommand } from "../chat/commands";
 import { detailsLines, providerLine, type ChatSession } from "../chat/repl";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES } from "../permissions";
-import type { SessionStore } from "../chat/store";
+import { toSessionRecord } from "../chat/store";
 import type { SessionApi, SessionSummary as ApiSessionSummary } from "../chat/session-api";
 import { redactSecrets } from "../sanitize-external";
 import { exportSession } from "../chat/export";
@@ -40,7 +40,6 @@ export interface CommandOutcome {
 type SlashCommand = Exclude<ReplCommand, { kind: "prompt" } | { kind: "empty" }>;
 
 export interface RunCommandOptions {
-  store?: SessionStore;
   sessionApi?: SessionApi;
   cwd?: string;
   resumeId?: string;
@@ -57,7 +56,7 @@ export async function runCommand(
   state: CommandState,
   options: RunCommandOptions = {},
 ): Promise<CommandOutcome> {
-  const { store, sessionApi, resumeId, cwd = process.cwd() } = options;
+  const { sessionApi, resumeId, cwd = process.cwd() } = options;
   switch (command.kind) {
     case "help":
       return { entries: [{ kind: "info", text: HELP_TEXT }] };
@@ -213,16 +212,19 @@ export async function runCommand(
     case "session":
     case "details": {
       const lines = detailsLines(session.snapshot(), state.lastFile);
-      if (store === undefined) lines[lines.length - 1] = "arquivo: sem persistência";
+      if (sessionApi === undefined) lines[lines.length - 1] = "arquivo: sem persistência";
       return { entries: [{ kind: "info", text: lines.join("\n") }] };
     }
     case "save": {
-      if (store === undefined) {
+      if (sessionApi === undefined) {
         return { entries: [{ kind: "info", text: "sem persistência configurada" }] };
       }
       try {
-        const path = store.write(session.snapshot());
-        return { entries: [{ kind: "info", text: `sessão salva em ${path}` }], lastFile: path };
+        sessionApi.save(toSessionRecord(session.snapshot()));
+        return {
+          entries: [{ kind: "info", text: `sessão salva em ${sessionApi.databasePath}` }],
+          lastFile: sessionApi.databasePath,
+        };
       } catch (error) {
         return { entries: [{ kind: "error", text: `erro: ${messageOf(error)}` }], lastFile: null };
       }

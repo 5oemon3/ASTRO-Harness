@@ -88,9 +88,10 @@ class FakeSession implements ChatSession {
 describe("REPL do chat (T1, #62)", () => {
   test("roteia prompt, comandos, status e persistência", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-repl-"));
+    const sessionApi = new SessionApi(join(dir, ".astro"));
     const session = new FakeSession();
     const io = new ScriptedIO(["olá", "/clear", "/model", "/model p/m2", "/providers", "/provider p", "/help", "/nope", "/mod", "/exit"]);
-    await runRepl(session, io, { store: new SessionStore(dir) });
+    await runRepl(session, io, { sessionApi });
     expect(session.sent).toEqual(["olá"]);
     expect(session.cleared).toBe(1);
     expect(session.model).toBe("p/m1");
@@ -108,7 +109,8 @@ describe("REPL do chat (T1, #62)", () => {
 
 
 
-    expect(readdirSync(dir).some((name) => name.endsWith(".json"))).toBe(true);
+    expect(sessionApi.list()).toHaveLength(1);
+    sessionApi.close();
   });
   test("erro de turno não encerra; erro fatal encerra", async () => {
     const ok = new FakeSession();
@@ -127,12 +129,74 @@ describe("REPL do chat (T1, #62)", () => {
   });
   test("persiste o estado final após /clear sem novo turno", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-repl-final-"));
+    const sessionApi = new SessionApi(join(dir, ".astro"));
     const session = new FakeSession();
-    await runRepl(session, new ScriptedIO(["olá", "/clear"]), { store: new SessionStore(dir) });
-    const file = readdirSync(dir).find((name) => name.endsWith(".json"))!;
-    const record = JSON.parse(readFileSync(join(dir, file), "utf8")) as { messages: unknown[] };
+    await runRepl(session, new ScriptedIO(["olá", "/clear"]), { sessionApi });
+    const record = sessionApi.load("s1");
     expect(record.messages).toEqual([{ role: "system", content: "sys" }]);
+    sessionApi.close();
   });
+  test("auto-save grava na SessionApi e não cria arquivo JSON (#366)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-repl-cutover-"));
+    const astroDir = join(root, ".astro");
+    const sessionApi = new SessionApi(astroDir);
+    try {
+      await runRepl(new FakeSession(), new ScriptedIO(["olá", "/exit"]), { sessionApi });
+      const listed = sessionApi.list();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]!.id).toBe("s1");
+      expect(listed[0]!.turns).toBe(1);
+      const legacyDir = join(astroDir, "sessions");
+      const legacyFiles = existsSync(legacyDir) ? readdirSync(legacyDir).filter((name) => name.endsWith(".json")) : [];
+      expect(legacyFiles).toEqual([]);
+    } finally {
+      sessionApi.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a sessão salva sobrevive ao fechamento e reaparece no reopen (#366)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-repl-reopen-"));
+    const astroDir = join(root, ".astro");
+    const sessionApi = new SessionApi(astroDir);
+    await runRepl(new FakeSession(), new ScriptedIO(["olá", "/exit"]), { sessionApi });
+    sessionApi.close();
+
+    const reopened = new SessionApi(astroDir);
+    try {
+      const listed = reopened.list();
+      expect(listed).toHaveLength(1);
+      const record = reopened.load(listed[0]!.id);
+      expect(record.messages).toEqual([{ role: "user", content: "x" }]);
+      expect(record.turns).toBe(1);
+    } finally {
+      reopened.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a sessão salva é retomada depois do reopen (#366)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-repl-resume-"));
+    const astroDir = join(root, ".astro");
+    const first = new SessionApi(astroDir);
+    await runRepl(new FakeSession(), new ScriptedIO(["olá", "/exit"]), { sessionApi: first });
+    first.close();
+
+    const reopened = new SessionApi(astroDir);
+    const session = new FakeSession();
+    try {
+      const io = new ScriptedIO(["/resume 1", "/exit"]);
+      await runRepl(session, io, { sessionApi: reopened });
+      expect(io.outputs).toContain("sessão retomada: s1 (1 turnos)");
+      expect(session.resumed).toHaveLength(1);
+      expect(session.resumed[0]!.id).toBe("s1");
+      expect(session.resumed[0]!.messages).toEqual([{ role: "user", content: "x" }]);
+    } finally {
+      reopened.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("EOF encerra e fecha a sessão", async () => {
     const session = new FakeSession();
     await runRepl(session, new ScriptedIO([]));
@@ -188,7 +252,7 @@ describe("REPL do chat (T1, #62)", () => {
     const session = new FakeSession();
     const io = new ScriptedIO(["/sessions", "/resume 1", "/session", "/exit"]);
     try {
-      await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
+      await runRepl(session, io, { sessionApi });
       expect(io.outputs.some((line) => line.includes("abc"))).toBe(true);
       expect(session.resumed).toHaveLength(1);
       expect(session.resumed[0]!.messages[0]!.content).toBe("velho");
@@ -209,7 +273,7 @@ describe("REPL do chat (T1, #62)", () => {
     const session = new FakeSession();
     const io = new ScriptedIO(["/resume 1", "/resume 9", "/exit"]);
     try {
-      await runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi });
+      await runRepl(session, io, { sessionApi });
       expect(io.outputs).toContain("sessão retomada: xyz (2 turnos)");
       expect(io.outputs).toContain("índice fora da lista; use /sessions");
       expect(session.resumed).toHaveLength(1);
@@ -249,7 +313,7 @@ describe("REPL do chat (T1, #62)", () => {
 
     try {
       expect(sessionApi).toBeUndefined();
-      await expect(runRepl(session, io, { store: new SessionStore(join(astroDir, "sessions")), sessionApi }))
+      await expect(runRepl(session, io, { sessionApi }))
         .resolves.toBeUndefined();
       expect(session.closed).toBe(1);
       expect(warning).toHaveBeenCalledWith(expect.stringContaining("/sessions e /resume desativados"));
@@ -285,10 +349,7 @@ describe("REPL do chat (T1, #62)", () => {
     const session = new FakeSession();
     const io = new ScriptedIO(["/sessions", "/resume session-new", "/exit"]);
     try {
-      await runRepl(session, io, {
-        store: new SessionStore(join(root, "unrelated-json-store")),
-        sessionApi: api,
-      });
+      await runRepl(session, io, { sessionApi: api });
       const firstListedSession = io.outputs.find((line) => line.startsWith("1."));
       expect(firstListedSession).toBeDefined();
       expect(firstListedSession).toContain("session-new");

@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionApi } from "../src/chat/session-api";
@@ -287,7 +287,7 @@ describe("session API JSON migration", () => {
       const apiInstance = new SessionApi(astroDir);
       api = apiInstance;
       expect(apiInstance.delete("deleted-session")).toBe(true);
-      expect(legacy.list().map(({ id }) => id)).toEqual([]);
+      expect(legacy.list().map(({ id }) => id)).toEqual(["deleted-session"]); // o store JSON não é modificado (#366)
       legacy.write(makeRecord({ id: "new-json-session", turns: 2 }));
 
       expect(apiInstance.list().map(({ id }) => id)).toEqual(["new-json-session"]);
@@ -302,6 +302,24 @@ describe("session API JSON migration", () => {
     } finally {
       api?.close();
       reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps the session name across an auto-save", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-save-name-"));
+    const api = new SessionApi(join(root, ".astro"));
+    try {
+      const record = makeRecord({ id: "named-session", turns: 1 });
+      api.create(record);
+      api.rename("named-session", "renamed session");
+
+      api.save({ ...record, turns: 2 });
+
+      expect(api.list()[0]?.name).toBe("renamed session");
+      expect(api.load("named-session").name).toBe("renamed session");
+    } finally {
+      api.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

@@ -3,7 +3,7 @@ import { Box, Static, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { parseCommand, type ReplCommand } from "../chat/commands";
 import { statusLine, type ChatSession } from "../chat/repl";
-import type { SessionStore } from "../chat/store";
+import { toSessionRecord } from "../chat/store";
 import type { SessionApi, SessionSummary } from "../chat/session-api";
 import type { SessionSnapshot } from "../chat/agent-session";
 import { isFatalSessionError } from "../chat/session-errors";
@@ -42,7 +42,6 @@ export interface TuiAppProps {
   session: ChatSession;
   cwd: string;
   branch?: string;
-  store?: SessionStore;
   sessionApi?: SessionApi;
   approvals?: ApprovalBridge;
   shell?: ShellRunner;
@@ -118,7 +117,7 @@ export function activateProvider(
   persistLastModel(cwd, session.snapshot().model, onWarning);
 }
 
-export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS, streamThrottleMs = STREAM_THROTTLE_MS, historyLimit = HISTORY_LIMIT, saveSecret, discardSecret }: TuiAppProps): ReactElement {
+export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS, streamThrottleMs = STREAM_THROTTLE_MS, historyLimit = HISTORY_LIMIT, saveSecret, discardSecret }: TuiAppProps): ReactElement {
   const [entries, setEntries] = useState<Entry[]>([{ kind: "info", text: WELCOME }]);
   const [question, setQuestion] = useState<ApprovalQuestion | undefined>(() => approvals?.current());
   const [files, setFiles] = useState<string[]>([]);
@@ -224,9 +223,10 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
   }, [cwd]);
 
   const persist = (report: boolean): { path?: string; failed: boolean } => {
-    if (store === undefined) return { failed: false };
+    if (sessionApi === undefined) return { failed: false };
     try {
-      return { path: store.write(session.snapshot()), failed: false };
+      sessionApi.save(toSessionRecord(session.snapshot()));
+      return { path: sessionApi.databasePath, failed: false };
     } catch (error) {
       if (report) setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
       return { failed: true };
@@ -397,7 +397,7 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
       // `/theme` precisa do tema vivo e do aplicador que persiste em .astro/tui.json (#64)
       commandState.current.theme = theme;
       commandState.current.setTheme = persistTheme;
-      const outcome = await runCommand(command, session, commandState.current, { store, cwd, sessionApi });
+      const outcome = await runCommand(command, session, commandState.current, { cwd, sessionApi });
       if (outcome.openProviders !== undefined) {
         if (manager === undefined) {
           setEntries((current) => [...current, { kind: "error", text: "tela de providers indisponível" }]);
@@ -646,7 +646,7 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
           void (async () => {
             const outcome = await runCommand(
               { kind: "resume", ref: chosen.id }, session, commandState.current,
-              { store, cwd, sessionApi, resumeId: chosen.id },
+              { cwd, sessionApi, resumeId: chosen.id },
             );
             if (outcome.lastFile !== undefined) commandState.current.lastFile = outcome.lastFile ?? undefined;
             const added = [...outcome.entries];
@@ -667,16 +667,10 @@ export function TuiApp({ session, cwd, branch, store, sessionApi, approvals, she
           });
         }}
         onRename={(chosen, name) => {
-          if (store === undefined) return "sem persistência configurada";
+          if (sessionApi === undefined) return "sem persistência configurada";
           try {
-            if (sessionApi === undefined) {
-              store.rename(chosen.id, name);
-              setSessionList(store.list());
-            } else {
-              if (store.list().some((item) => item.id === chosen.id)) store.rename(chosen.id, name);
-              sessionApi.rename(chosen.id, name);
-              setSessionList(sessionApi.list());
-            }
+            sessionApi.rename(chosen.id, name);
+            setSessionList(sessionApi.list());
             return undefined;
           } catch (error) {
             return `erro: ${messageOf(error)}`;

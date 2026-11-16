@@ -15,7 +15,7 @@ export interface SessionPickerProps {
   onClose(): void;
   onExit?(): void;
   onResume(session: SessionSummary): void;
-  /** Aplica o nome à sessão escolhida (por path, seguro a ids duplicados). */
+  /** Aplica o nome à sessão escolhida (por id; o rename grava no SQLite). */
   onRename(session: SessionSummary, name: string): string | undefined;
   /** Linhas visíveis da lista; default derivado da altura do terminal. */
   maxRows?: number;

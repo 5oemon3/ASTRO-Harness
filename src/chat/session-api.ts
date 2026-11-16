@@ -130,7 +130,15 @@ export class SessionApi {
 
   /** Cria ou substitui uma sessão com a mesma sanitização de escrita do JSON v1. */
   save(value: SessionRecord): SessionRecord {
-    return this.#writeRecord(this.#prepare(value), true);
+    // o snapshot do runtime não carrega `name`: o nome dado no rename sobrevive ao auto-save
+    const name = value.name ?? this.#storedName(value.id);
+    return this.#writeRecord(this.#prepare(name === undefined ? value : { ...value, name }), true);
+  }
+
+  /** Nome já gravado da sessão; `undefined` quando não há nome ou não há sessão. */
+  #storedName(id: string): string | undefined {
+    const row = this.#db.query("SELECT name FROM sessions WHERE id = ?").get(id) as { name: string | null } | null;
+    return row?.name ?? undefined;
   }
 
   #writeRecord(record: SessionRecord, markSqliteAuthoritative: boolean): SessionRecord {
@@ -171,13 +179,12 @@ export class SessionApi {
       const deleted = this.#db.run("DELETE FROM sessions WHERE id = ?", [id]).changes > 0;
       if (deleted) {
         this.#db.run("DELETE FROM session_overrides WHERE id = ?", [id]);
+        // o tombstone segura a exclusão: a cópia JSON legada não é reimportada (#366)
         this.#db.run("INSERT OR IGNORE INTO session_tombstones (id) VALUES (?)", [id]);
       }
       return deleted;
     });
-    const deletedFromSqlite = transaction();
-    const deletedFromJson = new SessionStore(join(this.astroDir, "sessions")).deleteById(id);
-    return deletedFromSqlite || deletedFromJson;
+    return transaction();
   }
 
   close(): void {

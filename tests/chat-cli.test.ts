@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,8 +37,8 @@ test("bun src/cli.ts chat roda um turno e encerra com /exit", async () => {
     expect(stdout).toContain("Comandos:"); // a linha /help depois do turno não foi perdida
     expect(stdout).toContain("p (openai-compat)");
     expect(stdout).toContain("1 step(s)");
-    expect(existsSync(join(cwd, ".astro", "sessions"))).toBe(true);
-    expect(readdirSync(join(cwd, ".astro", "sessions")).some((name) => name.endsWith(".json"))).toBe(true);
+    expect(existsSync(join(cwd, ".astro", "sessions.db"))).toBe(true);
+    expect(existsSync(join(cwd, ".astro", "sessions"))).toBe(false); // o runtime não grava JSON (#366)
     const audit = new Auditor(join(cwd, ".astro", "audit.jsonl")).readAll();
     expect(audit.some((e) => e.tipo === "chat.prompt")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("olá");

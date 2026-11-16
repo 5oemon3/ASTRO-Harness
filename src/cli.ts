@@ -23,7 +23,6 @@ import { Metrics, startMetricsServer } from "./metrics";
 import { formatBudgetEstimate } from "./budget";
 import { replayRun } from "./replay";
 import { AgentSession } from "./chat/agent-session";
-import { SessionStore } from "./chat/store";
 import { runRepl } from "./chat/repl";
 import { chatApprovers } from "./chat/approvers";
 import { nodeReplIO } from "./chat/node-io";
@@ -1251,10 +1250,9 @@ async function main(argv: string[]): Promise<number> {
         ...chatApprovers(io, interactive),
       });
       for (const warning of session.warnings) console.error(`aviso: ${warning}`);
-      const store = new SessionStore(resolve(base, ".astro", "sessions"));
       const { openSessionApi } = await import("./chat/session-api");
       sessionApi = openSessionApi(resolve(base, ".astro"));
-      await runRepl(session, io, { store, sessionApi, signal: io.signal, style: interactive, cwd: base, manager, interactive });
+      await runRepl(session, io, { sessionApi, signal: io.signal, style: interactive, cwd: base, manager, interactive });
       return 0;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

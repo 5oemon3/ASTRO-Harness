@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot } from "../src/chat/agent-session";
 import type { PermissionMode } from "../src/permissions";
 import type { BudgetStatus } from "../src/budget";
-import { SessionStore } from "../src/chat/store";
+import { SessionStore, type SessionRecord } from "../src/chat/store";
 import { SessionApi } from "../src/chat/session-api";
 import { runCommand, type CommandState } from "../src/tui/commands";
 import type { Theme } from "../src/tui/theme";
@@ -81,42 +81,67 @@ describe("comandos da TUI (T2, #63)", () => {
     expect(outcome.entries).toEqual([]);
   });
 
-  test("session mostra o último arquivo; sem store avisa", async () => {
+  test("session mostra o último arquivo; sem persistência avisa", async () => {
     const session = new FakeSession();
-    const withFile = await runCommand({ kind: "session" }, session, { lastFile: "/tmp/s.json" }, { store: new SessionStore("/tmp") });
+    const sessionApi = new SessionApi(mkdtempSync(join(tmpdir(), "astro-tui-session-")));
+    const withFile = await runCommand({ kind: "session" }, session, { lastFile: "/tmp/s.json" }, { sessionApi });
     expect(withFile.entries[0]!.text).toContain("arquivo: /tmp/s.json");
     expect(withFile.entries[0]!.text).toContain("turnos 2");
     const without = await runCommand({ kind: "session" }, session, {});
     expect(without.entries[0]!.text).toContain("arquivo: sem persistência");
+    sessionApi.close();
   });
 
   test("save grava sanitizado e devolve o caminho; falha vira erro", async () => {
     const session = new FakeSession();
     const dir = mkdtempSync(join(tmpdir(), "astro-tui-save-"));
-    const ok = await runCommand({ kind: "save" }, session, {}, { store: new SessionStore(dir) });
+    const sessionApi = new SessionApi(join(dir, ".astro"));
+    const ok = await runCommand({ kind: "save" }, session, {}, { sessionApi });
     expect(ok.entries[0]!.text).toMatch(/^sessão salva em /);
-    expect(ok.lastFile).toBeDefined();
+    expect(ok.lastFile).toBe(sessionApi.databasePath);
 
-    const blocked = join(dir, "blocked");
-    await Bun.write(blocked, "arquivo");
-    const failed = await runCommand({ kind: "save" }, session, {}, { store: new SessionStore(blocked) });
+    class FailingApi extends SessionApi {
+      override save(): SessionRecord {
+        throw new Error("disco cheio");
+      }
+    }
+    const failed = await runCommand({ kind: "save" }, session, {}, { sessionApi: new FailingApi(join(dir, "blocked")) });
     expect(failed.entries[0]).toMatchObject({ kind: "error" });
     expect(failed.entries[0]!.text).toMatch(/^erro: /);
     expect(failed.lastFile).toBeNull(); // limpa o caminho anterior
+    sessionApi.close();
   });
 
   test("falha de save com segredo na mensagem não vaza", async () => {
     const session = new FakeSession();
-    class Leaky extends SessionStore {
-      override write(): string {
+    class Leaky extends SessionApi {
+      override save(): SessionRecord {
         throw new Error("falhou com sk-live-SEGREDO123");
       }
     }
     const outcome = await runCommand(
-      { kind: "save" }, session, {}, { store: new Leaky(mkdtempSync(join(tmpdir(), "astro-tui-leak-"))) },
+      { kind: "save" }, session, {}, { sessionApi: new Leaky(mkdtempSync(join(tmpdir(), "astro-tui-leak-"))) },
     );
     expect(outcome.entries[0]!.text).not.toContain("sk-live-SEGREDO123");
     expect(outcome.entries[0]!.text).toMatch(/^erro: /);
+  });
+
+  test("/save grava pela SessionApi e não cria arquivo JSON (#366)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-tui-save-cutover-"));
+    const astroDir = join(root, ".astro");
+    const sessionApi = new SessionApi(astroDir);
+    try {
+      const outcome = await runCommand({ kind: "save" }, new FakeSession(), {}, { sessionApi });
+      expect(outcome.entries[0]!.kind).toBe("info");
+      expect(outcome.entries[0]!.text).toContain("sessão salva");
+      expect(sessionApi.list()).toHaveLength(1);
+      const legacyDir = join(astroDir, "sessions");
+      const legacyFiles = existsSync(legacyDir) ? readdirSync(legacyDir).filter((name) => name.endsWith(".json")) : [];
+      expect(legacyFiles).toEqual([]);
+    } finally {
+      sessionApi.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("comando desconhecido sugere o mais próximo; exit encerra (#275)", async () => {
@@ -131,8 +156,7 @@ describe("comandos da TUI (T2, #63)", () => {
   test("sessions abre o picker e resume carrega a sessão pelo número (#64)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-tui-resume-"));
     const astroDir = join(dir, ".astro");
-    const store = new SessionStore(join(astroDir, "sessions"));
-    store.write({
+    new SessionStore(join(astroDir, "sessions")).write({
       id: "abc", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
       messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
     });
@@ -140,18 +164,18 @@ describe("comandos da TUI (T2, #63)", () => {
     const session = new FakeSession();
     const state: { lastFile?: string } = {};
     try {
-      const list = await runCommand({ kind: "sessions" }, session, state as never, { store, sessionApi: api });
+      const list = await runCommand({ kind: "sessions" }, session, state as never, { sessionApi: api });
       // na TUI o /sessions abre o modal; a lista não vai mais como texto para o histórico
       expect(list).toMatchObject({ entries: [], openSessions: true });
-      const resumed = await runCommand({ kind: "resume", ref: "1" }, session, state as never, { store, sessionApi: api });
+      const resumed = await runCommand({ kind: "resume", ref: "1" }, session, state as never, { sessionApi: api });
       expect(resumed.entries[0]!.text).toBe("sessão retomada: abc (1 turnos)");
       expect(resumed.lastFile).toBeNull();
       expect(session.resumed[0]!.id).toBe("abc");
-      const sessionInfo = await runCommand({ kind: "session" }, session, state as never, { store, sessionApi: api });
+      const sessionInfo = await runCommand({ kind: "session" }, session, state as never, { sessionApi: api });
       expect(sessionInfo.entries[0]!.text).toContain("retomada de abc");
 
-      await runCommand({ kind: "clear" }, session, state as never, { store, sessionApi: api });
-      const afterClear = await runCommand({ kind: "session" }, session, state as never, { store, sessionApi: api });
+      await runCommand({ kind: "clear" }, session, state as never, { sessionApi: api });
+      const afterClear = await runCommand({ kind: "session" }, session, state as never, { sessionApi: api });
       expect(afterClear.entries[0]!.text).not.toContain("retomada de");
     } finally {
       api.close();
@@ -180,7 +204,7 @@ describe("comandos da TUI (T2, #63)", () => {
       expect(api.list().map(({ id }) => id)).toEqual(["newer", "older"]);
       const resumed = await runCommand(
         { kind: "resume", ref: "1" }, session, {},
-        { store: new SessionStore(join(root, "empty-json-store")), sessionApi: api },
+        { sessionApi: api },
       );
       expect(resumed.entries[0]!.text).toBe("sessão retomada: newer (2 turnos)");
       expect(resumed.lastFile).toBeNull();
@@ -194,7 +218,7 @@ describe("comandos da TUI (T2, #63)", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
-  test("sem store, /session mantém a origem e avisa sobre a persistência", async () => {
+  test("sem persistência, /session mantém a origem e avisa sobre a persistência", async () => {
     const session = new FakeSession();
     session.resumedFrom = { id: "abc", startedAt: "2026-10-01T10:00:00.000Z" };
     const out = await runCommand({ kind: "session" }, session, {});
@@ -205,9 +229,9 @@ describe("comandos da TUI (T2, #63)", () => {
   test("/details partilha o formatter com /session", async () => {
     const session = new FakeSession();
     const state = { lastFile: "/tmp/s.json" };
-    const store = new SessionStore(mkdtempSync(join(tmpdir(), "astro-tui-details-")));
-    const sessionOut = await runCommand({ kind: "session" }, session, state, { store });
-    const detailsOut = await runCommand({ kind: "details" }, session, state, { store });
+    const sessionApi = new SessionApi(mkdtempSync(join(tmpdir(), "astro-tui-details-")));
+    const sessionOut = await runCommand({ kind: "session" }, session, state, { sessionApi });
+    const detailsOut = await runCommand({ kind: "details" }, session, state, { sessionApi });
     expect(detailsOut.entries[0]!.text).toBe(sessionOut.entries[0]!.text);
     expect(detailsOut.entries[0]!.text).toContain("uptime");
     expect(detailsOut.entries[0]!.text).toContain("provider: p");
@@ -216,9 +240,10 @@ describe("comandos da TUI (T2, #63)", () => {
     expect(detailsOut.entries[0]!.text).toContain("tokens 20/10");
     expect(detailsOut.entries[0]!.text).toContain("custo US$ 0.500000");
     expect(detailsOut.entries[0]!.text).toContain("arquivo: /tmp/s.json");
+    sessionApi.close();
   });
 
-  test("/details sem store avisa e mantém retomada", async () => {
+  test("/details sem persistência avisa e mantém retomada", async () => {
     const session = new FakeSession();
     session.resumedFrom = { id: "xyz", startedAt: "2026-10-27T10:00:00.000Z" };
     const out = await runCommand({ kind: "details" }, session, {});
@@ -228,16 +253,15 @@ describe("comandos da TUI (T2, #63)", () => {
   test("resume sem /sessions recarrega a lista e valida o índice", async () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-tui-resume2-"));
     const astroDir = join(dir, ".astro");
-    const store = new SessionStore(join(astroDir, "sessions"));
-    store.write({
+    new SessionStore(join(astroDir, "sessions")).write({
       id: "xyz", startedAt: "2026-10-02T10:00:00.000Z", model: "p/m1",
       messages: [{ role: "user", content: "guardado" }], turns: 2, tokensIn: 20, tokensOut: 10, costUsd: 0.002,
     });
     const api = new SessionApi(astroDir);
     const session = new FakeSession();
-    const ok = await runCommand({ kind: "resume", ref: "1" }, session, {}, { store, sessionApi: api });
+    const ok = await runCommand({ kind: "resume", ref: "1" }, session, {}, { sessionApi: api });
     expect(ok.entries[0]!.text).toBe("sessão retomada: xyz (2 turnos)");
-    const bad = await runCommand({ kind: "resume", ref: "9" }, session, {}, { store, sessionApi: api });
+    const bad = await runCommand({ kind: "resume", ref: "9" }, session, {}, { sessionApi: api });
     expect(bad.entries[0]!.text).toBe("índice fora da lista; use /sessions");
     expect(session.resumed).toHaveLength(1);
     api.close();

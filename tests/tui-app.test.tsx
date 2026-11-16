@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TuiApp } from "../src/tui/app";
-import { SessionStore } from "../src/chat/store";
+import { SessionStore, type SessionRecord } from "../src/chat/store";
 import { SessionApi } from "../src/chat/session-api";
 import type { ChatSession } from "../src/chat/repl";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
@@ -309,16 +309,16 @@ test("ignora Enter durante o turno e atualiza o status após /model", async () =
 });
 
 test("falha de gravação limpa o caminho mostrado por /session", async () => {
-  class Flaky extends SessionStore {
+  class Flaky extends SessionApi {
     calls = 0;
-    override write(snapshot: Parameters<SessionStore["write"]>[0]): string {
+    override save(value: Parameters<SessionApi["save"]>[0]): SessionRecord {
       this.calls++;
       if (this.calls > 1) throw new Error("disco cheio");
-      return super.write(snapshot);
+      return super.save(value);
     }
   }
   const dir = mkdtempSync(join(tmpdir(), "astro-tui-store-"));
-  const instance = render(<TuiApp session={new FakeSession()} cwd="/tmp/astro" store={new Flaky(dir)} />);
+  const instance = render(<TuiApp session={new FakeSession()} cwd="/tmp/astro" sessionApi={new Flaky(join(dir, ".astro"))} />);
   try {
     instance.stdin.write("/save");
     instance.stdin.write("\r");
@@ -435,15 +435,16 @@ test("pergunta nova sem diff fecha o overlay e libera a entrada (#64 D2)", async
 
 test("/exit grava a sessão sanitizada antes de fechar", async () => {
   const dir = mkdtempSync(join(tmpdir(), "astro-tui-exit-"));
+  const sessionApi = new SessionApi(join(dir, ".astro"));
   let exits = 0;
   const instance = render(
-    <TuiApp session={new FakeSession()} cwd="/tmp/astro" store={new SessionStore(dir)} onExit={() => { exits++; }} />,
+    <TuiApp session={new FakeSession()} cwd="/tmp/astro" sessionApi={sessionApi} onExit={() => { exits++; }} />,
   );
   try {
     instance.stdin.write("/exit");
     instance.stdin.write("\r");
     await waitFor(() => exits === 1);
-    expect(readdirSync(dir).some((name) => name.endsWith(".json"))).toBe(true);
+    expect(sessionApi.list()).toHaveLength(1);
   } finally {
     instance.unmount();
   }
@@ -479,7 +480,7 @@ test("/sessions abre o painel e /resume por id retoma a sessão vista (#64)", as
   });
   const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
@@ -964,7 +965,7 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
   });
   const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
     await waitFor(() => frameHas(instance, "turno(s)"));
     instance.stdin.write("/sessions");
@@ -975,8 +976,8 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
     await waitFor(() => frameHas(instance, "nome: _"));
     instance.stdin.write("nova");
     instance.stdin.write("\r");
-    await waitFor(() => store.list()[0]?.name === "nova");
-    expect(sessionApi.list()[0]?.name).toBe("nova");
+    await waitFor(() => sessionApi.list()[0]?.name === "nova");
+    expect(store.list()[0]?.name).toBeUndefined(); // o store JSON não é modificado (#366)
     await waitFor(() => frameHas(instance, "nova (abc)"));
     instance.stdin.write("\u001b"); // fecha o picker
     await waitFor(() => frameHas(instance, "Sessões") === false);
@@ -984,7 +985,8 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
     instance.stdin.write("oi");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "eco:oi"));
-    expect(store.list().find((item) => item.id === "abc")?.name).toBe("nova");
+    expect(store.list().find((item) => item.id === "abc")?.name).toBeUndefined();
+    expect(sessionApi.list().find((item) => item.id === "abc")?.name).toBe("nova");
   } finally {
     instance.unmount();
     sessionApi.close();
@@ -1008,7 +1010,7 @@ test("80x24 e resize encolhem o picker sem quebrar o input (#64)", async () => {
   }
   const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
     await waitFor(() => frameHas(instance, "turno(s)"));
     instance.stdin.write("/sessions");
@@ -1041,7 +1043,7 @@ test("picker: enter retoma a sessão selecionada pelo id (#64)", async () => {
   store.write({ ...saved, id: "abc", startedAt: "2026-10-03T10:00:00.000Z" });
   const sessionApi = new SessionApi(join(cwd, ".astro"));
   const session = new FakeSession();
-  const instance = render(<TuiApp session={session} cwd={cwd} store={store} sessionApi={sessionApi} />);
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
     await waitFor(() => frameHas(instance, "turno(s)"));
     instance.stdin.write("/sessions");

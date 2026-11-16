@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type { ChatMessage } from "../provider/types";
+import type { SessionSnapshot } from "./agent-session";
 import { redactSecrets } from "../sanitize-external";
 
 export interface SessionRecord {
@@ -181,6 +182,11 @@ function sanitizeValue(value: unknown): unknown {
     }
   }
   return redactSecrets(value);
+}
+
+/** Converte o snapshot do runtime no registro persistido (o snapshot não carrega `name`). */
+export function toSessionRecord(snapshot: SessionSnapshot): SessionRecord {
+  return { schemaVersion: 1, ...snapshot };
 }
 
 /** Valida e sanitiza um registro v1 para persistência ou migração. */
