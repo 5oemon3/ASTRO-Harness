@@ -15,17 +15,19 @@ interface Body { model?: string; messages?: ChatMessage[] }
 
 function setup(opts: {
   context?: number;
-  reply?: (call: number) => Response;
+  reply?: (call: number, body: Body) => Response;
   budget?: Record<string, unknown>;
   quota?: Record<string, unknown>;
+  compaction?: Record<string, unknown>;
 } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "astro-chat-session-"));
   const bodies: Body[] = [];
   let call = 0;
   const server = Bun.serve({ port: 0, async fetch(req) {
     call++;
-    bodies.push((await req.json()) as Body);
-    return opts.reply?.(call) ?? final("ok");
+    const body = (await req.json()) as Body;
+    bodies.push(body);
+    return opts.reply?.(call, body) ?? final("ok");
   } });
   const configPath = join(cwd, "astro.config.json");
   writeFileSync(configPath, JSON.stringify({
@@ -44,6 +46,7 @@ function setup(opts: {
     agent: { model: "p/m1", maxSteps: 3, tools: [] },
     ...(opts.budget === undefined ? {} : { budget: opts.budget }),
     ...(opts.quota === undefined ? {} : { quota: opts.quota }),
+    ...(opts.compaction === undefined ? {} : { compaction: opts.compaction }),
     paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
   }));
   return {
@@ -56,7 +59,7 @@ function setup(opts: {
 const final = (content: string, tin = 10, tout = 5): Response =>
   Response.json({ choices: [{ message: { content } }], usage: { prompt_tokens: tin, completion_tokens: tout } });
 
-const toolCall = (): Response => Response.json({ choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function",
+const toolCall = (id = "c1"): Response => Response.json({ choices: [{ message: { content: "", tool_calls: [{ id, type: "function",
   function: { name: "ghost", arguments: "{}" } }] } }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
 
 describe("AgentSession (T1, #62)", () => {
@@ -538,6 +541,130 @@ describe("AgentSession.quotaStatus (#64)", () => {
       expect(after?.warning).toBe(false);
       expect(after?.exhausted).toBe(false);
       chat.close();
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe("AgentSession session hooks (#367)", () => {
+  test("emite onMessage/onToolResult na ordem do store para um turno com tool", async () => {
+    const { session, stop } = setup({ reply: (call) => call === 1 ? toolCall() : final("pronto") });
+    const events: string[] = [];
+    const chat = session({
+      onMessage: (event: { message: ChatMessage }) => events.push(`message:${event.message.role}`),
+      onToolResult: (event: { name: string }) => events.push(`tool:${event.name}`),
+    });
+    try {
+      await chat.send("use a tool");
+      expect(events).toEqual(["message:user", "message:assistant", "tool:ghost", "message:assistant"]);
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("emite a mensagem do turno e o nome da tool mesmo com compactação no meio do turno", async () => {
+    let toolTurn = false;
+    const { session, stop } = setup({
+      context: 8192,
+      compaction: { buffer: 4000 },
+      reply: (call, body) => {
+        if (body.messages?.[0]?.content?.includes("Resuma o histórico") === true) return final("resumo");
+        if (call === 1) return final("x".repeat(24_000));
+        if (!toolTurn) {
+          toolTurn = true;
+          return toolCall();
+        }
+        return final("pronto");
+      },
+    });
+    const events: string[] = [];
+    const chat = session({
+      onMessage: (event: { message: ChatMessage }) => events.push(`message:${event.message.role}`),
+      onToolResult: (event: { name: string }) => events.push(`tool:${event.name}`),
+    });
+    try {
+      await chat.send("primeiro");
+      events.length = 0;
+      await chat.send("segundo");
+      expect(events).toEqual(["message:user", "message:assistant", "tool:ghost", "message:assistant"]);
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("onToolResult sanitiza toolCallId", async () => {
+    const idSecret = ["sk", "-", "hook", "id", "123456789"].join("");
+    const { session, stop } = setup({ reply: (call) => call === 1 ? toolCall(idSecret) : final("ok") });
+    const seen: unknown[] = [];
+    const chat = session({ onToolResult: (event: unknown) => seen.push(event) });
+    try {
+      await chat.send("use a tool");
+      const json = JSON.stringify(seen);
+      expect(json).not.toContain(idSecret);
+      expect(json).toContain("[REDACTED]");
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("hooks recebem payload sanitizado e sem imagens", async () => {
+    const hookSecret = ["ghp", "_", "hook", "payload", "123456"].join("");
+    const { session, stop } = setup({ reply: () => final(`eco ${hookSecret}`) });
+    const seen: unknown[] = [];
+    const chat = session({ onMessage: (event: unknown) => seen.push(event) });
+    try {
+      await chat.send(`prompt ${hookSecret}`);
+      const json = JSON.stringify(seen);
+      expect(json).not.toContain(hookSecret);
+      expect(json).toContain("[REDACTED]");
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("erro do observador não aborta o turno", async () => {
+    const { session, stop } = setup({ reply: (call) => call === 1 ? toolCall() : final("ok") });
+    let calls = 0;
+    const chat = session({
+      onMessage: () => { calls++; throw new Error("observer boom"); },
+      onToolResult: () => { calls++; throw new Error("observer boom"); },
+    });
+    try {
+      const result = await chat.send("oi");
+      expect(result.final).toBe("ok");
+      expect(calls).toBe(4); // user + assistant(tool call) + tool result + assistant final
+      expect(chat.messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "tool", "assistant"]);
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("não emite hooks depois de abort ou close", async () => {
+    const { session, stop } = setup();
+    let emitted = 0;
+    const chat = session({
+      onMessage: () => emitted++,
+      onToolResult: () => emitted++,
+    });
+    try {
+      await chat.send("ok");
+      expect(emitted).toBe(2); // controle positivo: user + assistant
+      emitted = 0;
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(chat.send("x", controller.signal)).rejects.toThrow();
+      expect(emitted).toBe(0);
+
+      chat.close();
+      await expect(chat.send("y")).rejects.toThrow(/encerrada/);
+      expect(emitted).toBe(0);
     } finally {
       stop();
     }

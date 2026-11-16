@@ -24,6 +24,10 @@ T1 (#62) persiste a conversa do REPL num JSON plano `.astro/sessions/<ts>.json`.
 - Invariantes afetadas: I-03 (sanitize na escrita), I-19 (resume determinístico via ledger, não via store).
 - Transição T4 (concluída em #366): o runtime grava só no SQLite - o JSON v1 é import/export-only e o REPL e a TUI não gravam mais `.astro/sessions/*.json`. `SessionApi.list()`/`load()` reconciliam apenas arquivos JSON alterados, mantendo no cache metadados, não mensagens. `save()` preserva o nome dado no rename quando o snapshot não o traz (o snapshot do runtime não carrega `name`), e `save()` e rename de sessão sem cópia JSON marcam o SQLite como autoritativo; quando o JSON já contém o nome solicitado, o rename não cria override novo, para que os autosaves seguintes sejam reconciliados. Exclusões não tocam a cópia JSON legada e deixam tombstones (a sessão não volta no próximo open); cópias inválidas ou ilegíveis permanecem porque seu `id` não pode ser verificado. IDs JSON duplicados colapsam para a sessão de `startedAt` mais recente (empate: caminho lexical); remover externamente a cópia mais nova faz a próxima cópia mais recente prevalecer. UI e rename identificam a sessão pelo `id`.
 
+## Hooks de sessão (#367)
+
+O runtime expõe dois observadores opcionais, sem consumidor neste slice: `onMessage({sessionId, message, at})` dispara uma vez por mensagem `user`/`assistant` gravada, e `onToolResult({sessionId, toolCallId, name, result, at})` uma vez por resultado de tool. Os hooks são síncronos e disparam ao fim do turno de `send`, na ordem do store; compactação e resume não emitem. Os payloads são sanitizados na origem (I-03; `redactSecrets` em todo texto, sem `images`) e o resultado da tool é limitado a 16.384 caracteres; o store mantém o conteúdo completo. Erro do observador nunca aborta o turno, e nenhum hook dispara após abort/close (I-19). O contrato fica em `src/chat/hooks.ts`.
+
 ## Alternativas descartadas
 
 - Manter `<ts>.json` plano: sem espaço para o multi-agent de ADR-0008; colisão de nomes por timestamp.

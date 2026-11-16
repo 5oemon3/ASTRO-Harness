@@ -32,6 +32,7 @@ import { DEFAULT_SYSTEM_PROMPT, safePrompt } from "../session";
 import { guardContext } from "./context-guard";
 import { isFatalSessionError } from "./session-errors";
 import { runHealthCheck, testProvider as probeProvider, type HealthCheck, type HealthReport } from "../health";
+import { boundHookToolResult, emitHook, sanitizeHookMessage, sanitizeHookText, type SessionMessageHook, type SessionToolResultHook } from "./hooks";
 
 export interface AgentSessionOptions {
   configPath: string;
@@ -63,6 +64,10 @@ export interface AgentSessionOptions {
   artifactCheckPrivate?: (path: string) => boolean;
   /** Injeção de testes para o endurecimento win32 da raiz; ausente usa o real. */
   artifactHardenPrivate?: (path: string) => WindowsAcl;
+  /** Observador opcional de mensagem persistida (#367); sem consumidor neste slice. */
+  onMessage?: SessionMessageHook;
+  /** Observador opcional de resultado de tool (#367); sem consumidor neste slice. */
+  onToolResult?: SessionToolResultHook;
 }
 
 /** Opções de um turno de chat: anexos carregados e aprovador explícito de imagem. */
@@ -168,6 +173,8 @@ export class AgentSession {
   readonly #allowSensitive: readonly string[] | undefined;
   readonly #artifactCheckPrivate: ((path: string) => boolean) | undefined;
   readonly #artifactHardenPrivate: ((path: string) => WindowsAcl) | undefined;
+  readonly #onMessage: SessionMessageHook | undefined;
+  readonly #onToolResult: SessionToolResultHook | undefined;
   #modelRef: string;
   #permissionMode: PermissionMode;
   #messages: ChatMessage[];
@@ -219,6 +226,8 @@ export class AgentSession {
     this.#allowSensitive = opts.allowSensitive;
     this.#artifactCheckPrivate = opts.artifactCheckPrivate;
     this.#artifactHardenPrivate = opts.artifactHardenPrivate;
+    this.#onMessage = opts.onMessage;
+    this.#onToolResult = opts.onToolResult;
     if (this.#config.tools?.run_command?.sandbox === false) this.#warnings.push(SANDBOX_DISABLED_WARNING);
     this.#modelRef = opts.model ?? this.#config.agent.model;
     // Modo inicial idêntico ao do run (app.ts lê só process.env, nunca o env injetado):
@@ -240,6 +249,39 @@ export class AgentSession {
   /** Auditor novo por evento: outro Auditor (runTask) avança o seq no mesmo arquivo. */
   #append(tipo: string, payload: Record<string, unknown>): void {
     new Auditor(this.#auditPath).append({ run: this.id, agent: "default", tipo, payload });
+  }
+
+  /** Dispara os hooks do turno na ordem do store; observador nunca aborta o turno. */
+  #emitTurnHooks(messages: readonly ChatMessage[]): void {
+    if (this.#onMessage === undefined && this.#onToolResult === undefined) return;
+    const names = new Map<string, string>();
+    for (const message of messages) {
+      for (const call of message.toolCalls ?? []) names.set(call.id, call.name);
+    }
+    // `appended` já começa no prompt do turno; no fallback com `report.messages`
+    // o histórico anterior vem antes, então corta no último `user` (#367).
+    const start = messages.findLastIndex((message) => message.role === "user");
+    if (start < 0) return;
+    for (const message of messages.slice(start)) {
+      if (message.role === "tool") {
+        const id = message.toolCallId ?? "";
+        emitHook(this.#onToolResult, {
+          sessionId: this.id,
+          toolCallId: sanitizeHookText(id),
+          name: sanitizeHookText(names.get(id) ?? "unknown"),
+          result: boundHookToolResult(message.content),
+          at: new Date().toISOString(),
+        });
+        continue;
+      }
+      if (message.role === "user" || message.role === "assistant") {
+        emitHook(this.#onMessage, {
+          sessionId: this.id,
+          message: sanitizeHookMessage(message),
+          at: new Date().toISOString(),
+        });
+      }
+    }
   }
 
   /** Store de imagem criado só na primeira imagem; raiz resolvida uma vez no construtor. */
@@ -651,6 +693,7 @@ export class AgentSession {
       this.#tokensOut += report.tokensOut;
       if (report.costUsd === null) this.#costKnown = false;
       else this.#costUsd += report.costUsd;
+      this.#emitTurnHooks(report.appended ?? [...(report.messages ?? guard.messages), { role: "assistant", content: report.final }]);
 
       return {
         final: report.final,

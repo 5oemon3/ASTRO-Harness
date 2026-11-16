@@ -136,6 +136,8 @@ export interface RunReport {
   resumedFrom?: string;
   /** Histórico após o turno (T1): inclui tool calls, **sem** o assistant final (a sessão anexa). */
   messages?: ChatMessage[];
+  /** Mensagens anexadas neste turno, antes de eventual compactação; inclui o assistant final (#367). */
+  appended?: ChatMessage[];
 }
 
 const AGENT_NAME = "default";
@@ -998,7 +1000,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   // Cancellation (F-06): o caller fornece o sinal; sem sinal, o run não é cancelável
   const signal = opts.signal;
 
-  let result: { final: string; steps: number; agentsUsed?: string[]; messages?: ChatMessage[] };
+  let result: { final: string; steps: number; agentsUsed?: string[]; messages?: ChatMessage[]; appended?: ChatMessage[] };
   try {
     // Skills (C1c): /<nome> vira o prompt da skill; tools da skill ⊆ allowlist (I-01); falha fecha o run
     const task = resolveTaskSkill(opts.task, { cwd, allow: config.agent.tools, audit, run, agent: AGENT_NAME,
@@ -1203,5 +1205,6 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     ...(resumed === undefined ? {} : { resumedFrom: resumed.agent.agent_id }),
     ...(budget === undefined ? {} : { budget: budgetStatus(effectiveBudget(budget, ledger, run), ledger) }),
     ...(result.messages === undefined ? {} : { messages: result.messages }),
+    ...(result.appended === undefined ? {} : { appended: result.appended }),
   };
 }

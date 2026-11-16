@@ -255,7 +255,7 @@ export function safePrompt(messages: readonly ChatMessage[]): ChatMessage[] {
 export async function runSession(
   opts: SessionOptions,
   task: string,
-): Promise<{ final: string; steps: number; messages: ChatMessage[] }> {
+): Promise<{ final: string; steps: number; messages: ChatMessage[]; appended: ChatMessage[] }> {
   const tracer = opts.tracer;
   /** Uso de uma chamada auxiliar (resumo de compactação) entra no ledger/custo. */
   const recordAuxUsage = (response: CompletionResponse, model: ModelEntry, agent: string): void => {
@@ -293,6 +293,9 @@ export async function runSession(
         userMessage,
       ]
     : [...history, userMessage];
+  // #367: mensagens do turno na ordem, preservadas mesmo se a compactação
+  // substituir `messages` no meio do run.
+  const appended: ChatMessage[] = [userMessage];
   if (
     messages.some((message) => (message.images?.length ?? 0) > 0) &&
     opts.model.capabilities?.vision !== true
@@ -484,14 +487,17 @@ export async function runSession(
         }
         tracer?.end(stepSpan, { "tool.calls": 0 });
         tracer?.end(rootSpan, { status: "ok", steps: step });
-        return { final: response.content, steps: step, messages };
+        appended.push({ role: "assistant", content: response.content });
+        return { final: response.content, steps: step, messages, appended };
       }
 
-      messages.push({
+      const assistantMessage: ChatMessage = {
         role: "assistant",
         content: response.content,
         toolCalls: response.toolCalls,
-      });
+      };
+      messages.push(assistantMessage);
+      appended.push(assistantMessage);
 
       let toolErrors = 0;
       const stepTouched: string[] = [];
@@ -523,7 +529,9 @@ export async function runSession(
           call,
         );
         tracer?.end(toolSpan, { isError: result.isError === true });
-        messages.push({ role: "tool", content: redactSecrets(result.output), toolCallId: call.id });
+        const toolMessage: ChatMessage = { role: "tool", content: redactSecrets(result.output), toolCallId: call.id };
+        messages.push(toolMessage);
+        appended.push(toolMessage);
         // L6 (#135): sinal do segmento = arquivos tocados pelas tools + erros
         if (result.isError === true) toolErrors++;
         const touched = toolCallPath(call.arguments);
