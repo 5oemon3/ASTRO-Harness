@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Auditor } from "../src/audit";
+import { Auditor, auditCostUsd, auditDurationMs } from "../src/audit";
 
 const dir = () => mkdtempSync(join(tmpdir(), "astro-audit-"));
 
@@ -73,4 +73,22 @@ test("cria o diretório do arquivo se não existir", () => {
   const path = join(dir(), "sub", "deep", "audit.jsonl");
   new Auditor(path).append({ run: "r1", tipo: "x" });
   expect(JSON.parse(readFileSync(path, "utf8")).run).toBe("r1");
+});
+
+test("duração de auditoria é inteira, finita e não negativa", () => {
+  expect(auditDurationMs(100, 100)).toBe(0);
+  expect(auditDurationMs(100, 145.6)).toBe(46);
+  expect(auditDurationMs(200, 100)).toBe(0); // relógio para trás não gera duração negativa
+  expect(auditDurationMs(0, Number.NaN)).toBe(0);
+  expect(auditDurationMs(0, Number.POSITIVE_INFINITY)).toBe(0);
+});
+
+test("custo de auditoria só aparece quando é conhecido", () => {
+  expect(auditCostUsd(undefined)).toBeNull();
+  expect(auditCostUsd(null)).toBeNull();
+  expect(auditCostUsd(Number.NaN)).toBeNull();
+  expect(auditCostUsd(Number.POSITIVE_INFINITY)).toBeNull();
+  expect(auditCostUsd(-1)).toBeNull();
+  expect(auditCostUsd(0)).toBe(0);
+  expect(auditCostUsd(0.000123)).toBeCloseTo(0.000123, 10);
 });

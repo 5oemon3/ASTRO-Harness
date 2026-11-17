@@ -4,16 +4,16 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { Auditor } from "./audit";
 import { isAbortError } from "./abort";
 import { SwapDeniedError, swapDelta, type SwapApprover, type SwapRequest } from "./approval";
-import type { AstroConfig, CodexOAuthProviderConfig, OpenAICompatProviderConfig, ProviderConfig } from "./config";
+import type { AstroConfig, CodexOAuthProviderConfig, OpenAICompatProviderConfig, PriceConfig, ProviderConfig } from "./config";
 import { ConfigError, providerAccountRefFor, providerCredentialRefFor } from "./config";
 import { loadEffectiveConfig, providerIdentityFor } from "./provider/profiles";
-import { Ledger } from "./ledger";
+import { estimateCost, Ledger } from "./ledger";
 import { CodexOAuthProvider } from "./provider/codex-oauth";
 import { OpenAICompatProvider } from "./provider/openai-compat";
 import { FallbackProvider, DEFAULT_PRIORITY } from "./provider/fallback-provider";
 import { ProfileFallbackProvider, type ProfileChainEntry } from "./provider/profile-fallback-provider";
 import { createRoutedProvider, type ModelRouting } from "./provider/model-routing";
-import type { ChatMessage, CompletionRequest, ImagePart, Provider } from "./provider/types";
+import type { ChatMessage, CompletionRequest, CompletionResponse, ImagePart, Provider } from "./provider/types";
 import type { AttachmentMeta } from "./attachments/model";
 import { Registry, type ModelEntry } from "./registry";
 import { sendTelemetry } from "./telemetry";
@@ -414,6 +414,22 @@ function assertProviderKind(
 }
 
 /**
+ * Custo do provider que atendeu, com o mesmo preço curado que o ledger usa
+ * (D-10). Sem preço, o callback devolve `null` e o audit omite `costUsd`.
+ */
+function auditedCost(
+  entryName: string,
+  modelId: string,
+  priceOf: (provider: string, model: string) => PriceConfig | undefined,
+): (response: CompletionResponse) => number | null {
+  return (response) => estimateCost(
+    response.usage.inputTokens,
+    response.usage.outputTokens,
+    priceOf(response.provider ?? entryName, response.model ?? modelId),
+  );
+}
+
+/**
  * Cadeia C6 de um modelo (F-31c), com providers criados sob demanda. Com
  * `profile`, a cadeia é sempre montada (mesmo sem fallback de provider) para
  * aplicar o retry da F-01 e atribuir `provider.*` ao profile.
@@ -430,6 +446,7 @@ function providerChain(
   profile?: string,
   approveSwap?: SwapApprover,
   agentName?: () => string,
+  priceOf?: (provider: string, model: string) => PriceConfig | undefined,
 ): Provider {
   const primaryConfig = config.providers[model.provider];
   const entryCredential = (name: string): { credentialRef?: string } => {
@@ -457,6 +474,7 @@ function providerChain(
         priority: primaryConfig?.priority ?? DEFAULT_PRIORITY,
         ...entryCredential(model.provider),
         ...(primaryConfig === undefined ? {} : { accountRef: providerAccountRefFor(model.provider, primaryConfig) }),
+        ...(priceOf === undefined ? {} : { costUsd: auditedCost(model.provider, model.id, priceOf) }),
         create: memoizedCreate(() => createGuardedProvider(
           config, model, env, pluginFactories, audit, run, ledger, quotaLimits, profile, agentName,
         )),
@@ -475,6 +493,7 @@ function providerChain(
           priority: config.providers[name]?.priority ?? DEFAULT_PRIORITY,
           ...entryCredential(name),
           ...(config.providers[name] === undefined ? {} : { accountRef: providerAccountRefFor(name, config.providers[name]!) }),
+          ...(priceOf === undefined ? {} : { costUsd: auditedCost(name, fallbackModel.id, priceOf) }),
           create: memoizedCreate(() => createGuardedProvider(
             config, fallbackModel, env, pluginFactories, audit, run, ledger, quotaLimits, profile, agentName,
           )),
@@ -690,6 +709,9 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   const { credentialRef, quotaDomain } = providerIdentity(config, model.provider);
   assertProviderKind(config, model, loaded.providerFactories);
   const resolveIdentity = identityResolver(config, registry);
+  /** Preço curado por identidade efetiva, a mesma fonte do ledger (D-10). */
+  const priceOf = (provider: string, modelId: string): PriceConfig | undefined =>
+    registry.get(`${provider}/${modelId}`)?.price;
   const quotaLimits = config.quota;
   /** Budget efetivo (B1): o limite mais restritivo entre budget, quota e team. */
   const budget = config.budget === undefined ? undefined : restrictBudget(config.budget, [
@@ -717,7 +739,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       !(lock.run === runKey && lock.agent_id === agentKey));
   };
   let effectiveProvider = (baseConfig?.fallback ?? []).length > 0
-    ? providerChain(config, model, env, loaded.providerFactories, audit, run, ledger, quotaLimits, undefined, approveSwap, () => activeAgent.name)
+    ? providerChain(config, model, env, loaded.providerFactories, audit, run, ledger, quotaLimits, undefined, approveSwap, () => activeAgent.name, priceOf)
     : lazyProvider(() => createGuardedProvider(
       config, model, env, loaded.providerFactories, audit, run, ledger, quotaLimits, undefined, () => activeAgent.name,
     ));
@@ -737,7 +759,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         ...(credentialRef === undefined ? {} : { credentialRef }),
         ...(profileProvider === undefined ? {} : { accountRef: providerAccountRefFor(profileModel.provider, profileProvider) }),
         create: () => (chain ??= providerChain(
-          config, profileModel, env, loaded.providerFactories, audit, run, ledger, quotaLimits, name, approveSwap, () => activeAgent.name,
+          config, profileModel, env, loaded.providerFactories, audit, run, ledger, quotaLimits, name, approveSwap, () => activeAgent.name, priceOf,
         )),
       };
     });
@@ -807,7 +829,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     const cached = modelProviders.get(key);
     if (cached !== undefined) return cached;
     const built = (config.providers[m.provider]?.fallback ?? []).length > 0
-      ? providerChain(config, m, env, loaded.providerFactories, audit, run, ledger, quotaLimits, undefined, approveSwap, () => activeAgent.name)
+      ? providerChain(config, m, env, loaded.providerFactories, audit, run, ledger, quotaLimits, undefined, approveSwap, () => activeAgent.name, priceOf)
       : createGuardedProvider(config, m, env, loaded.providerFactories, audit, run, ledger, quotaLimits, undefined, () => activeAgent.name);
     const wrapped = withCache(built, cacheScope(m));
     modelProviders.set(key, wrapped);

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Auditor } from "../src/audit";
+import { CallJournal } from "../src/call-id";
 import { ToolExecutor } from "../src/tools/executor";
 import { resolveWithin } from "../src/tools/paths";
 import { readFileTool } from "../src/tools/read-file";
@@ -94,4 +95,30 @@ test("emite tool.call e tool.result na auditoria", async () => {
   await ex.run(ctx(cwd), { id: "1", name: "write_file", arguments: JSON.stringify({ path: "b.txt", content: "x" }) });
   const lines = readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   expect(lines.map((l) => l.tipo)).toEqual(["tool.call", "permission.decision", "tool.result"]);
+});
+
+test("tool.result carrega durationMs inteiro e não negativo", async () => {
+  const cwd = dir();
+  const ex = mkExec(cwd);
+  await ex.run(ctx(cwd), { id: "1", name: "write_file", arguments: JSON.stringify({ path: "t.txt", content: "x" }) });
+  const lines = readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const result = lines.find((line) => line.tipo === "tool.result");
+  expect(result.payload).toMatchObject({ name: "write_file", isError: false });
+  expect(Number.isInteger(result.payload.durationMs)).toBe(true);
+  expect(result.payload.durationMs).toBeGreaterThanOrEqual(0);
+});
+
+test("tool.result do journal (dedup) também carrega durationMs", async () => {
+  const cwd = dir();
+  const ex = mkExec(cwd);
+  const journal = new CallJournal();
+  const journalCtx = { ...ctx(cwd), step: 1, journal };
+  const call = { id: "1", name: "write_file", arguments: JSON.stringify({ path: "j.txt", content: "x" }) };
+  await ex.run(journalCtx, call);
+  await ex.run(journalCtx, call); // dedup: devolve o cache sem novo tool.result
+  const lines = readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const results = lines.filter((line) => line.tipo === "tool.result");
+  expect(results).toHaveLength(1);
+  expect(Number.isInteger(results[0].payload.durationMs)).toBe(true);
+  expect(lines.some((line) => line.tipo === "tool.dedup")).toBe(true);
 });

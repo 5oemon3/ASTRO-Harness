@@ -43,7 +43,7 @@ export class SseTransport {
     });
     endpointReady.catch(() => {}); // tratado abaixo: evita rejeição órfã em corrida
     try {
-      const response = await fetch(opts.url, { headers: { accept: "text/event-stream", ...opts.headers }, signal: transport.#abort.signal });
+      const response = await fetch(opts.url, { headers: { accept: "text/event-stream", ...opts.headers }, redirect: "error", signal: transport.#abort.signal });
       if (!response.ok) throw new MCPError(`HTTP ${response.status} abrindo stream SSE do MCP`);
       void transport.#pump(response);
     } catch (error) {
@@ -140,23 +140,25 @@ export class SseTransport {
         method: "POST",
         headers: { "content-type": "application/json", ...this.#headers },
         body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+        redirect: "error", // POST com header de credencial nunca segue redirect (I-03)
         signal: this.#abort.signal,
       }).then((response) => {
         if (response.ok) return; // resposta chega pelo stream; aqui só se valida o aceite do POST
         this.#pending.delete(id);
         clearTimeout(timer);
         reject(new MCPError(`HTTP ${response.status} no MCP ${method}`));
-      }).catch((error: unknown) => {
+      }).catch(() => {
         this.#pending.delete(id);
         clearTimeout(timer);
-        reject(new MCPError(`falha ao enviar no MCP: ${error instanceof Error ? error.message : String(error)}`));
+        // mensagem fixa: o erro do fetch pode carregar a URL do endpoint (I-03)
+        reject(new MCPError(`falha ao enviar no MCP ${method}`));
       });
     });
   }
 
   notify(method: string, params: Record<string, unknown>): void {
     if (this.#closed || this.#endpoint === undefined) return;
-    void fetch(this.#endpoint, { method: "POST", headers: { "content-type": "application/json", ...this.#headers }, body: JSON.stringify({ jsonrpc: "2.0", method, params }), signal: this.#abort.signal }).catch(() => {});
+    void fetch(this.#endpoint, { method: "POST", headers: { "content-type": "application/json", ...this.#headers }, body: JSON.stringify({ jsonrpc: "2.0", method, params }), redirect: "error", signal: this.#abort.signal }).catch(() => {});
   }
 
   /** True quando o stream acabou, o endpoint abortou ou o transport foi fechado. */

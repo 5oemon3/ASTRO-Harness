@@ -1,4 +1,4 @@
-import type { Auditor } from "../audit";
+import { auditDurationMs, type Auditor } from "../audit";
 import { callId } from "../call-id";
 import { limitToolOutput } from "../output-limit";
 import { redactSecrets } from "../sanitize-external";
@@ -150,6 +150,9 @@ export class ToolExecutor {
   }
 
   async run(ctx: ToolContext, call: ToolCall): Promise<ToolResult> {
+    // Tempo do ciclo completo da chamada; vai no tool.result como payload
+    // padronizado (issue #61), não no tool.call, que marca o início.
+    const startedAt = Date.now();
     // Dedup por call_id determinístico (F-03), apenas para tools declaradas
     // idempotentes (F-10, I-12); as demais sempre executam de verdade.
     const { step, journal } = ctx;
@@ -180,7 +183,7 @@ export class ToolExecutor {
         run: ctx.run,
         agent: ctx.agent,
         tipo: "tool.result",
-        payload: { name: call.name, isError: result.isError === true, callId: id },
+        payload: { name: call.name, isError: result.isError === true, callId: id, durationMs: auditDurationMs(startedAt) },
       });
       return result;
     }
@@ -198,7 +201,7 @@ export class ToolExecutor {
       run: ctx.run,
       agent: ctx.agent,
       tipo: "tool.result",
-      payload: { name: call.name, isError: result.isError === true },
+      payload: { name: call.name, isError: result.isError === true, durationMs: auditDurationMs(startedAt) },
     });
 
     return result;

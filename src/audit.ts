@@ -17,6 +17,25 @@ const SECRET_KEY = /(^|[-_])(api[-_]?)?keys?$|tokens?$|secret|password|authoriza
 const REDACTED = "[REDACTED]";
 
 /**
+ * Duração em milissegundos para o payload de auditoria: inteira, finita e não
+ * negativa. Relógio para trás ou valor não numérico vira 0 — audit nunca
+ * carrega NaN/Infinity (I-04).
+ */
+export function auditDurationMs(startedAt: number, endedAt: number = Date.now()): number {
+  const elapsed = endedAt - startedAt;
+  return Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0;
+}
+
+/**
+ * Custo em USD quando conhecido: finito e não negativo. Sem preço curado
+ * (D-10) — ou com valor inválido — devolve `null`, e o campo é omitido do
+ * evento em vez de virar `NaN`.
+ */
+export function auditCostUsd(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
  * Sanitiza recursivamente um valor: chaves que sugerem credenciais e strings
  * no formato de chave de API são substituídas por "[REDACTED]".
  */

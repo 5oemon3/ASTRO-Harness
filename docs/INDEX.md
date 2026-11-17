@@ -14,6 +14,7 @@ Objetivo: apontar o documento certo para cada tarefa.
 | `docs/workflow.md` | Ao abrir branch, commit ou PR (detalhe do fluxo) | ~90 |
 | `docs/review-checklist.md` | Ao revisar um PR | ~50 |
 | `docs/invariants.md` | Ao tocar em segredo, tool, caminho, custo, aprovação ou auditoria | ~50 |
+| `docs/security-threat-matrix.md` | Ao avaliar ameaça, mitigação ou cobertura de segurança (I-01/I-03/I-11/I-15) | ~45 |
 | `docs/decisions.md` | Ao precisar do motivo de uma escolha (D-xx) | ~100 |
 | `docs/adr/` | Decisão arquitetural nova ou revisão de uma antiga | 1 por arquivo |
 | `docs/adr/0029-config-global-home.md` | Configuração global, precedência e migração de `$ASTRO_HOME` (#401) | S1 |

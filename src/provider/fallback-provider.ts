@@ -6,7 +6,7 @@
  * devolvido em `response.provider` — o ledger registra o real, não o wrapper
  * (I-03: mensagens de erro já vêm redigidas do adapter, F2).
  */
-import type { Auditor } from "../audit";
+import { auditCostUsd, auditDurationMs, type Auditor } from "../audit";
 import { isAbortError } from "../abort";
 import { AccountLockedError } from "../agent-lock";
 import { markProviderFailure, markProviderSuccess } from "./health-state";
@@ -25,6 +25,12 @@ export interface FallbackChainEntry {
   credentialRef?: string;
   /** Conta exclusiva do provider; usada para validar o sticky do agente (A4). */
   accountRef?: string;
+  /**
+   * Custo da resposta quando o preço é conhecido (D-10); ausente/null mantém
+   * "sem preço". O callback roda fora do caminho crítico: falha vira ausência
+   * do campo, nunca derruba o completion.
+   */
+  costUsd?: (response: CompletionResponse) => number | null;
   /** Fábrica preguiçosa: credenciais só são resolvidas quando o provider entra na cadeia. */
   create: () => Provider;
 }
@@ -52,6 +58,16 @@ export interface FallbackProviderOptions {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Custo sanitizado do entry; callback que falha ou devolve valor inválido vira `null`. */
+function entryCostUsd(entry: FallbackChainEntry, response: CompletionResponse): number | null {
+  if (entry.costUsd === undefined) return null;
+  try {
+    return auditCostUsd(entry.costUsd(response));
+  } catch {
+    return null;
+  }
+}
 
 export class FallbackProvider implements Provider {
   readonly #chain: FallbackChainEntry[];
@@ -153,7 +169,14 @@ export class FallbackProvider implements Provider {
         const startedAt = Date.now();
         try {
           const response = await provider.complete(req, signal);
-          this.#log("provider.success", { provider: entry.name, latencyMs: Date.now() - startedAt, attempt });
+          const costUsd = entryCostUsd(entry, response);
+          this.#log("provider.complete", {
+            provider: entry.name,
+            model: response.model ?? req.model,
+            durationMs: auditDurationMs(startedAt),
+            attempt,
+            ...(costUsd === null ? {} : { costUsd }),
+          });
           markProviderSuccess(entry.name);
           const servedAccount = this.#currentAccount?.();
           this.#activeByAgent.set(agentKey, {
@@ -184,7 +207,7 @@ export class FallbackProvider implements Provider {
     throw lastError;
   }
 
-  #log(tipo: "provider.success" | "provider.failure" | "provider.fallback_skipped", payload: Record<string, unknown>): void {
+  #log(tipo: "provider.complete" | "provider.failure" | "provider.fallback_skipped", payload: Record<string, unknown>): void {
     if (this.#audit === undefined || this.#run === undefined) return;
     this.#audit.append({
       run: this.#run,

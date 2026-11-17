@@ -224,6 +224,57 @@ describe("sendAuditWebhook (F7-5)", () => {
     expect(calls).toBe(3);
   });
 
+  test("não segue redirect para host privado/metadata (307)", async () => {
+    let redirectHits = 0;
+    const targetHits: string[] = [];
+    const target = Bun.serve({
+      port: 0,
+      fetch() {
+        targetHits.push("hit");
+        return Response.json({});
+      },
+    });
+    const redirector = Bun.serve({
+      port: 0,
+      fetch() {
+        redirectHits++;
+        return new Response(null, {
+          status: 307,
+          headers: { location: `http://127.0.0.1:${target.port}/latest/meta-data/` },
+        });
+      },
+    });
+    try {
+      const ok = await sendAuditWebhook(`http://127.0.0.1:${redirector.port}/e`, event, { retries: 1, backoffMs: 1 });
+      expect(ok).toBe(false);
+      expect(redirectHits).toBe(1);
+      expect(targetHits).toEqual([]); // destino do redirect nunca recebe o POST
+    } finally {
+      redirector.stop(true);
+      target.stop(true);
+    }
+  });
+
+  test("não segue redirect nem na mesma origem (308)", async () => {
+    const hits: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const path = new URL(req.url).pathname;
+        if (path === "/e") return new Response(null, { status: 308, headers: { location: "/outro" } });
+        hits.push(path);
+        return Response.json({});
+      },
+    });
+    try {
+      const ok = await sendAuditWebhook(`http://127.0.0.1:${server.port}/e`, event, { retries: 1, backoffMs: 1 });
+      expect(ok).toBe(false);
+      expect(hits).toEqual([]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("webhook recebe eventos de um Auditor real", async () => {
     const received: AuditEvent[] = [];
     const server = Bun.serve({

@@ -28,6 +28,8 @@ Cliente MCP (Model Context Protocol) no ASTRO (C2, #56): config `mcpServers`, tr
 
 Timeout por requisição nos três: aborta só a própria pendência; o transporte segue usável.
 
+Redirect não é seguido nos transports `http` e `sse` (GET e POST usam `redirect: "error"`): 3xx vira falha de rede e o header de credencial nunca chega ao destino do `Location` (I-03); no connect isso marca o servidor indisponível e, numa requisição já aberta, o erro sobe ao chamador.
+
 ## Registry (`src/mcp/registry.ts`)
 
 - Namespace da tool vista pelo modelo: `mcp__<server>__<tool>`; colisão com builtin/plugin ou outra tool MCP é ignorada com warn (builtin nunca é sobrescrita).

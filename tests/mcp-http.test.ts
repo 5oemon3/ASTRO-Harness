@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { MCPClient } from "../src/mcp/client";
+import { HttpTransport } from "../src/mcp/transport/http";
+import { SseTransport } from "../src/mcp/transport/sse";
 
 /** Servidor MCP streamable HTTP de mentira: POST JSON-RPC responde JSON simples. */
 function httpServer(opts: { delayMs?: number; stream?: boolean; non2xx?: boolean; badData?: boolean; utf8Stream?: boolean; errorNull?: boolean } = {}) {
@@ -315,4 +317,143 @@ test("transport sse trata error null como sucesso", async () => {
       expect(await Promise.race([outcome, new Promise<string>((resolve) => setTimeout(() => resolve("pendurou"), 500))])).toBe("sse-ok");
     } finally { client.close(); }
   } finally { server.stop(true); }
+});
+
+/** Servidor de destino que conta acessos e guarda o header de credencial recebido. */
+function redirectTarget(): { server: ReturnType<typeof Bun.serve>; hits: (string | null)[] } {
+  const hits: (string | null)[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      hits.push(req.headers.get("x-api-key"));
+      return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+    },
+  });
+  return { server, hits };
+}
+
+test("transport http recusa redirect 307 para host privado e não reenvia header", async () => {
+  const { server: target, hits } = redirectTarget();
+  let redirectHits = 0;
+  const redirector = Bun.serve({
+    port: 0,
+    fetch() {
+      redirectHits++;
+      return new Response(null, {
+        status: 307,
+        headers: { location: `http://127.0.0.1:${target.port}/mcp` },
+      });
+    },
+  });
+  const token = "tok-http-redirect";
+  try {
+    const transport = new HttpTransport({
+      url: `http://127.0.0.1:${redirector.port}/mcp`,
+      headers: { "x-api-key": token },
+      timeoutMs: 1000,
+    });
+    try {
+      const message = await transport.request("initialize", {}).then(
+        () => "respondeu",
+        (error: Error) => error.message,
+      );
+      expect(message).toMatch(/falha de rede no MCP initialize/);
+      expect(message).not.toContain(token);
+      expect(redirectHits).toBe(1);
+      expect(hits).toEqual([]); // destino do redirect nunca recebe o POST nem o header
+    } finally {
+      transport.close();
+    }
+  } finally {
+    redirector.stop(true);
+    target.stop(true);
+  }
+});
+
+test("transport sse recusa redirect 308 no GET inicial e não envia header", async () => {
+  const hits: (string | null)[] = [];
+  const target = Bun.serve({
+    port: 0,
+    fetch(req) {
+      hits.push(req.headers.get("x-api-key"));
+      return new Response("event: endpoint\ndata: /messages\n\n", {
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  });
+  let redirectHits = 0;
+  const redirector = Bun.serve({
+    port: 0,
+    fetch() {
+      redirectHits++;
+      return new Response(null, {
+        status: 308,
+        headers: { location: `http://127.0.0.1:${target.port}/sse` },
+      });
+    },
+  });
+  const token = "tok-sse-redirect";
+  try {
+    const message = await SseTransport.connect({
+      url: `http://127.0.0.1:${redirector.port}/sse`,
+      headers: { "x-api-key": token },
+      timeoutMs: 1000,
+    }).then(
+      () => "conectou",
+      (error: Error) => error.message,
+    );
+    expect(message).toMatch(/falha de rede ao abrir o stream SSE/);
+    expect(message).not.toContain(token);
+    expect(redirectHits).toBe(1);
+    expect(hits).toEqual([]);
+  } finally {
+    redirector.stop(true);
+    target.stop(true);
+  }
+});
+
+test("transport sse recusa redirect no POST e não reenvia header", async () => {
+  const { server: target, hits } = redirectTarget();
+  const redirector = Bun.serve({
+    port: 0,
+    fetch(req) {
+      if (req.method === "GET") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("event: endpoint\ndata: /messages\n\n"));
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }
+      return new Response(null, {
+        status: 307,
+        headers: { location: `http://127.0.0.1:${target.port}/messages` },
+      });
+    },
+  });
+  const token = "tok-sse-post-redirect";
+  try {
+    const transport = await SseTransport.connect({
+      url: `http://127.0.0.1:${redirector.port}/sse`,
+      headers: { "x-api-key": token },
+      timeoutMs: 300,
+    });
+    try {
+      const outcome = transport.request("initialize", {}).then(
+        () => "enviou",
+        (error: Error) => error.message,
+      );
+      const message = await Promise.race([outcome, new Promise<string>((resolve) => setTimeout(() => resolve("pendurou"), 900))]);
+      expect(message).toMatch(/falha ao enviar no MCP initialize/);
+      expect(message).not.toContain(token);
+      expect(hits).toEqual([]);
+    } finally {
+      transport.close();
+    }
+  } finally {
+    redirector.stop(true);
+    target.stop(true);
+  }
 });

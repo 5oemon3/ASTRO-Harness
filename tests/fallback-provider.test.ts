@@ -80,7 +80,56 @@ describe("FallbackProvider (C6)", () => {
     expect(calls.filter((c) => c === "a")).toHaveLength(3); // 1 + 2 retries (outage é retryable, D-14)
     const events = audit.readAll();
     expect(events.find((e) => e.tipo === "provider.failure")!.payload).toMatchObject({ provider: "a", errorClass: "outage" });
-    expect(events.find((e) => e.tipo === "provider.success")!.payload).toMatchObject({ provider: "b" });
+    expect(events.find((e) => e.tipo === "provider.complete")!.payload).toMatchObject({ provider: "b" });
+  });
+
+  test("provider.complete carrega duração e custo quando conhecido", async () => {
+    const audit = auditOf();
+    const a: Provider = { complete: async () => resp({ provider: "a" }) };
+    const fb = new FallbackProvider({
+      providers: [{ name: "a", priority: 1, create: () => a, costUsd: () => 0.25 }],
+      retryBackoffMs: 1,
+      audit,
+      run: "r1",
+    });
+    await fb.complete(req);
+    const event = audit.readAll().find((e) => e.tipo === "provider.complete")!;
+    expect(event.payload).toMatchObject({ provider: "a", attempt: 1, costUsd: 0.25 });
+    expect(Number.isInteger(event.payload.durationMs)).toBe(true);
+    expect(event.payload.durationMs as number).toBeGreaterThanOrEqual(0);
+  });
+
+  test("provider.complete omite custo ausente ou inválido (D-10)", async () => {
+    for (const costUsd of [() => null, () => Number.NaN, () => -1]) {
+      const audit = auditOf();
+      const a: Provider = { complete: async () => resp() };
+      const fb = new FallbackProvider({
+        providers: [{ name: "a", priority: 1, create: () => a, costUsd }],
+        retryBackoffMs: 1,
+        audit,
+        run: "r1",
+      });
+      await fb.complete(req);
+      const event = audit.readAll().find((e) => e.tipo === "provider.complete")!;
+      expect(event.payload).not.toHaveProperty("costUsd");
+    }
+  });
+
+  test("callback de custo que lança não derruba o completion nem inventa costUsd", async () => {
+    const audit = auditOf();
+    const a: Provider = { complete: async () => resp() };
+    const fb = new FallbackProvider({
+      providers: [{
+        name: "a", priority: 1, create: () => a,
+        costUsd: () => { throw new Error("preço indisponível"); },
+      }],
+      retryBackoffMs: 1,
+      audit,
+      run: "r1",
+    });
+    await expect(fb.complete(req)).resolves.toMatchObject({ content: "ok", provider: "a" });
+    const event = audit.readAll().find((e) => e.tipo === "provider.complete")!;
+    expect(event.payload).not.toHaveProperty("costUsd");
   });
 
   test("hard_quota não retrya: A uma vez, B responde", async () => {
@@ -136,7 +185,7 @@ describe("FallbackProvider (C6)", () => {
     const failures = audit.readAll().filter((e) => e.tipo === "provider.failure");
     expect(failures.map((e) => (e.payload as { provider: string }).provider)).toEqual(["a", "a", "b"]);
     expect(failures.at(-1)!.payload).toMatchObject({ provider: "b", errorClass: "invalid_request" });
-    expect(audit.readAll().some((e) => e.tipo === "provider.success")).toBe(true);
+    expect(audit.readAll().some((e) => e.tipo === "provider.complete")).toBe(true);
   });
 
   test("maxRetries fracionário → ConfigError", () => {
@@ -167,7 +216,7 @@ describe("FallbackProvider (C6)", () => {
         },
         models: [
           { provider: "mocka", id: "m1", tags: ["writing-code"], context: 4096 },
-          { provider: "mockb", id: "m1", tags: ["writing-code"], context: 4096 },
+          { provider: "mockb", id: "m1", tags: ["writing-code"], context: 4096, price: { inputPerM: 1, outputPerM: 2, fonte: "t", verificado: true } },
         ],
         agent: { model: "mocka/m1", maxSteps: 2, tools: [] },
         paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
@@ -180,8 +229,13 @@ describe("FallbackProvider (C6)", () => {
       expect(usage?.provider).toBe("mockb"); // provider real, não o wrapper nem o primário
       const audit = readFileSync(join(dir, ".astro", "audit.jsonl"), "utf8");
       expect(audit).toContain("provider.failure");
-      expect(audit).toContain("provider.success");
+      expect(audit).toContain("provider.complete");
       expect(audit).toContain("agent.lock.moved");
+      // Custo do provider que atendeu vem do callback com o preço curado (D-10).
+      const complete = audit.trim().split("\n").map((line) => JSON.parse(line) as { tipo?: string; payload?: Record<string, unknown> })
+        .find((event) => event.tipo === "provider.complete");
+      expect(complete?.payload).toMatchObject({ provider: "mockb" });
+      expect(complete?.payload?.costUsd).toBeCloseTo((10 * 1 + 5 * 2) / 1_000_000, 10);
       expect(activeLocks(new Ledger(join(dir, ".astro", "ledger.jsonl")))).toEqual([]);
       expect(audit).not.toContain("test-key"); // I-03
     } finally {
@@ -202,7 +256,7 @@ describe("FallbackProvider (C6)", () => {
       }));
       const err = await runTask({ approveSwap: () => true, configPath: cfgPath, task: "x", cwd: dir, env: testEnv({ KEY_A: "test-key" }) }).then(() => null, (e) => e as Error);
       expect(String(err?.message)).toContain("500");
-      expect(readFileSync(join(dir, ".astro", "audit.jsonl"), "utf8")).not.toContain("provider.success");
+      expect(readFileSync(join(dir, ".astro", "audit.jsonl"), "utf8")).not.toContain("provider.complete");
     } finally {
       down.stop(true);
     }
@@ -224,7 +278,7 @@ describe("FallbackProvider (C6)", () => {
       profile: "premium",
     });
     await fb.complete(req);
-    for (const tipo of ["provider.failure", "provider.success"] as const) {
+    for (const tipo of ["provider.failure", "provider.complete"] as const) {
       expect(audit.readAll().find((e) => e.tipo === tipo)!.payload).toMatchObject({ profile: "premium" });
     }
   });

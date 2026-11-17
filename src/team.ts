@@ -138,6 +138,7 @@ export async function sendAuditWebhook(
         method: "POST",
         headers: { "content-type": "application/json" },
         body,
+        redirect: "error", // 307/308 para metadata/loopback não recebem o evento (I-03)
         signal: AbortSignal.timeout(timeoutMs), // endpoint pendurado não trava o envio
       });
       if (response.ok) {

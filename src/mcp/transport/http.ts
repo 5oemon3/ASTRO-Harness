@@ -34,6 +34,7 @@ export class HttpTransport {
         method: "POST",
         headers: this.#protocolHeaders(),
         body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+        redirect: "error", // redirect nunca leva header de credencial a outro host (I-03)
         signal: requestAbort.signal,
       });
       const session = response.headers.get("mcp-session-id");
@@ -93,7 +94,7 @@ export class HttpTransport {
   notify(method: string, params: Record<string, unknown>): void {
     if (this.#closed) return;
     // Notificação JSON-RPC não tem id e não aguarda resposta (melhor-esforço).
-    void fetch(this.#url, { method: "POST", headers: this.#protocolHeaders(), body: JSON.stringify({ jsonrpc: "2.0", method, params }), signal: this.#closeController.signal }).catch(() => {});
+    void fetch(this.#url, { method: "POST", headers: this.#protocolHeaders(), body: JSON.stringify({ jsonrpc: "2.0", method, params }), redirect: "error", signal: this.#closeController.signal }).catch(() => {});
   }
 
   /** True depois de close() ou de sessão expirada; timeout de requisição não mata (controller por requisição). */
