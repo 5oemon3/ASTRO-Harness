@@ -220,6 +220,7 @@ bun run typecheck
 | [`docs/review-checklist.md`](docs/review-checklist.md) | Pull request review checklist. |
 | [`docs/invariants.md`](docs/invariants.md) | Invariants I-01 to I-22, mapped to code. |
 | [`docs/decisions.md`](docs/decisions.md) | Decisions D-01 to D-20. |
+| [`docs/config-parity.md`](docs/config-parity.md) | CLI, TUI and REPL configuration parity, ownership and precedence (D-31, D-CFG2/Q-10). |
 | [`docs/adr/`](docs/adr/) | Architecture decision records. |
 | [`docs/providers.md`](docs/providers.md) | Providers, credentials and SDKs. |
 | [`docs/release.md`](docs/release.md) | Release gate, tag, publish and rollback. |
