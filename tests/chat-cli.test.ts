@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Auditor } from "../src/audit";
+import { SessionApi } from "../src/chat/session-api";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -39,6 +40,14 @@ test("bun src/cli.ts chat roda um turno e encerra com /exit", async () => {
     expect(stdout).toContain("1 step(s)");
     expect(existsSync(join(cwd, ".astro", "sessions.db"))).toBe(true);
     expect(existsSync(join(cwd, ".astro", "sessions"))).toBe(false); // o runtime não grava JSON (#366)
+    const api = new SessionApi(join(cwd, ".astro"));
+    try {
+      const sessions = api.list();
+      expect(sessions).toHaveLength(1);
+      expect(api.load(sessions[0]!.id).messages).toContainEqual({ role: "assistant", content: "ok do mock" });
+    } finally {
+      api.close();
+    }
     const audit = new Auditor(join(cwd, ".astro", "audit.jsonl")).readAll();
     expect(audit.some((e) => e.tipo === "chat.prompt")).toBe(true);
     expect(JSON.stringify(audit)).not.toContain("olá");
@@ -72,7 +81,8 @@ test("chat continua com /exit quando o banco de sessões está corrompido", asyn
   expect(exit).toBe(0);
   expect(stdout).toContain("astro chat");
   expect(stderr).toContain("aviso: sessões SQLite indisponíveis");
-  expect(stderr).toContain("/sessions e /resume desativados");
+  expect(stderr).toContain("/sessions, /resume, auto-save e /save desativados");
+  expect(stderr).toContain("/export");
   expect(stderr).not.toContain("erro:");
 }, 20_000);
 

@@ -1,11 +1,13 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { redactSecrets } from "../sanitize-external";
 import { MAX_SESSION_BYTES, sanitizeSessionName, SessionStore, sanitizeSessionRecord, type SessionRecord } from "./store";
 
 const DATABASE_SCHEMA_VERSION = 3;
+/** Stamp de `SessionStore.write` (startedAt com `:`/`.` trocados por `-`). */
+const LEGACY_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d{3})?(?:Z|[+-]\d{2}-\d{2})$/;
 
 interface SessionRow {
   record_json: string;
@@ -58,7 +60,7 @@ export function openSessionApi(astroDir: string): SessionApi | undefined {
   } catch (error) {
     const message = redactSecrets(error instanceof Error ? error.message : String(error));
     console.error(
-      `aviso: sessões SQLite indisponíveis (${message}); /sessions e /resume desativados`,
+      `aviso: sessões SQLite indisponíveis (${message}); /sessions, /resume, auto-save e /save desativados; use /export para salvar o transcript`,
     );
     return undefined;
   }
@@ -130,9 +132,15 @@ export class SessionApi {
 
   /** Cria ou substitui uma sessão com a mesma sanitização de escrita do JSON v1. */
   save(value: SessionRecord): SessionRecord {
+    // exclusão explícita é definitiva para autosave; `create` é a recriação explícita (#428)
+    if (this.#isTombstoned(value.id)) throw new Error(`sessão excluída: ${value.id}`);
     // o snapshot do runtime não carrega `name`: o nome dado no rename sobrevive ao auto-save
     const name = value.name ?? this.#storedName(value.id);
     return this.#writeRecord(this.#prepare(name === undefined ? value : { ...value, name }), true);
+  }
+
+  #isTombstoned(id: string): boolean {
+    return this.#db.query("SELECT id FROM session_tombstones WHERE id = ?").get(id) !== null;
   }
 
   /** Nome já gravado da sessão; `undefined` quando não há nome ou não há sessão. */
@@ -184,7 +192,35 @@ export class SessionApi {
       }
       return deleted;
     });
-    return transaction();
+    const deleted = transaction();
+    // Retry a purga mesmo quando a linha já não existe: um delete anterior pode ter deixado a cópia.
+    if (deleted || this.#isTombstoned(id)) {
+      if (!this.#purgeLegacy(id)) {
+        // sem caminho absoluto nem conteúdo; o tombstone ainda segura enquanto o banco existir
+        console.warn("aviso: cópia legada da sessão não removida; a sessão não volta enquanto o banco existir");
+      }
+    }
+    return deleted;
+  }
+
+  /** Remove cópias legadas por id, inclusive as ilegíveis (nome carrega o id), e confirma o resultado. */
+  #purgeLegacy(id: string): boolean {
+    const dir = join(this.astroDir, "sessions");
+    try { new SessionStore(dir).deleteById(id); } catch { /* a varredura por nome abaixo cobre */ }
+    const suffix = `-${id}.json`;
+    try {
+      for (const name of readdirSync(dir)) {
+        if (!name.endsWith(suffix)) continue;
+        // `<stamp>-<id>.json`: sem o stamp exato, `my-s1` casaria com o id `s1`.
+        if (!LEGACY_STAMP.test(name.slice(0, -suffix.length))) continue;
+        try { unlinkSync(join(dir, name)); } catch { /* confirmado abaixo */ }
+      }
+      // Só conta como pendente o que tem o stamp do harness; `my-s1` não é cópia de `s1`.
+      return !readdirSync(dir).some((name) =>
+        name.endsWith(suffix) && LEGACY_STAMP.test(name.slice(0, -suffix.length)));
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT";
+    }
   }
 
   close(): void {

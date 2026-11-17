@@ -287,13 +287,14 @@ describe("session API JSON migration", () => {
       const apiInstance = new SessionApi(astroDir);
       api = apiInstance;
       expect(apiInstance.delete("deleted-session")).toBe(true);
-      expect(legacy.list().map(({ id }) => id)).toEqual(["deleted-session"]); // o store JSON não é modificado (#366)
+      expect(legacy.list().map(({ id }) => id)).toEqual([]); // exclusão explícita purga o JSON legado (#428)
       legacy.write(makeRecord({ id: "new-json-session", turns: 2 }));
 
       expect(apiInstance.list().map(({ id }) => id)).toEqual(["new-json-session"]);
       expect(() => apiInstance.load("deleted-session")).toThrow(/não encontrada/);
       apiInstance.close();
       api = undefined;
+      rmSync(join(astroDir, "sessions.db"), { force: true });
 
       const reopenedApi = new SessionApi(astroDir);
       reopened = reopenedApi;
@@ -302,6 +303,85 @@ describe("session API JSON migration", () => {
     } finally {
       api?.close();
       reopened?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("tombstone blocks a recreated legacy copy while the DB exists (#428)", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-tombstone-back-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write(makeRecord({ id: "deleted-session", turns: 1 }));
+    const api = new SessionApi(astroDir);
+    try {
+      expect(api.delete("deleted-session")).toBe(true);
+      legacy.write(makeRecord({ id: "deleted-session", turns: 1 }));
+      expect(api.list().map(({ id }) => id)).toEqual([]);
+      expect(() => api.load("deleted-session")).toThrow(/não encontrada/);
+    } finally {
+      api.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("delete retries the purge and warns when a legacy copy cannot be removed (#428)", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-purge-fail-"));
+    const astroDir = join(root, ".astro");
+    const legacyDir = join(astroDir, "sessions");
+    mkdirSync(legacyDir, { recursive: true });
+    const api = new SessionApi(astroDir);
+    const blocker = join(legacyDir, "2026-11-04T12-00-00-000Z-stuck.json");
+    mkdirSync(blocker);
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      api.create(makeRecord({ id: "stuck", turns: 1 }));
+      expect(api.delete("stuck")).toBe(true);
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("cópia legada"));
+      rmSync(blocker, { recursive: true, force: true });
+      expect(api.delete("stuck")).toBe(false); // retry purge apesar da linha já removida
+      expect(readdirSync(legacyDir).filter((name) => name.endsWith("-stuck.json"))).toEqual([]);
+    } finally {
+      warning.mockRestore();
+      api.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("delete não remove a cópia legada de outro id com sufixo parecido (#428)", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-suffix-"));
+    const astroDir = join(root, ".astro");
+    const legacy = new SessionStore(join(astroDir, "sessions"));
+    legacy.write(makeRecord({ id: "s1", turns: 1 }));
+    legacy.write(makeRecord({ id: "my-s1", turns: 1 }));
+    const api = new SessionApi(astroDir);
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(api.delete("s1")).toBe(true);
+      expect(legacy.list().map(({ id }) => id)).toEqual(["my-s1"]);
+      expect(api.list().map(({ id }) => id)).toEqual(["my-s1"]);
+      expect(warning).not.toHaveBeenCalled(); // `my-s1` não é cópia de `s1`
+    } finally {
+      warning.mockRestore();
+      api.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("save refuses a tombstoned session; create can recreate it (#428)", () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-session-api-delete-save-"));
+    const api = new SessionApi(join(root, ".astro"));
+    try {
+      const record = makeRecord({ id: "deleted-save", turns: 1 });
+      api.create(record);
+      expect(api.delete("deleted-save")).toBe(true);
+      expect(() => api.save({ ...record, turns: 2 })).toThrow(/excluída|tombstone/i);
+      expect(api.list()).toEqual([]);
+      expect(api.create(record)).toMatchObject({ id: "deleted-save" });
+      expect(() => api.save({ ...record, turns: 3 })).not.toThrow();
+      expect(api.load("deleted-save").turns).toBe(3);
+      expect(api.list()).toHaveLength(1);
+    } finally {
+      api.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

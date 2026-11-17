@@ -197,6 +197,31 @@ describe("REPL do chat (T1, #62)", () => {
     }
   });
 
+  test("auto-save da REPL sanitiza segredo da mensagem (#428)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "astro-chat-repl-redact-"));
+    const sessionApi = new SessionApi(join(root, ".astro"));
+    const secret = ["ghp", "_", "repl", "secret", "123456"].join("");
+    class SecretSession extends FakeSession {
+      override snapshot(): SessionSnapshot {
+        return { ...super.snapshot(), messages: [{ role: "user", content: `prompt ${secret}` }] };
+      }
+    }
+    try {
+      await runRepl(new SecretSession(), new ScriptedIO(["olá", "/exit"]), { sessionApi });
+      const db = new Database(sessionApi.databasePath, { readonly: true });
+      try {
+        const raw = db.query("SELECT record_json FROM sessions WHERE id = ?").get("s1") as { record_json: string };
+        expect(raw.record_json).not.toContain(secret);
+        expect(raw.record_json).toContain("[REDACTED]");
+      } finally {
+        db.close();
+      }
+    } finally {
+      sessionApi.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("EOF encerra e fecha a sessão", async () => {
     const session = new FakeSession();
     await runRepl(session, new ScriptedIO([]));
@@ -316,7 +341,8 @@ describe("REPL do chat (T1, #62)", () => {
       await expect(runRepl(session, io, { sessionApi }))
         .resolves.toBeUndefined();
       expect(session.closed).toBe(1);
-      expect(warning).toHaveBeenCalledWith(expect.stringContaining("/sessions e /resume desativados"));
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("/sessions, /resume, auto-save e /save desativados"));
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("/export"));
     } finally {
       warning.mockRestore();
       sessionApi?.close();

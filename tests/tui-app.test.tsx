@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TuiApp } from "../src/tui/app";
@@ -438,13 +438,14 @@ test("/exit grava a sessão sanitizada antes de fechar", async () => {
   const sessionApi = new SessionApi(join(dir, ".astro"));
   let exits = 0;
   const instance = render(
-    <TuiApp session={new FakeSession()} cwd="/tmp/astro" sessionApi={sessionApi} onExit={() => { exits++; }} />,
+    <TuiApp session={new FakeSession()} cwd={dir} sessionApi={sessionApi} onExit={() => { exits++; }} />,
   );
   try {
     instance.stdin.write("/exit");
     instance.stdin.write("\r");
     await waitFor(() => exits === 1);
     expect(sessionApi.list()).toHaveLength(1);
+    expect(existsSync(join(dir, ".astro", "sessions"))).toBe(false); // sem dual-write JSON (#366)
   } finally {
     instance.unmount();
   }
@@ -996,6 +997,43 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
     expect(reopened.list().find((item) => item.id === "abc")?.name).toBe("nova");
   } finally {
     reopened.close();
+  }
+});
+
+test("/sessions renomeia a sessão atual e o auto-save preserva o nome (#428)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-current-rename-"));
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "eco:oi"));
+    await waitFor(() => sessionApi.list().some((item) => item.id === "s1"));
+
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("r");
+    await waitFor(() => frameHas(instance, "nome: _"));
+    instance.stdin.write("nova");
+    instance.stdin.write("\r");
+    await waitFor(() => sessionApi.list().find((item) => item.id === "s1")?.name === "nova");
+
+    instance.stdin.write("\u001b"); // fecha o picker
+    await waitFor(() => frameHas(instance, "Sessões") === false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("segundo");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "eco:segundo"));
+
+    expect(sessionApi.load("s1").name).toBe("nova");
+    expect(existsSync(join(cwd, ".astro", "sessions"))).toBe(false);
+  } finally {
+    instance.unmount();
+    sessionApi.close();
   }
 });
 
