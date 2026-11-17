@@ -7,9 +7,10 @@ import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, 
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { DEFAULT_ATTACHMENTS, loadConfig, loadConfigRaw, type MCPServerConfig } from "./core/config";
-import { loadEffectiveConfig } from "./providers/profiles";
+import { DEFAULT_ATTACHMENTS, loadConfig, loadConfigRaw, type AstroConfig, type MCPServerConfig } from "./core/config";
+import { loadEffectiveConfig, NoProviderError } from "./providers/profiles";
 import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "./attachments/store";
+import type { HealthCheck } from "./health";
 import { ARTIFACT_KEY_PATTERN, SHA256_HEX } from "./internal-ids";
 import { headerEnvNames } from "./mcp/headers";
 import { resolveAstroHome } from "./permissions";
@@ -20,6 +21,8 @@ import { loadSkillsFromRoot } from "./skills/loader";
 export type CheckLevel = "ok" | "warn" | "fail";
 
 export interface Check {
+  /** Slug estável do contrato JSON (#61); nunca muda com o texto de exibição. */
+  name: string;
   level: CheckLevel;
   label: string;
   detail?: string;
@@ -27,6 +30,34 @@ export interface Check {
 
 export interface DoctorReport {
   checks: Check[];
+}
+
+/** Status do contrato `DoctorCheck[]` (#61): `fail` interno aparece como `error`. */
+export type DoctorStatus = "ok" | "warn" | "error";
+
+/** Forma estável de `--json` (#61): `name/status/message` + aliases `doctor/v1`. */
+export interface DoctorCheck {
+  name: string;
+  status: DoctorStatus;
+  message: string;
+  /** @deprecated alias de `status`; `error` aparece como `fail`. */
+  level: CheckLevel;
+  /** @deprecated alias de `name`. */
+  label: string;
+  /** @deprecated alias de `message`, omitido quando não há detalhe. */
+  detail?: string;
+}
+
+/** Converte o check interno (`fail`) no contrato público (`error`). */
+export function toDoctorCheck(check: Check): DoctorCheck {
+  return {
+    name: check.name,
+    status: check.level === "fail" ? "error" : check.level,
+    message: check.detail ?? "",
+    level: check.level,
+    label: check.label,
+    ...(check.detail === undefined ? {} : { detail: check.detail }),
+  };
 }
 
 export interface ProviderFact {
@@ -115,7 +146,7 @@ export interface DoctorSummary {
 /** Payload estável de `astro doctor --json`. */
 export interface DoctorJson {
   schema: "doctor/v1";
-  checks: Check[];
+  checks: DoctorCheck[];
   summary: DoctorSummary;
   fixes?: FixReport;
 }
@@ -142,16 +173,17 @@ export function satisfiesMinimum(actual: string, range: string): boolean {
 }
 
 function versionCheck(
+  name: string,
   label: string,
   actual: string | undefined,
   range: string | undefined,
   missingDetail: string,
 ): Check {
-  if (actual === undefined) return { level: "fail", label, detail: missingDetail };
-  if (range === undefined) return { level: "ok", label, detail: actual };
+  if (actual === undefined) return { name, level: "fail", label, detail: missingDetail };
+  if (range === undefined) return { name, level: "ok", label, detail: actual };
   return satisfiesMinimum(actual, range)
-    ? { level: "ok", label, detail: `${actual} (mínimo ${range})` }
-    : { level: "fail", label, detail: `${actual} abaixo do mínimo ${range}` };
+    ? { name, level: "ok", label, detail: `${actual} (mínimo ${range})` }
+    : { name, level: "fail", label, detail: `${actual} abaixo do mínimo ${range}` };
 }
 
 function credentialChecks(
@@ -160,22 +192,23 @@ function credentialChecks(
 ): Check[] {
   if (providers === undefined || providers.length === 0) return [];
   return providers.map((provider) => {
+    const name = `credential:${provider.id}`;
     const label = `credencial ${provider.id}`;
     if (provider.credentialsReadable !== undefined) {
       return provider.credentialsReadable
-        ? { level: "ok", label, detail: "arquivo de credenciais legível" } satisfies Check
-        : { level: "warn", label, detail: "arquivo de credenciais ausente ou ilegível" } satisfies Check;
+        ? { name, level: "ok", label, detail: "arquivo de credenciais legível" } satisfies Check
+        : { name, level: "warn", label, detail: "arquivo de credenciais ausente ou ilegível" } satisfies Check;
     }
-    if (provider.credentialRef === undefined) return { level: "ok", label, detail: "sem chave" } satisfies Check;
+    if (provider.credentialRef === undefined) return { name, level: "ok", label, detail: "sem chave" } satisfies Check;
     if (isVaultRef(provider.credentialRef)) {
       return isVaultCredentialRef(provider.credentialRef)
-        ? { level: "ok", label, detail: "credencial no cofre local" } satisfies Check
-        : { level: "warn", label, detail: "referência de cofre inválida" } satisfies Check;
+        ? { name, level: "ok", label, detail: "credencial no cofre local" } satisfies Check
+        : { name, level: "warn", label, detail: "referência de cofre inválida" } satisfies Check;
     }
     const present = (env[provider.credentialRef] ?? "").length > 0;
     return present
-      ? { level: "ok", label, detail: `${provider.credentialRef} presente` } satisfies Check
-      : { level: "warn", label, detail: `${provider.credentialRef} ausente no ambiente` } satisfies Check;
+      ? { name, level: "ok", label, detail: `${provider.credentialRef} presente` } satisfies Check
+      : { name, level: "warn", label, detail: `${provider.credentialRef} ausente no ambiente` } satisfies Check;
   });
 }
 
@@ -185,18 +218,19 @@ function mcpCheck(fact: McpFact | undefined): Check | undefined {
     ? "nenhum servidor configurado"
     : `${fact.servers} servidor${fact.servers === 1 ? "" : "es"} · ${fact.enabled} habilitado${fact.enabled === 1 ? "" : "s"}`;
   return fact.missingHeaderEnv.length === 0
-    ? { level: "ok", label: "mcp", detail }
-    : { level: "warn", label: "mcp", detail: `${detail} · header env ausente: ${fact.missingHeaderEnv.join(", ")}` };
+    ? { name: "mcp", level: "ok", label: "mcp", detail }
+    : { name: "mcp", level: "warn", label: "mcp", detail: `${detail} · header env ausente: ${fact.missingHeaderEnv.join(", ")}` };
 }
 
 function skillsCheck(fact: SkillsFact | undefined): Check | undefined {
   if (fact === undefined) return undefined;
   const total = fact.project + fact.user;
   if (fact.warnings.length > 0) {
-    return { level: "warn", label: "skills", detail: fact.warnings.join("; ") };
+    return { name: "skills", level: "warn", label: "skills", detail: fact.warnings.join("; ") };
   }
-  if (total === 0) return { level: "ok", label: "skills", detail: "nenhuma skill instalada (opcional)" };
+  if (total === 0) return { name: "skills", level: "ok", label: "skills", detail: "nenhuma skill instalada (opcional)" };
   return {
+    name: "skills",
     level: "ok",
     label: "skills",
     detail: `${total} válida${total === 1 ? "" : "s"} (${fact.project} no projeto, ${fact.user} do usuário)`,
@@ -206,17 +240,18 @@ function skillsCheck(fact: SkillsFact | undefined): Check | undefined {
 function diskCheck(fact: DiskFact | undefined): Check | undefined {
   if (fact === undefined) return undefined;
   if (!fact.writable) {
-    return { level: "fail", label: "disco", detail: `${fact.cwd} atributo de escrita do SO negado; ledger/audit podem não gravar` };
+    return { name: "disk", level: "fail", label: "disco", detail: `${fact.cwd} atributo de escrita do SO negado; ledger/audit podem não gravar` };
   }
   const free = fact.freeBytes === undefined ? "" : ` · ${formatBytes(fact.freeBytes)} livres`;
   // `accessSync` vê o atributo do SO, não prova escrita (ACL do Windows pode negar).
-  return { level: "ok", label: "disco", detail: `${fact.cwd} atributo de escrita do SO presente${free} (não é prova de escrita)` };
+  return { name: "disk", level: "ok", label: "disco", detail: `${fact.cwd} atributo de escrita do SO presente${free} (não é prova de escrita)` };
 }
 
 /** Redação central de label e detalhe: segredo em nome/caminho nunca chega à saída (I-03). */
 function sanitizeCheck(check: Check): Check {
   return {
     ...check,
+    name: redactSecrets(check.name),
     label: redactSecrets(check.label),
     ...(check.detail === undefined ? {} : { detail: redactSecrets(check.detail) }),
   };
@@ -232,25 +267,26 @@ function formatBytes(bytes: number): string {
 /** Avalia fatos coletados. Puro: não lê fs, env nem rede. */
 export function runChecks(facts: DoctorFacts): DoctorReport {
   const checks: Check[] = [];
-  checks.push(versionCheck("bun", facts.bunVersion, facts.engines.bun, "versão do Bun indisponível"));
-  checks.push(versionCheck("node", facts.nodeVersion, facts.engines.node, "node não encontrado no PATH"));
+  checks.push(versionCheck("bun", "bun", facts.bunVersion, facts.engines.bun, "versão do Bun indisponível"));
+  checks.push(versionCheck("node", "node", facts.nodeVersion, facts.engines.node, "node não encontrado no PATH"));
 
   checks.push(facts.missingModules.length === 0
-    ? { level: "ok", label: "dependências", detail: REQUIRED_MODULES.join(", ") }
-    : { level: "fail", label: "dependências", detail: `não resolvem: ${facts.missingModules.join(", ")}; rode bun install` });
+    ? { name: "dependencies", level: "ok", label: "dependências", detail: REQUIRED_MODULES.join(", ") }
+    : { name: "dependencies", level: "fail", label: "dependências", detail: `não resolvem: ${facts.missingModules.join(", ")}; rode bun install` });
 
   const missingArtifacts = facts.artifacts.filter((artifact) => !artifact.exists);
   checks.push(missingArtifacts.length === 0
-    ? { level: "ok", label: "dist", detail: facts.artifacts.map((artifact) => artifact.path).join(", ") }
-    : { level: "warn", label: "dist", detail: `${missingArtifacts.map((artifact) => artifact.path).join(", ")} ausente; rode bun run build` });
+    ? { name: "dist", level: "ok", label: "dist", detail: facts.artifacts.map((artifact) => artifact.path).join(", ") }
+    : { name: "dist", level: "warn", label: "dist", detail: `${missingArtifacts.map((artifact) => artifact.path).join(", ")} ausente; rode bun run build` });
 
   if (!facts.config.present) {
-    checks.push({ level: "ok", label: "config", detail: `${facts.config.path} ausente; a TUI abre o setup de provider` });
+    checks.push({ name: "config", level: "ok", label: "config", detail: `${facts.config.path} ausente; a TUI abre o setup de provider` });
   } else if (facts.config.error !== undefined) {
-    checks.push({ level: "fail", label: "config", detail: redactSecrets(facts.config.error) });
+    checks.push({ name: "config", level: "fail", label: "config", detail: redactSecrets(facts.config.error) });
   } else {
     const count = facts.config.providers?.length ?? 0;
     checks.push({
+      name: "config",
       level: "ok",
       label: "config",
       detail: `${facts.config.path} válida (${count} provider${count === 1 ? "" : "s"})`,
@@ -263,31 +299,32 @@ export function runChecks(facts: DoctorFacts): DoctorReport {
   const globalConfig = facts.config.global;
   if (globalConfig !== undefined && globalConfig.present) {
     checks.push(globalConfig.error === undefined
-      ? { level: "ok", label: "config global", detail: `${globalConfig.path} válida` }
-      : { level: "fail", label: "config global", detail: globalConfig.error });
+      ? { name: "configGlobal", level: "ok", label: "config global", detail: `${globalConfig.path} válida` }
+      : { name: "configGlobal", level: "fail", label: "config global", detail: globalConfig.error });
   }
 
   if (facts.astroHome.error !== undefined) {
-    checks.push({ level: "fail", label: "astro home", detail: facts.astroHome.error });
+    checks.push({ name: "astroHome", level: "fail", label: "astro home", detail: facts.astroHome.error });
   } else if (facts.astroHome.warning !== undefined) {
-    checks.push({ level: "warn", label: "astro home", detail: `${facts.astroHome.path} ${facts.astroHome.warning}` });
+    checks.push({ name: "astroHome", level: "warn", label: "astro home", detail: `${facts.astroHome.path} ${facts.astroHome.warning}` });
   } else if (!facts.astroHome.exists) {
-    checks.push({ level: "warn", label: "astro home", detail: `${facts.astroHome.path} ausente; será criado no primeiro uso` });
+    checks.push({ name: "astroHome", level: "warn", label: "astro home", detail: `${facts.astroHome.path} ausente; será criado no primeiro uso` });
   } else if (!facts.astroHome.writable) {
-    checks.push({ level: "fail", label: "astro home", detail: `${facts.astroHome.path} sem permissão de escrita` });
+    checks.push({ name: "astroHome", level: "fail", label: "astro home", detail: `${facts.astroHome.path} sem permissão de escrita` });
   } else {
     const note = facts.astroHome.note === undefined ? "" : ` · ${facts.astroHome.note}`;
-    checks.push({ level: "ok", label: "astro home", detail: `${facts.astroHome.path} gravável${note}` });
+    checks.push({ name: "astroHome", level: "ok", label: "astro home", detail: `${facts.astroHome.path} gravável${note}` });
   }
 
   const attachments = facts.attachments;
   if (attachments.invalidReason !== undefined) {
-    checks.push({ level: "fail", label: "anexos", detail: redactSecrets(attachments.invalidReason) });
+    checks.push({ name: "attachments", level: "fail", label: "anexos", detail: redactSecrets(attachments.invalidReason) });
   } else if (!attachments.exists) {
-    checks.push({ level: "warn", label: "anexos", detail: `${attachments.root} ausente; criada no primeiro anexo de imagem` });
+    checks.push({ name: "attachments", level: "warn", label: "anexos", detail: `${attachments.root} ausente; criada no primeiro anexo de imagem` });
   } else {
     const count = attachments.artifacts ?? 0;
     checks.push({
+      name: "attachments",
       level: "ok",
       label: "anexos",
       detail: `${attachments.realpath ?? attachments.root} · ${count} artefato${count === 1 ? "" : "s"} · `
@@ -314,7 +351,7 @@ export function summarize(report: DoctorReport): DoctorSummary {
 export function doctorJson(report: DoctorReport, fixes?: FixReport): DoctorJson {
   return {
     schema: "doctor/v1",
-    checks: report.checks,
+    checks: report.checks.map(toDoctorCheck),
     summary: summarize(report),
     ...(fixes === undefined ? {} : { fixes }),
   };
@@ -749,6 +786,76 @@ export function collectFacts(
     disk: collectDiskFacts(env),
     env,
   };
+}
+
+/** Opções do `--online`: `onlineCwd` só vale aqui; offline usa o cwd do processo. */
+export interface OnlineOptions {
+  onlineCwd?: string;
+  timeoutMs?: number;
+  fetchLike?: typeof fetch;
+}
+
+function healthCheck(check: HealthCheck): Check {
+  return {
+    name: check.name,
+    level: check.status === "ok" ? "ok" : "fail",
+    label: check.name === "vault" ? "cofre" : check.name,
+    detail: `${redactSecrets(check.detail ?? "ok")}${check.latencyMs === undefined ? "" : ` · ${check.latencyMs}ms`}`,
+  };
+}
+
+/** `--online` (F6-6): health vira check, nunca exceção; timeout é o do health. */
+export async function collectOnlineChecks(
+  env: Record<string, string | undefined>,
+  options: OnlineOptions = {},
+): Promise<Check[]> {
+  const configPath = join(options.onlineCwd ?? process.cwd(), "astro.config.json");
+  let config: AstroConfig;
+  try {
+    config = loadEffectiveConfig(configPath, { env, allowMissing: true }).config;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (error instanceof NoProviderError) {
+      return [{ name: "online", level: "ok", label: "online", detail: "nenhum provider configurado; nada para verificar (sem rede)" }];
+    }
+    return [{ name: "online", level: "warn", label: "online", detail: redactSecrets(`config inválida; health online não executado: ${detail}`) }];
+  }
+  if (Object.keys(config.providers).length === 0) {
+    return [{ name: "online", level: "ok", label: "online", detail: "nenhum provider configurado; nada para verificar (sem rede)" }];
+  }
+  try {
+    // Import tardio: offline não carrega o registry nem o caminho de rede.
+    const { runHealthCheck } = await import("./health");
+    const report = await runHealthCheck(config, env, {
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      ...(options.fetchLike === undefined ? {} : { fetchLike: options.fetchLike }),
+    });
+    const checks = report.checks.filter((check) => check.name !== "config").map(healthCheck);
+    // `degraded` e `down` do health só existem com algum provider fora; ambos
+    // viram `fail` no doctor. Logo, o agregado `online` é só `ok` ou `fail`.
+    const providerDown = report.checks.some((check) => check.name.startsWith("provider:") && check.status === "down");
+    checks.unshift({
+      name: "online",
+      level: providerDown ? "fail" : "ok",
+      label: "online",
+      detail: `health F6-6: ${report.status}`,
+    });
+    return checks.map(sanitizeCheck);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return [{ name: "online", level: "fail", label: "online", detail: redactSecrets(`health online falhou: ${detail}`) }];
+  }
+}
+
+/** Relatório do CLI: checks offline e, só com `online: true`, o health F6-6. */
+export async function runDoctor(
+  root: string,
+  options: { online?: boolean; env?: NodeJS.ProcessEnv } & OnlineOptions = {},
+): Promise<DoctorReport> {
+  const report = runChecks(collectFacts(root, options.env === undefined ? {} : { env: options.env }));
+  if (options.online !== true) return report;
+  report.checks.push(...await collectOnlineChecks(options.env ?? process.env, options));
+  return report;
 }
 
 if (import.meta.main) {

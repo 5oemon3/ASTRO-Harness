@@ -28,7 +28,7 @@ import { chatApprovers } from "./chat/approvers";
 import { nodeReplIO } from "./chat/node-io";
 import { runHealthCheck, runPoolHealthCheck, formatProvidersList, testProvider } from "./health";
 import { Vault, vaultPath } from "./vault";
-import { applyFixes, collectFacts, doctorJson, exitCode as doctorExitCode, renderReport, runChecks } from "./doctor";
+import { applyFixes, doctorJson, exitCode as doctorExitCode, renderReport, runDoctor } from "./doctor";
 import { GitHubConfigRegistry, prepareConfigForPush, preparePulledConfig } from "./config-share";
 import { runSkillsCommand } from "./skills/cli";
 import { runMcpCommand } from "./mcp/cli";
@@ -195,7 +195,7 @@ const USAGE = `Uso:
   astro resume <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
   astro continue <run-id> [--task "<pedido>"] [--agent <name>] [--config <path>] [--cwd <dir>]
   astro health [--config <path>]
-  astro doctor [--json] [--fix]
+  astro doctor [--json] [--fix] [--online]
   astro providers <health|list|test|vault-import> [--config <path>] [--apply] [--allow-plain]
   astro handoff show <handoff_id> [--config <path>]
   astro cost --by-agent [--config <path>]
@@ -318,6 +318,7 @@ interface HealthCommand {
 interface DoctorCommand {
   json: boolean;
   fix: boolean;
+  online: boolean;
 }
 
 interface ProvidersCommand {
@@ -687,12 +688,14 @@ function parseArgs(argv: string[]): ParsedCommand {
   if (command === "doctor") {
     let json = false;
     let fix = false;
+    let online = false;
     for (const arg of rest) {
       if (arg === "--json") { json = true; continue; }
       if (arg === "--fix") { fix = true; continue; }
+      if (arg === "--online") { online = true; continue; }
       throw new UsageError(`opção desconhecida: "${arg}"`);
     }
-    return { kind: "doctor", options: { json, fix } };
+    return { kind: "doctor", options: { json, fix, online } };
   }
 
   if (command === "pool") {
@@ -1092,7 +1095,7 @@ async function main(argv: string[]): Promise<number> {
     // `--fix` só mexe em estado local seguro (ver applyFixes); roda antes dos checks.
     const fixes = o.fix ? applyFixes(process.env) : undefined;
     // Raiz do pacote (`src/..` ou `dist/..`): valida deps e dist da instalação, não do cwd.
-    const report = runChecks(collectFacts(resolve(import.meta.dir, "..")));
+    const report = await runDoctor(resolve(import.meta.dir, ".."), { online: o.online });
     if (o.json) {
       console.log(JSON.stringify(doctorJson(report, fixes), null, 2));
     } else {

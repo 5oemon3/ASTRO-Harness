@@ -75,6 +75,35 @@ describe("astro doctor CLI (#61)", () => {
     expect(parsed.fixes).toBeUndefined();
   });
 
+  test("--help anuncia --online", async () => {
+    const { out, code } = await run(["--help"], root);
+    expect(code).toBe(0);
+    expect(out).toContain("astro doctor [--json] [--fix] [--online]");
+  });
+
+  test("--online sem credencial agrega degraded como error e exit 1, sem rede", async () => {
+    const dir = sandbox();
+    writeFileSync(join(dir, "astro.config.json"), JSON.stringify({
+      providers: {
+        proj: { kind: "openai-compat", baseUrl: "https://proj.example/v1", credentialRef: "ASTRO_DOCTOR_MISSING_KEY_61" },
+      },
+      models: [{ provider: "proj", id: "p1", tags: ["writing-code"], context: 8192 }],
+      agent: { model: "proj/p1", maxSteps: 2, tools: ["read_file"] },
+      paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
+    }), "utf8");
+
+    const { out, code } = await run(["doctor", "--json", "--online"], dir, { ASTRO_HOME: join(sandbox(), "home") });
+    expect(code).toBe(1);
+    const parsed = JSON.parse(out) as {
+      checks: Array<{ name: string; status: string; message: string; level: string }>;
+    };
+    const provider = parsed.checks.find((check) => check.name === "provider:proj");
+    expect(provider?.status).toBe("error");
+    expect(provider?.level).toBe("fail");
+    expect(provider?.message).toContain("ASTRO_DOCTOR_MISSING_KEY_61");
+    expect(parsed.checks.find((check) => check.name === "online")?.status).toBe("error");
+  });
+
   test("saída humana lista checks e resumo", async () => {
     const dir = sandbox();
     const { out, code } = await run(["doctor"], dir, { ASTRO_HOME: join(sandbox(), "home") });
