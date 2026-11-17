@@ -6,7 +6,7 @@
 import { ConfigError, updateConfigProviderCredentialRef } from "../core/config";
 import { isEnvName, isVaultCredentialRef, isVaultRef } from "../secrets";
 import { defaultScheme, Vault, vaultPath } from "../vault";
-import { loadEffectiveConfig, loadProfileStore, profilesPath, providerIdentityFor, saveProfileStore } from "./profiles";
+import { loadEffectiveConfig, loadProfileStore, profilesPath, providerIdentityFor, readGlobalProfileStore, saveProfileStore } from "./profiles";
 
 export interface VaultImportInput {
   provider: string;
@@ -36,13 +36,17 @@ export interface VaultImportResult {
 const PLAIN_WARNING = 'aviso: cofre em modo "plain" (sem cifra do SO); o segredo fica em arquivo 0600';
 
 /** Troca a ref de um perfil global pelo writer atômico do store. */
-function rewriteProfileRef(path: string, id: string, ref: string): void {
-  const store = loadProfileStore(path);
+function rewriteProfileRef(path: string | undefined, id: string, ref: string, env: NodeJS.ProcessEnv): void {
+  const target = path ?? profilesPath(env);
+  // Sem `storePath` injetado, a leitura é flag-aware: depois da migração o legado
+  // aposentado não é lido (nem pode falhar como JSON inválido) e a escrita falha
+  // citando `config.json` (#459).
+  const store = path === undefined ? readGlobalProfileStore(env) : loadProfileStore(target);
   const index = store.profiles.findIndex((item) => item.id === id);
   if (index < 0) throw new ConfigError(`provider "${id}" não está no store global`);
   const profiles = [...store.profiles];
   profiles[index] = { ...profiles[index]!, credentialRef: ref };
-  saveProfileStore({ ...store, profiles }, path);
+  saveProfileStore({ ...store, profiles }, target);
 }
 
 /**
@@ -112,7 +116,7 @@ export function importVaultCredential(input: VaultImportInput): VaultImportResul
     if (source === "project") {
       updateConfigProviderCredentialRef(input.configPath, input.provider, vaultRef);
     } else {
-      rewriteProfileRef(input.storePath ?? profilesPath(input.env), input.provider, vaultRef);
+      rewriteProfileRef(input.storePath, input.provider, vaultRef, input.env);
     }
   } catch (error) {
     try {

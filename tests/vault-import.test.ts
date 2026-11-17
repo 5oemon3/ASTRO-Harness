@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadProfileStore, saveProfileStore } from "../src/providers/profiles";
+import { loadGlobalProfileStore, loadProfileStore, saveProfileStore } from "../src/providers/profiles";
 import { formatVaultImport, importVaultCredential } from "../src/providers/vault-import";
 import { Vault, type VaultBackend } from "../src/vault";
 
@@ -87,6 +87,30 @@ describe("vault-import apply (#311 B.3)", () => {
     expect(store.profiles[0]!.credentialRef).toBe(result.vaultRef);
     expect(readFileSync(s.storePath, "utf8")).not.toContain(SENTINEL);
     expect(readFileSync(s.configPath, "utf8")).toBe(configBefore);
+  });
+
+  test("pós-migração falha citando config.json e ignora o legado corrompido", () => {
+    const home = mkdtempSync(join(tmpdir(), "astro-vault-import-migrated-"));
+    writeFileSync(join(home, "config.json"), JSON.stringify({
+      providers: { g: { kind: "openai-compat", baseUrl: "https://g.example/v1", credentialRef: "GLOBAL_KEY" } },
+      models: [{ provider: "g", id: "m1", tags: ["writing-code"], context: 8192 }],
+    }));
+    writeFileSync(join(home, "providers.json"), JSON.stringify({ version: 1, profiles: [profile("g")] }));
+    loadGlobalProfileStore({ ASTRO_HOME: home });
+    writeFileSync(join(home, "providers.json"), "corrompido");
+    const env = { ASTRO_HOME: home, GLOBAL_KEY: SENTINEL };
+    const vault = new Vault(join(home, "vault.json"), fake);
+    let thrown: unknown;
+    try {
+      importVaultCredential({
+        provider: "g", env, configPath: join(home, "astro.config.json"), vault, apply: true, platform: "win32",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain("config.json");
+    expect((thrown as Error).message).not.toContain("JSON inválido");
   });
 });
 

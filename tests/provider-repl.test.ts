@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,7 @@ function projectConfig(cwd: string): string {
   return path;
 }
 
-async function chat(cwd: string, cfg: string, home: string, stdin: string) {
+async function chat(cwd: string, cfg: string, home: string, stdin: string, extraEnv: Record<string, string> = {}) {
   const baseEnv: Record<string, string | undefined> = { ...process.env };
   for (const key of ["ASTRO_PROVIDER", "ASTRO_MODEL", "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL"]) {
     delete baseEnv[key];
@@ -34,7 +34,7 @@ async function chat(cwd: string, cfg: string, home: string, stdin: string) {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...baseEnv, ASTRO_HOME: home } as Record<string, string>,
+    env: { ...baseEnv, ASTRO_HOME: home, ...extraEnv } as Record<string, string>,
   });
   proc.stdin.write(stdin);
   proc.stdin.end();
@@ -59,18 +59,23 @@ test("/provider add grava, ativa e aparece na lista", async () => {
 
   const list = await chat(cwd, cfg, home, "/provider\n/exit\n");
   expect(list.exit).toBe(0);
-  expect(list.stdout).toContain("Local (local)");
+  // Depois da migração o perfil vem de `config.json`, sem nome de exibição.
+  expect(list.stdout).toContain("local (local)");
 });
 
-test("/provider remove apaga o perfil", async () => {
+test("/provider remove de perfil migrado é recusado e preserva o legado", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-provider-rm-"));
   const home = mkdtempSync(join(tmpdir(), "astro-provider-rm-home-"));
   const cfg = projectConfig(cwd);
   await chat(cwd, cfg, home, "/provider add\ncustom\nLocal\nhttp://localhost:1/v1\n\nm1\nS\nn\n/exit\n");
+  const legacy = join(home, "providers.json");
+  const bytes = readFileSync(legacy, "utf8");
   const removed = await chat(cwd, cfg, home, "/provider remove local\n/exit\n");
   expect(removed.exit).toBe(0);
-  expect(removed.stdout).toContain("removido: local");
-  expect(loadProfileStore(join(home, "providers.json")).profiles).toEqual([]);
+  expect(removed.stdout).toContain('erro: provider "local"');
+  expect(removed.stdout).toMatch(/config\.json/);
+  expect(removed.stdout).not.toContain("removido: local");
+  expect(readFileSync(legacy, "utf8")).toBe(bytes);
 });
 
 test("/provider <nome> troca para provider do projeto sem persistir", async () => {
@@ -123,4 +128,24 @@ test("/provider remove de provider do projeto é recusado", async () => {
   const result = await chat(cwd, cfg, home, "/provider remove p\n/exit\n");
   expect(result.exit).toBe(0);
   expect(result.stdout).toContain("astro.config.json");
+});
+
+test("/provider add é recusado com --no-global-config e não grava arquivo", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-provider-noglobal-"));
+  const home = mkdtempSync(join(tmpdir(), "astro-provider-noglobal-home-"));
+  const cfg = projectConfig(cwd);
+
+  const result = await chat(
+    cwd, cfg, home,
+    "/provider add\ncustom\nLocal\nhttp://localhost:1/v1\n\nm1\nS\nn\n/exit\n",
+    { ASTRO_NO_GLOBAL_CONFIG: "1" },
+  );
+
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain("camada global desligada");
+  expect(result.stdout).not.toContain("salvo: local");
+  expect(existsSync(join(home, "providers.json"))).toBe(false);
+
+  const list = await chat(cwd, cfg, home, "/provider\n/exit\n", { ASTRO_NO_GLOBAL_CONFIG: "1" });
+  expect(list.stdout).not.toContain("local (local)");
 });

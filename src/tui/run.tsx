@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { ConfigError } from "../core/config";
 import { ProfileManager } from "../providers/profile-manager";
-import { NoProviderError, NO_PROVIDER_MESSAGE, loadProjectConfig } from "../providers/profiles";
+import { NoProviderError, NO_PROVIDER_MESSAGE, loadProjectConfig, projectLayerRefs } from "../providers/profiles";
 import { redactSecrets } from "../sanitize-external";
 import { trustChoice, trustPrompt } from "../trust";
 import { Vault, vaultPath } from "../vault";
@@ -153,6 +153,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     const project = loadProjectConfig(configPath, { env: opts.env });
     const manager = new ProfileManager({
       project,
+      projectRefs: projectLayerRefs(configPath),
       env: opts.env ?? process.env,
       ...(opts.provider === undefined ? {} : { provider: opts.provider }),
     });

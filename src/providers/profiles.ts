@@ -4,10 +4,11 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ConfigError, DEFAULT_ATTACHMENTS, isPlainObject, loadConfigRaw, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../core/config";
-import { globalConfigPath } from "../astro-home";
+import { globalConfigPath, statePath } from "../astro-home";
+import { loadHomeState, saveHomeState } from "../home-state";
 import { assertDeclaredProviders, assertLayerSchema, assertNarrowed, mergeConfigLayers, mergeModelLayers } from "../config-overlay";
 import { isKnownTag } from "../tags";
-import { isAuthHeader, isVaultCredentialRef, looksLikeSecret } from "../secrets";
+import { isAuthHeader, isEnvName, isVaultCredentialRef, looksLikeSecret } from "../secrets";
 import { outboundUrlProblem } from "../url-safety";
 import { vaultMeta, vaultPath, vaultPlainWarning } from "../vault";
 
@@ -90,7 +91,8 @@ function validateModel(raw: unknown, field: string): ProfileModel {
   if (!Array.isArray(model.tags)) fail(`"${field}.tags" deve ser uma lista de tags`);
   const tags = model.tags.map((tag, index) => {
     const name = asString(tag, `${field}.tags[${index}]`);
-    if (!isKnownTag(name)) fail(`tag "${name}" desconhecida em "${field}.tags"`);
+    // I-03: não ecoar a tag — ela pode ser um valor colado por engano.
+    if (!isKnownTag(name)) fail(`tag desconhecida em "${field}.tags"`);
     return name;
   });
   const context = model.context;
@@ -173,7 +175,8 @@ export function validateProfileStore(raw: unknown): ProviderStore {
   for (const profile of profiles) {
     if (ids.has(profile.id)) fail(`id duplicado: "${profile.id}"`);
     const nameKey = profile.name.toLowerCase();
-    if (names.has(nameKey)) fail(`nome duplicado: "${profile.name}"`);
+    // I-03: o nome é conteúdo do arquivo (pode ser um segredo colado); nunca ecoar.
+    if (names.has(nameKey)) fail(`nome duplicado em "profiles"`);
     ids.add(profile.id);
     names.add(nameKey);
   }
@@ -196,6 +199,37 @@ export function profilesPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(base, "providers.json");
 }
 
+/** Store legado inválido: nomeia o arquivo e nunca ecoa o conteúdo (I-03). */
+export class ProfileStoreError extends Error {
+  override name = "ProfileStoreError";
+  constructor(readonly path: string, detail: string) {
+    super(`store de perfis inválido em "${path}": ${detail}`);
+  }
+}
+
+/** Store legado aposentado pela migração: a escrita pertence a `config.json` (#459). */
+export class ProfileStoreMigratedError extends Error {
+  override name = "ProfileStoreMigratedError";
+  readonly code = "profile_store_migrated";
+  constructor(readonly configPath: string) {
+    super(`store de perfis migrado para "${configPath}"; edite a configuração global`);
+  }
+}
+
+/** Providers e modelos declarados na camada de projeto (o `loadProjectConfig` devolve a config mesclada com a global). */
+export function projectLayerRefs(configPath: string): { providers: string[]; modelProviders: string[] } {
+  if (!existsSync(configPath)) return { providers: [], modelProviders: [] };
+  const raw = loadConfigRaw(configPath);
+  return {
+    providers: isPlainObject(raw.providers) ? Object.keys(raw.providers) : [],
+    modelProviders: Array.isArray(raw.models)
+      ? raw.models.flatMap((model) => (
+          isPlainObject(model) && typeof model.provider === "string" ? [model.provider] : []
+        ))
+      : [],
+  };
+}
+
 /** Store ausente é um store vazio; JSON corrompido é erro com o caminho. */
 export function loadProfileStore(path: string = profilesPath()): ProviderStore {
   let text: string;
@@ -204,7 +238,7 @@ export function loadProfileStore(path: string = profilesPath()): ProviderStore {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return { version: 1, profiles: [] };
-    throw new Error(`store de perfis inválido em "${path}": ${error instanceof Error ? error.message : String(error)}`);
+    throw new ProfileStoreError(path, error instanceof Error ? error.message : String(error));
   }
   if (text.trim() === "") return { version: 1, profiles: [] };
   let parsed: unknown;
@@ -213,18 +247,151 @@ export function loadProfileStore(path: string = profilesPath()): ProviderStore {
   } catch {
     // Nunca ecoar o detalhe do parser: ele cita os primeiros caracteres do
     // conteúdo colado, que pode ser uma chave (I-03).
-    throw new Error(`store de perfis inválido em "${path}": JSON inválido`);
+    throw new ProfileStoreError(path, "JSON inválido");
   }
   try {
     return validateProfileStore(parsed);
   } catch (error) {
-    throw new Error(`store de perfis inválido em "${path}": ${error instanceof Error ? error.message : String(error)}`);
+    throw new ProfileStoreError(path, error instanceof Error ? error.message : String(error));
   }
+}
+
+/** Arquivo irmão do store: `config.json` e `state.json` vivem no mesmo diretório. */
+function siblingPath(storePath: string, name: string): string {
+  return join(dirname(storePath), name);
+}
+
+/** Escrita atômica da camada crua (0600 no POSIX); a camada global é parcial, não valida o schema inteiro. */
+function writeConfigRaw(raw: Record<string, unknown>, path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    renameSync(tmp, path);
+  } catch (error) {
+    try { unlinkSync(tmp); } catch { /* tmp já não existe */ }
+    throw error;
+  }
+}
+
+/** Importa o store legado no `config.json`: `config.json` vence por chave (ADR-0029, #459). */
+function importProfiles(configPath: string, legacy: ProviderStore): void {
+  const raw = existsSync(configPath) ? loadConfigRaw(configPath) : {};
+  const providers = { ...(isPlainObject(raw.providers) ? raw.providers : {}) };
+  for (const profile of legacy.profiles) {
+    if (!Object.hasOwn(providers, profile.id)) providers[profile.id] = profileToProvider(profile);
+  }
+  const imported = legacy.profiles.flatMap((profile) => (
+    profile.models.map((model) => ({ provider: profile.id, id: model.id, tags: model.tags, context: model.context }))
+  ));
+  // Os modelos seguem por `provider/id` mesmo quando a chave do provider já existia:
+  // no conflito, `config.json` vence a definição do provider; o conjunto de modelos
+  // é unido (ADR-0029).
+  const models = mergeModelLayers(imported, Array.isArray(raw.models) ? raw.models : []);
+  writeConfigRaw({
+    ...raw,
+    providers,
+    models,
+    // D-21: a seleção ativa acompanha os perfis; a de `config.json` vence.
+    ...(typeof raw.activeProfileId === "string" || legacy.activeProfileId === undefined
+      ? {}
+      : { activeProfileId: legacy.activeProfileId }),
+  }, configPath);
+}
+
+/** Store efetivo a partir de `config.json`: `providers` + `models` viram perfis (sem nome próprio). */
+export function profileStoreFromConfig(configPath: string): ProviderStore {
+  if (!existsSync(configPath)) return { version: 1, profiles: [] };
+  const raw = loadConfigRaw(configPath);
+  const providers = isPlainObject(raw.providers) ? raw.providers : {};
+  const models = Array.isArray(raw.models) ? raw.models : [];
+  const profiles: ProviderProfile[] = [];
+  for (const [id, value] of Object.entries(providers)) {
+    if (!isPlainObject(value)) continue;
+    const kind = value.kind;
+    if (typeof kind !== "string") continue;
+    const rawRef = typeof value.credentialRef === "string" ? value.credentialRef : undefined;
+    // I-03: a config pode ter sido editada à mão; só referência nomeada ou do cofre
+    // chega ao store. Valor cru (segredo colado) fica de fora, sem eco.
+    const credentialRef = rawRef !== undefined && (isEnvName(rawRef) || isVaultCredentialRef(rawRef))
+      ? rawRef
+      : undefined;
+    const headers: Record<string, string> = {};
+    if (isPlainObject(value.headers)) {
+      for (const [name, item] of Object.entries(value.headers)) {
+        if (typeof item === "string") headers[name] = item;
+      }
+    }
+    const profileModels = models.flatMap((model) => (
+      isPlainObject(model) && model.provider === id && typeof model.id === "string"
+        && Array.isArray(model.tags) && typeof model.context === "number"
+        ? [{
+            id: model.id,
+            tags: model.tags.filter((tag): tag is string => typeof tag === "string"),
+            context: model.context,
+          }]
+        : []
+    ));
+    // Perfil do store exige ao menos um modelo: sem modelo o provider não é selecionável.
+    if (profileModels.length === 0) continue;
+    profiles.push({
+      id,
+      name: id,
+      kind,
+      ...(typeof value.baseUrl === "string" ? { baseUrl: value.baseUrl } : {}),
+      ...(credentialRef === undefined ? {} : { credentialRef }),
+      ...(typeof value.credentialsPath === "string" ? { credentialsPath: value.credentialsPath } : {}),
+      ...(typeof value.quotaDomain === "string" ? { quotaDomain: value.quotaDomain } : {}),
+      ...(Object.keys(headers).length === 0 ? {} : { headers }),
+      models: profileModels,
+    });
+  }
+  const activeProfileId = typeof raw.activeProfileId === "string" ? raw.activeProfileId : undefined;
+  return { version: 1, ...(activeProfileId === undefined ? {} : { activeProfileId }), profiles };
+}
+
+/**
+ * Store global efetivo (#459): depois de `migrations.providers`, a fonte é `config.json`
+ * e o `providers.json` legado não é mais lido. `--no-global-config` desliga a camada.
+ */
+export function readGlobalProfileStore(env: NodeJS.ProcessEnv = process.env): ProviderStore {
+  if (env.ASTRO_NO_GLOBAL_CONFIG === "1") return { version: 1, profiles: [] };
+  const state = loadHomeState(statePath(env));
+  if (!state.migrations.providers) return loadProfileStore(profilesPath(env));
+  return profileStoreFromConfig(globalConfigPath(env));
+}
+
+/**
+ * Store global com a migração única (ADR-0029, #459): na primeira carga com store legado
+ * válido, importa os perfis para `config.json` e marca `migrations.providers`; a partir
+ * daí delega para `readGlobalProfileStore`.
+ */
+export function loadGlobalProfileStore(env: NodeJS.ProcessEnv = process.env): ProviderStore {
+  const legacyPath = profilesPath(env);
+  const configPath = globalConfigPath(env);
+  const stateFile = statePath(env);
+  const state = loadHomeState(stateFile);
+  if (state.migrations.providers) return readGlobalProfileStore(env);
+  if (!existsSync(legacyPath)) {
+    return existsSync(configPath) ? profileStoreFromConfig(configPath) : { version: 1, profiles: [] };
+  }
+  const legacy = loadProfileStore(legacyPath);
+  // Sem perfis não há o que importar: não cria `config.json` (S3). A seleção sem
+  // perfil é inútil e cai junto.
+  if (legacy.profiles.length > 0) importProfiles(configPath, legacy);
+  // Import e flag não são uma transação (`config.json` é gravado antes): se o processo
+  // cair entre os dois, a próxima carga repete o import e `config.json` vence por chave.
+  // A janela é aceita de propósito — repetir é idempotente.
+  saveHomeState({ ...state, migrations: { ...state.migrations, providers: true } }, stateFile);
+  return readGlobalProfileStore(env);
 }
 
 /** Valida antes de gravar; escrita atômica com modo 0600 no POSIX. */
 export function saveProfileStore(store: ProviderStore, path: string = profilesPath()): void {
   const valid = validateProfileStore(store);
+  if (loadHomeState(siblingPath(path, "state.json")).migrations.providers) {
+    throw new ProfileStoreMigratedError(siblingPath(path, "config.json"));
+  }
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${randomUUID()}.tmp`;
   try {
@@ -258,8 +425,9 @@ export function loadProjectConfig(configPath: string, opts: { env?: NodeJS.Proce
   const declared = mergeConfigLayers(global ?? {}, projectLayer);
   // Todo model declarado aponta para um provider declarado nas camadas.
   assertDeclaredProviders(declared);
-  // O store é fonte global de credenciais mesmo sem `$ASTRO_HOME/config.json`.
-  const store = loadProfileStore(profilesPath(homeEnv));
+  // O store é fonte global de credenciais mesmo sem `$ASTRO_HOME/config.json`;
+  // depois da migração a leitura vem de `config.json` (#459).
+  const store = readGlobalProfileStore(homeEnv);
   const storeProviders = Object.fromEntries(store.profiles.map((profile) => [profile.id, profileToProvider(profile)]));
   assertNarrowed(global ?? {}, declared, storeProviders, projectLayer);
   return validateConfig(declared);
@@ -578,7 +746,14 @@ export function loadEffectiveConfig(
     && !declaredModels.some((model) => isPlainObject(model) && `${String(model.provider)}/${String(model.id)}` === declaredAgent.model)) {
     throw new ConfigError(`config inválida: "agent.model" referencia o modelo "${declaredAgent.model}", que não está declarado em "models"`);
   }
-  const store = loadProfileStore(opts.storePath ?? profilesPath(homeEnv));
+  // Store legado só é lido com store injetado ou antes da migração; depois dela a
+  // fonte é `config.json` e o legado aposentado nunca mais é lido (#459). Sem a
+  // camada global (`--no-global-config` via env ou opção) o store também é omitido.
+  const store = opts.storePath !== undefined
+    ? loadProfileStore(opts.storePath)
+    : useGlobal
+      ? loadGlobalProfileStore(homeEnv)
+      : readGlobalProfileStore({ ...homeEnv, ASTRO_NO_GLOBAL_CONFIG: "1" });
   const envProfile = profileFromEnv(env);
   return resolveEffectiveConfig({
     ...(project === undefined ? {} : { project }),

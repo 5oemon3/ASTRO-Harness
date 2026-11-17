@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession } from "../src/chat/agent-session";
@@ -35,7 +35,18 @@ test("reload preserva a escolha explícita e cai no projeto se o modelo sumir", 
   expect(session.model).toBe("p/m1");
   expect(session.messages.length).toBe(1);
 
-  saveProfileStore({ version: 1, profiles: [] }, join(home, "providers.json"));
+  // Depois da migração (#459) `config.json` é a fonte de verdade: remover o
+  // perfil de lá é o equivalente a apagar o store legado.
+  const homeConfig = join(home, "config.json");
+  const migrated = JSON.parse(readFileSync(homeConfig, "utf8")) as {
+    providers: Record<string, unknown>;
+    models: { provider: string }[];
+    activeProfileId?: string;
+  };
+  delete migrated.providers.q;
+  delete migrated.activeProfileId;
+  migrated.models = migrated.models.filter((model) => model.provider !== "q");
+  writeFileSync(homeConfig, JSON.stringify(migrated));
   session.reload();
   expect(session.model).toBe("p/m1");
   expect(session.messages.length).toBe(1);

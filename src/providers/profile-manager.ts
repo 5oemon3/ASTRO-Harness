@@ -1,9 +1,12 @@
 /** CRUD de perfis de provider: store global + visão do projeto, com guardas. */
-import type { AstroConfig, ProviderConfig } from "../core/config";
+import { isPlainObject, type AstroConfig, type ProviderConfig } from "../core/config";
+import { globalConfigPath } from "../astro-home";
 import {
+  loadGlobalConfig,
   loadProfileStore,
   profileFromEnv,
   profilesPath,
+  readGlobalProfileStore,
   resolveEffectiveConfig,
   saveProfileStore,
   type ProfileModel,
@@ -28,9 +31,20 @@ export interface ProfileView extends ProviderProfile {
   source: ProviderSource;
 }
 
+/** Escrita de perfil recusada porque a camada global está desligada (#459). */
+export class GlobalStoreDisabledError extends Error {
+  override name = "GlobalStoreDisabledError";
+  readonly code = "global_store_disabled";
+  constructor() {
+    super("camada global desligada (--no-global-config); /provider não grava perfis");
+  }
+}
+
 export interface ProfileManagerOptions {
   storePath?: string;
   project?: AstroConfig;
+  /** Providers/modelos declarados na camada de projeto (sem os herdados de `$ASTRO_HOME/config.json`). */
+  projectRefs?: { providers: string[]; modelProviders: string[] };
   env?: NodeJS.ProcessEnv;
   /** Flag `--provider` da execução: alinha o marcador ativo com o loader. */
   provider?: string;
@@ -49,25 +63,33 @@ function providerOfModel(modelRef: string, providers: Record<string, ProviderCon
     .find((name) => modelRef.startsWith(`${name}/`));
 }
 
-function projectReferences(project: AstroConfig, id: string): string | undefined {
+function projectReferences(
+  project: AstroConfig,
+  id: string,
+  projectRefs: { providers: string[]; modelProviders: string[] },
+): string | undefined {
   const uses = (modelRef: string): boolean => modelRef.startsWith(`${id}/`);
   if (uses(project.agent.model)) return "agent.model";
   for (const [name, agent] of Object.entries(project.agents ?? {})) {
     if (uses(agent.model)) return `agents.${name}.model`;
   }
-  if (project.models.some((model) => model.provider === id)) return "models[].provider";
+  if (projectRefs.modelProviders.includes(id)) return "models[].provider";
   for (const [name, profile] of Object.entries(project.modelPool ?? {})) {
     if (uses(profile.model)) return `modelPool.${name}.model`;
   }
-  for (const [name, provider] of Object.entries(project.providers)) {
-    if ((provider.fallback ?? []).includes(id)) return `providers.${name}.fallback`;
+  for (const name of projectRefs.providers) {
+    const provider = project.providers[name];
+    if (provider !== undefined && (provider.fallback ?? []).includes(id)) return `providers.${name}.fallback`;
   }
   return undefined;
 }
 
 export class ProfileManager {
   readonly #storePath: string;
+  readonly #storeInjected: boolean;
   readonly #project: AstroConfig | undefined;
+  readonly #projectRefs: { providers: string[]; modelProviders: string[] };
+  readonly #globalProviders: string[];
   readonly #env: NodeJS.ProcessEnv;
   readonly #provider: string | undefined;
   #store: ProviderStore;
@@ -75,9 +97,18 @@ export class ProfileManager {
   constructor(opts: ProfileManagerOptions = {}) {
     this.#env = opts.env ?? process.env;
     this.#project = opts.project;
+    this.#projectRefs = opts.projectRefs ?? {
+      providers: Object.keys(opts.project?.providers ?? {}),
+      modelProviders: (opts.project?.models ?? []).map((model) => model.provider),
+    };
+    const global = this.#env.ASTRO_NO_GLOBAL_CONFIG === "1" ? undefined : loadGlobalConfig(this.#env);
+    this.#globalProviders = global !== undefined && isPlainObject(global.providers)
+      ? Object.keys(global.providers)
+      : [];
     this.#provider = opts.provider;
     this.#storePath = opts.storePath ?? profilesPath(this.#env);
-    this.#store = loadProfileStore(this.#storePath);
+    this.#storeInjected = opts.storePath !== undefined;
+    this.#store = this.#storeInjected ? loadProfileStore(this.#storePath) : readGlobalProfileStore(this.#env);
   }
 
   list(): ProfileView[] {
@@ -91,10 +122,10 @@ export class ProfileManager {
     });
 
     const result = new Map<string, ProfileView>();
-    if (this.#project !== undefined) {
-      for (const [name, provider] of Object.entries(this.#project.providers)) {
-        result.set(name, view(this.#projectProfile(name, provider), "project"));
-      }
+    for (const name of this.#projectRefs.providers) {
+      const provider = this.#project?.providers[name];
+      if (provider === undefined) continue;
+      result.set(name, view(this.#projectProfile(name, provider), "project"));
     }
     for (const profile of this.#store.profiles) {
       if (!result.has(profile.id)) result.set(profile.id, view(profile, "global"));
@@ -110,7 +141,7 @@ export class ProfileManager {
     const name = draft.name.trim();
     const id = slug(name);
     if (id === "env") throw new Error('"env" é reservado para o perfil efêmero');
-    this.#assertNoProjectCollision(name);
+    this.#assertNoConfigCollision(name);
     if (this.#store.profiles.some((profile) => profile.id === id)) {
       throw new Error(`já existe um provider com esse nome: "${name}"`);
     }
@@ -126,7 +157,7 @@ export class ProfileManager {
     if (index < 0) throw new Error(`provider "${id}" não existe no store`);
     const name = draft.name.trim();
     if (slug(name) === "env") throw new Error('"env" é reservado para o perfil efêmero');
-    this.#assertNoProjectCollision(name);
+    this.#assertNoConfigCollision(name);
     const profile: ProviderProfile = { ...draft, id, name };
     const profiles = [...this.#store.profiles];
     profiles[index] = profile;
@@ -139,7 +170,7 @@ export class ProfileManager {
     this.#requireEditable(id);
     const index = this.#store.profiles.findIndex((profile) => profile.id === id);
     if (index < 0) throw new Error(`provider "${id}" não existe no store`);
-    const reference = this.#project === undefined ? undefined : projectReferences(this.#project, id);
+    const reference = this.#project === undefined ? undefined : projectReferences(this.#project, id, this.#projectRefs);
     if (reference !== undefined) {
       throw new Error(`provider "${id}" é usado por astro.config.json (${reference}); troque a referência antes`);
     }
@@ -163,12 +194,18 @@ export class ProfileManager {
     return profile;
   }
 
-  #assertNoProjectCollision(name: string): void {
-    if (this.#project === undefined) return;
+  #assertNoConfigCollision(name: string): void {
     const wanted = slug(name);
-    for (const key of Object.keys(this.#project.providers)) {
+    for (const key of this.#projectRefs.providers) {
       if (key === name || slug(key) === wanted) {
         throw new Error(`provider "${name}" está definido no astro.config.json; edite o arquivo`);
+      }
+    }
+    for (const key of this.#globalProviders) {
+      if (key === name || slug(key) === wanted) {
+        throw new Error(
+          `provider "${name}" está definido em "${globalConfigPath(this.#env)}"; edite o arquivo`,
+        );
       }
     }
   }
@@ -189,7 +226,7 @@ export class ProfileManager {
   }
 
   #reload(): void {
-    this.#store = loadProfileStore(this.#storePath);
+    this.#store = this.#storeInjected ? loadProfileStore(this.#storePath) : readGlobalProfileStore(this.#env);
   }
 
   /** Variável de credencial presente no env desta execução. */
@@ -199,8 +236,11 @@ export class ProfileManager {
   }
 
   #requireEditable(id: string): void {
-    if (this.#project !== undefined && Object.hasOwn(this.#project.providers, id)) {
+    if (this.#projectRefs.providers.includes(id)) {
       throw new Error(`provider "${id}" está definido no astro.config.json; edite o arquivo`);
+    }
+    if (this.#globalProviders.includes(id)) {
+      throw new Error(`provider "${id}" está definido em "${globalConfigPath(this.#env)}"; edite o arquivo`);
     }
     if (profileFromEnv(this.#env)?.id === id) {
       throw new Error(`perfil "${id}" é efêmero (env) e não pode ser editado`);
@@ -232,6 +272,11 @@ export class ProfileManager {
   }
 
   #save(store: ProviderStore): void {
+    // Sem a camada global, a leitura é vazia (`readGlobalProfileStore`): gravar no
+    // `providers.json` produziria um perfil que ninguém lê (#459).
+    if (!this.#storeInjected && this.#env.ASTRO_NO_GLOBAL_CONFIG === "1") {
+      throw new GlobalStoreDisabledError();
+    }
     saveProfileStore(store, this.#storePath);
     this.#store = store;
   }

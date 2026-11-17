@@ -29,6 +29,7 @@ Após migrar providers, `config.json` é a fonte de verdade também para o geren
 
 - Ganho: preferências de usuário são reutilizadas entre projetos com fronteira clara para trust e segredos.
 - Custo: o loader deve validar as camadas antes de executar; projeto não pode relaxar políticas globais.
+- Custo: depois da migração, `config.json` é a única fonte (leitura e escrita); o legado fica preservado e escrever nele falha com `ProfileStoreMigratedError` apontando a config. A seleção ativa acompanha os perfis em `activeProfileId`; a TUI ainda não edita a config (slice seguinte de #401). Import e flag não são transacionais: a config é gravada antes da flag e repetir o import é idempotente (janela aceita de propósito).
 - Invariantes afetados: I-01, I-03, I-11 e I-17.
 
 ## Alternativas descartadas

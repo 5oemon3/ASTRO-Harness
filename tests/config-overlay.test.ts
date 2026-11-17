@@ -360,3 +360,21 @@ test("não ecoa o detalhe do parser no erro de JSON inválido", () => {
   expect(message).toMatch(/não é JSON válido/);
   expect(message).not.toContain("segredo");
 });
+
+test("noGlobalConfig também omite o store global", () => {
+  const home = mkdtempSync(join(tmpdir(), "astro-global-home-"));
+  const cwd = mkdtempSync(join(tmpdir(), "astro-global-project-"));
+  const configPath = join(cwd, "astro.config.json");
+  writeFileSync(configPath, JSON.stringify(project()));
+  writeFileSync(join(home, "providers.json"), JSON.stringify({
+    version: 1,
+    profiles: [{
+      id: "s", name: "S", kind: "openai-compat", baseUrl: "https://s.example/v1",
+      credentialRef: "S_KEY", models: [{ id: "m", tags: ["writing-code"], context: 8192 }],
+    }],
+  }));
+  const env = { ASTRO_HOME: home };
+
+  expect(loadEffectiveConfig(configPath, { env }).config.providers.s).toBeDefined();
+  expect(loadEffectiveConfig(configPath, { env, noGlobalConfig: true }).config.providers.s).toBeUndefined();
+});

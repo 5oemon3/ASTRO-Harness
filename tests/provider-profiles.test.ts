@@ -88,7 +88,7 @@ test("rejeita tag fora do vocabulário", () => {
   expect(() => validateProfileStore(storeWith({
     ...baseProfile,
     models: [{ id: "gpt-4o", tags: ["frontend"], context: 128000 }],
-  }))).toThrow(/tag "frontend"/);
+  }))).toThrow(/tag desconhecida/);
 });
 
 test("rejeita perfil sem modelos", () => {

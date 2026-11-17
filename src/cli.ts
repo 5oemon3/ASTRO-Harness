@@ -6,7 +6,7 @@ import { AllowlistInvalidError } from "./path-class";
 import { denyDisplayPath, isPermissionMode, nonInteractiveApprover, type PermissionMode } from "./permissions";
 import { defaultArgs, isInteractive } from "./cli-default";
 import { validateConfig } from "./core/config";
-import { loadEffectiveConfig, loadProjectConfig } from "./providers/profiles";
+import { loadEffectiveConfig, loadProjectConfig, projectLayerRefs } from "./providers/profiles";
 import { ProfileManager } from "./providers/profile-manager";
 import { formatVaultImport, importVaultCredential } from "./providers/vault-import";
 import { Ledger } from "./ledger";
@@ -1275,7 +1275,7 @@ async function main(argv: string[]): Promise<number> {
       const configPath = resolve(o.configPath);
       const project = loadProjectConfig(configPath, { env: process.env });
       const manager = new ProfileManager({
-        project, env: process.env,
+        project, projectRefs: projectLayerRefs(configPath), env: process.env,
         ...(o.provider === undefined ? {} : { provider: o.provider }),
       });
       const session = new AgentSession({
