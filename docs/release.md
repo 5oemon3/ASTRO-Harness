@@ -39,20 +39,21 @@ bun run build
 bun run smoke
 ```
 
-- As 10 execuções são consecutivas e no mesmo commit; intermitência reprova o gate, não vira "verde com ressalva". Os jobs de `docs/ci.md` rodam no PR e bloqueiam o merge; registre o resultado na issue.
-- `smoke` reexecuta o build e valida `dist/launcher.js` com Node sem Bun no `PATH` (`scripts/smoke.ts`), incluindo `astro --help` e o help sem TTY.
+- As 10 execuções são consecutivas e no mesmo commit; intermitência reprova o gate, não vira "verde com ressalva". Os jobs de `docs/ci.md` rodam no PR e bloqueiam o merge; registre na issue. `smoke` reexecuta o build e valida `dist/launcher.js` com Node sem Bun no `PATH` (`scripts/smoke.ts`), incluindo `astro --help` e o help sem TTY.
 
 ## 4. Pacote e instalação limpa
 
-Depois do merge, na raiz do repo, crie a tag no commit do merge e trabalhe nela (em estável, remova `--prerelease`; `<notas.md>` fora do repo, senão a árvore suja aborta após o Release); §1 e §4–§8 no mesmo shell, sem worktree sujo:
+Depois do merge, na raiz do repo, crie a tag no commit do merge e trabalhe nele (em estável, remova `--prerelease` e troque `--tag alpha` por `--tag latest` em §6; `<notas.md>` fora do repo, senão a árvore suja aborta antes do Release); §1 e §4–§8 no mesmo shell, sem worktree sujo:
 
 ```bash
-MERGE=$(gh pr view "<pr-do-bump>" --json mergeCommit -q .mergeCommit.oid) && TAG="v$(npm pkg get version | tr -d '"')" && [ -n "$MERGE" ] || exit 1   # PR do bump
-gh release create "$TAG" --target "$MERGE" --prerelease --notes-file "<notas.md>"
-git fetch --tags --force && git switch --detach "$TAG"
-[ "$(git rev-parse HEAD)" = "$MERGE" ] && [ "$(git describe --tags --exact-match)" = "$TAG" ] && [ -z "$(git status --porcelain)" ] || exit 1   # merge/tag/árvore limpa
+MERGE=$(gh pr view "<pr-do-bump>" --json state,mergeCommit -q 'select(.state=="MERGED") | .mergeCommit.oid') || exit 1
+[ -n "$MERGE" ] && [ "$MERGE" != "null" ] || exit 1
+git fetch origin main --force && git switch --detach "$MERGE" && [ "$(git rev-parse HEAD)" = "$MERGE" ] && [ -z "$(git status --porcelain)" ] || exit 1
+TAG="v$(npm pkg get version | tr -d '"')" && [ "${#TAG}" -gt 1 ] || exit 1
+REMOTE_TAG=$(git ls-remote --tags origin "refs/tags/$TAG") || exit 1
+[ -z "$REMOTE_TAG" ] || { echo "tag $TAG já existe"; exit 1; }
+gh release create "$TAG" --target "$MERGE" --prerelease --notes-file "<notas.md>" || exit 1
 bun install --frozen-lockfile
-npm pack --dry-run                  # lista: dist/, README.md, LICENSE, package.json
 PACKDIR=$(mktemp -d) && npm pack --pack-destination "$PACKDIR"
 TARBALL=$(ls "$PACKDIR"/*.tgz 2>/dev/null) && [ -n "$TARBALL" ] && [ "$(printf '%s\n' "$TARBALL" | wc -l)" -eq 1 ] || { echo "pack: esperava 1 .tgz"; exit 1; }
 ```
@@ -86,18 +87,17 @@ createServer((req, res) => {
 }).listen(8787, "127.0.0.1", () => console.log("mock: http://127.0.0.1:8787/v1"));
 ```
 
-No diretório limpo do §4 (mesmo shell, terminal interativo). O mock é loopback; o opt-in abaixo vale só para este processo e libera loopback, RFC1918 e ULA em toda saída do `astro` (provider, `web_fetch`, webhook, MCP, telemetria, skill); CGNAT (100.64/10), metadados e link-local seguem bloqueados (`src/url-safety.ts`; `docs/web-tools.md`, `I-11`):
+No diretório limpo do §4 (mesmo shell, terminal interativo). O mock é loopback; o opt-in abaixo vale para este processo e filhos e só afeta URLs validadas por `outboundUrlProblem` (provider, `web_fetch`, webhook, MCP, telemetria, skill); `webSearch.baseUrl` usa só `urlProblem` (qualquer provider); contrato e bloqueios em `docs/web-tools.md`:
 
 ```bash
 node mock-openai.mjs &
 mkdir -p "$TMP/astro-home" && export ASTRO_HOME="$TMP/astro-home"   # isola perfis e cofre
-ASTRO_ALLOW_PRIVATE_URLS=1 ./node_modules/.bin/astro    # opt-in de dev: só neste processo
+ASTRO_ALLOW_PRIVATE_URLS=1 ./node_modules/.bin/astro    # opt-in de dev: só nesta invocação (processo e filhos)
 ```
 
 | Passo | Valor |
 |---|---|
-| adicionar (`a`) | `custom`, nome `mock` |
-| base URL | `http://127.0.0.1:8787/v1` |
+| adicionar (`a`) | `custom`, nome `mock`, base URL `http://127.0.0.1:8787/v1` |
 | modelos / credencial | `mock-model` / vazio (provider local, sem chave) |
 | salvar | ativa e fecha o setup; a TUI abre |
 | na TUI: `/providers` → `t` → enter | `ok` com latência |
@@ -109,12 +109,11 @@ ASTRO_ALLOW_PRIVATE_URLS=1 ./node_modules/.bin/astro    # opt-in de dev: só nes
 Publique o `.tgz` já testado, com a tag de pré-release:
 
 ```bash
-[ -n "$TAG" ] && [ -f "$TARBALL" ] && printf '%s' "$TARBALL" | grep -Fq "${TAG#v}" || exit 1
+[ -n "$TAG" ] && [ -f "$TARBALL" ] && [ "$(tar -xOf "$TARBALL" package/package.json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = "${TAG#v}" ] || exit 1
 npm publish "$TARBALL" --tag alpha "--@umtioai:registry=https://registry.npmjs.org/"
 ```
 
-- `publishConfig.access: public` vem do `package.json`; não passe `--access` divergente. Publish de `.tgz` não roda hooks (valem §3/§4). `--tag alpha` move só `alpha`; `latest` só por decisão (§7); publish que falha exige versão nova, não reutilizada.
-- 2FA: deixe o npm pedir o código; não passe `--otp` (fica no histórico). Token por `npm login` ou pela linha `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` no `.npmrc` (nunca no repositório, `I-03`).
+- `publishConfig.access: public` vem do `package.json`; não passe `--access` divergente. Publish de `.tgz` não roda hooks (valem §3/§4). `--tag alpha` move só `alpha`; `latest` só por decisão (§7); publish que falha pode ter gravado a versão: siga §8 (checar registry, versão nova/deprecate). 2FA: deixe o npm pedir o código; não passe `--otp` (fica no histórico); token por `npm login` ou `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` no `.npmrc` (nunca no repositório, `I-03`).
 
 ## 7. Verificação pós-publicação
 
@@ -138,7 +137,8 @@ npm install "$PKG@alpha" "--@umtioai:registry=https://registry.npmjs.org/"
 | Quando | Ação |
 |---|---|
 | Antes do merge | feche o PR; nada foi publicado |
-| Depois do merge, antes do publish | nada foi publicado; `gh release delete "v<versão>" --cleanup-tag --yes` |
+| Depois do merge, publish não rodou | `gh release delete "v<versão>" --repo UmTioAii/ASTRO-Harness --cleanup-tag --yes` |
+| Depois do merge, publish falhou | `npm view "$PKG@<versão>" version "--@umtioai:registry=https://registry.npmjs.org/"`: ausente → delete tag/Release como acima; presente → mantenha/repare o Release em `$MERGE` (recrie com §4) e publique versão nova/deprecate |
 | Versão com defeito (inclui segredo) | revogue a credencial (`I-03`); publique a próxima versão com a correção, sem reescrever a existente; `npm unpublish` só em até 72 h, sem dependentes e com decisão do dono |
 | Pré-release ou `latest` errado | `npm dist-tag add "$PKG@<boa>" alpha "--@umtioai:registry=https://registry.npmjs.org/"` (ou `latest`); se a versão ruim continua instalável, `npm deprecate "$PKG@<ruim>" "quebrada; use <boa>" "--@umtioai:registry=https://registry.npmjs.org/"` |
 
