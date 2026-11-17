@@ -626,20 +626,42 @@ export class AgentSession {
     return messages.map((message) => {
       const clean = withoutImages(message);
       // Só mensagem de usuário carrega imagem no wire; o metadado do sumário
-      // (assistant) fica no store/export, mas não vira image_url de assistant.
+      // (assistant) é retido intencionalmente mesmo se o artefato expirou: não
+      // vira image_url nem reidrata, e o export preserva o resumo (#252).
       if (message.role !== "user") return clean;
       const images: ImagePart[] = [];
+      const kept: AttachmentMeta[] = [];
       for (const attachment of message.attachments ?? []) {
-        if (attachment.kind !== "image" || attachment.ref === undefined) continue;
-        const meta = store.meta(attachment.ref);
-        const allowed = meta.sessionId !== undefined && lineage.includes(meta.sessionId);
-        if (!allowed) {
-          throw new AttachmentError("attachment_image_invalid", `imagem de outra sessão: ${attachment.ref}`);
+        if (attachment.kind !== "image" || attachment.ref === undefined) {
+          kept.push(attachment);
+          continue;
         }
-        const bytes = store.read(attachment.ref);
-        images.push({ mediaType: meta.mediaType, dataBase64: Buffer.from(bytes).toString("base64") });
+        try {
+          const meta = store.meta(attachment.ref);
+          const allowed = meta.sessionId !== undefined && lineage.includes(meta.sessionId);
+          if (!allowed) {
+            throw new AttachmentError("attachment_image_invalid", `imagem de outra sessão: ${attachment.ref}`);
+          }
+          const bytes = store.read(attachment.ref);
+          images.push({ mediaType: meta.mediaType, dataBase64: Buffer.from(bytes).toString("base64") });
+          kept.push(attachment);
+        } catch (error) {
+          // Snapshot antigo com ref redigido ou artefato/sidecar ausente não
+          // pode derrubar o resume: descarta a imagem e o metadado, avisa e
+          // mantém a sessão retomável (#252). Integridade/linhagem são fatais.
+          const unavailable = error instanceof AttachmentError
+            && (error.code === "attachment_artifact_missing"
+              || (error.code === "attachment_image_invalid" && attachment.ref.includes("[REDACTED]")));
+          if (unavailable) {
+            console.warn("aviso: imagem indisponível ignorada ao retomar a sessão");
+            continue;
+          }
+          throw error;
+        }
       }
-      return images.length === 0 ? clean : { ...clean, images };
+      const { attachments: _attachments, ...withoutAttachments } = clean;
+      const base = kept.length === 0 ? withoutAttachments : { ...clean, attachments: kept };
+      return images.length === 0 ? base : { ...base, images };
     });
   }
 

@@ -5,7 +5,7 @@
  * custo no ledger é naturalmente 0. Miss executa e armazena.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { throwIfAborted } from "./abort";
@@ -38,6 +38,15 @@ export class CompletionCache {
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true });
     this.#db = new Database(path, { create: true });
+    if (process.platform !== "win32" && path !== ":memory:") {
+      // Argumentos de tool ficam intactos (replay); 0600 fecha leitura alheia (I-03).
+      try {
+        chmodSync(path, 0o600);
+      } catch (error) {
+        this.#db.close();
+        throw error;
+      }
+    }
     this.#db.run(
       "CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, response TEXT NOT NULL, created_ms INTEGER NOT NULL)",
     );
@@ -59,8 +68,11 @@ export class CompletionCache {
 
   /** Armazena a resposta redigida (I-03); acima de maxEntries, remove a mais antiga. */
   set(key: string, response: CompletionResponse, maxEntries: number): void {
-    // Redige o JSON serializado: segredo devolvido pelo provider não vai para o disco.
-    const stored = redactSecrets(JSON.stringify(response));
+    // Só `content` é texto livre do provider. `toolCalls[].arguments` fica
+    // intacto: redigir o JSON inteiro corromperia diffs de edit/write_file no
+    // replay do cache (o argumento é o contrato executável, não conteúdo).
+    // O SQLite recebe 0600 no POSIX (ver construtor e docs/security-threat-matrix.md).
+    const stored = JSON.stringify({ ...response, content: redactSecrets(response.content) });
     const tx = this.#db.transaction(() => {
       this.#db.run(
         "INSERT OR REPLACE INTO cache (key, response, created_ms) VALUES (?, ?, ?)",

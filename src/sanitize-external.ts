@@ -56,21 +56,45 @@ const REDACTED = "[REDACTED]";
 // JWT (header eyJ…, reusa o prefixo de `src/secrets.ts`) e bloco PEM de chave privada.
 const REDACT_JWT = new RegExp(`\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b`, "g");
 const REDACT_PEM = new RegExp(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----`, "g");
+// Hex (#252): chave/token em hex não tem prefixo nem JWT/PEM. 64+ hex é
+// redigido sem contexto. SHA-1/git (40) só com rótulo de credencial, para
+// `git log`/`commit <sha>` continuarem legíveis; 32 hex (MD5/checksum) fica
+// como residual documentado em docs/security-threat-matrix.md.
+const REDACT_HEX_LONG = /(?<![0-9a-fA-F])[0-9a-fA-F]{64,}(?![0-9a-fA-F])/g;
+const HEX_KEY_TOKEN = "(?:api[-_]?key|access[-_]?key|secret|token|credential|password|authorization|oauth|auth|key)";
+const REDACT_HEX_40_KEY = new RegExp(
+  `(?<![A-Za-z0-9])(${HEX_KEY_TOKEN}(?:${QUOTE})?\\s*[=:]\\s*(?:${QUOTE})?)([0-9a-fA-F]{40})(?![0-9a-fA-F])`,
+  "gi",
+);
 
 export const DEFAULT_MAX_TOKENS = 8_000;
 
+/** Opções de redação; `hexIdentifiers` preserva digests/IDs internos de 64+ hex (#252). */
+export interface RedactSecretsOptions {
+  /**
+   * Valor de campo de digest/ID gerado pelo harness (`sha256`, `callId`, ...):
+   * não aplica a regra de hex 64+. Residual documentado na matriz de ameaças.
+   */
+  hexIdentifiers?: boolean;
+}
+
 /** Redige padrões de segredo em um texto; reutilizado por ledger/audit (F-23). */
-export function redactSecrets(text: string): string {
-  return text
+export function redactSecrets(text: string, opts: RedactSecretsOptions = {}): string {
+  let redacted = text
     .replace(REDACT_PEM, REDACTED)
-    .replace(REDACT_JWT, REDACTED)
+    .replace(REDACT_JWT, REDACTED);
+  if (opts.hexIdentifiers !== true) {
+    redacted = redacted.replace(REDACT_HEX_LONG, REDACTED);
+  }
+  return redacted
     .replace(REDACT_VAULT_SECRET, `$1${REDACTED}$3`)
     .replace(REDACT_VALUE, REDACTED)
     .replace(REDACT_BEARER, `${BEARER_WORD} ${REDACTED}`)
     .replace(REDACT_NV, REDACTED)
     .replace(REDACT_PREFIX, REDACTED)
     .replace(REDACT_ENV, (_match, key: string, separator: string, _value: string, closing?: string) =>
-      `${key}${separator}[REDACTED]${closing ?? ""}`);
+      `${key}${separator}[REDACTED]${closing ?? ""}`)
+    .replace(REDACT_HEX_40_KEY, (_match, prefix: string) => `${prefix}${REDACTED}`);
 }
 
 /**

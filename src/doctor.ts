@@ -10,6 +10,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_ATTACHMENTS, loadConfig, loadConfigRaw, type MCPServerConfig } from "./core/config";
 import { loadEffectiveConfig } from "./providers/profiles";
 import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "./attachments/store";
+import { ARTIFACT_KEY_PATTERN, SHA256_HEX } from "./internal-ids";
 import { headerEnvNames } from "./mcp/headers";
 import { resolveAstroHome } from "./permissions";
 import { redactSecrets } from "./sanitize-external";
@@ -638,18 +639,16 @@ function readAttachmentConfig(env: NodeJS.ProcessEnv): { ttlDays: number; maxByt
   }
 }
 
-const ARTIFACT_KEY = /^(?:session|run)-[a-f0-9]{64}$/;
-
 function readArtifactUsage(root: string): { usageBytes: number; artifacts: number } {
   let usageBytes = 0;
   let artifacts = 0;
   try {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !ARTIFACT_KEY.test(entry.name)) continue;
+      if (!entry.isDirectory() || !ARTIFACT_KEY_PATTERN.test(entry.name)) continue;
       const dir = join(root, entry.name);
       try {
         for (const name of readdirSync(dir, { withFileTypes: true })) {
-          if (!name.isFile() || !/^[a-f0-9]{64}$/.test(name.name)) continue;
+          if (!name.isFile() || !SHA256_HEX.test(name.name)) continue;
           usageBytes += statSync(join(dir, name.name)).size;
           artifacts += 1;
         }

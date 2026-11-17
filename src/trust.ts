@@ -187,20 +187,21 @@ export interface EnsureTrustedOptions {
   onDecision?: (folder: string, decision: "allow" | "deny") => void;
 }
 /**
- * Garante trust do cwd antes do run: já confiável → segue; sem canal
- * interativo (eval/CI) → prossegue sem persistir; senão pergunta — aprovar
- * persiste + audita `allow`, negar audita `deny` e joga `TrustDeniedError`.
+ * Garante trust do cwd antes do run: já confiável → `true`; sem canal
+ * interativo (eval/CI) → `false` sem persistir; senão pergunta — aprovar
+ * persiste + audita `allow` e devolve `true`; negar audita `deny` e joga
+ * `TrustDeniedError`. O retorno é o gate para carregar plugins locais (#255).
  */
-export async function ensureTrustedCwd(cwd: string, opts: EnsureTrustedOptions = {}): Promise<void> {
+export async function ensureTrustedCwd(cwd: string, opts: EnsureTrustedOptions = {}): Promise<boolean> {
   const folders = new TrustedFolders(opts.path);
-  if (folders.isTrusted(cwd)) return;
-  if (opts.ask === undefined) return;
+  if (folders.isTrusted(cwd)) return true;
+  if (opts.ask === undefined) return false;
   const folder = canonicalFolder(cwd);
   const allow = await opts.ask(folder);
   if (allow) {
     folders.trust(folder);
     opts.onDecision?.(folder, "allow");
-    return;
+    return true;
   }
   opts.onDecision?.(folder, "deny");
   throw new TrustDeniedError(folder);

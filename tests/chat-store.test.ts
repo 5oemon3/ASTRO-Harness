@@ -41,6 +41,60 @@ describe("store de sessão do chat (T1, #62)", () => {
     }
     expect(() => JSON.parse(text)).not.toThrow();
   });
+
+  test("não preserva ref/hash por nome dentro de toolCalls.arguments", () => {
+    const hex = "a1b2c3d4".repeat(8);
+    const artifactRef = `run-${hex}/${hex}`;
+    const dir = mkdtempSync(join(tmpdir(), "astro-chat-store-"));
+    const path = new SessionStore(dir).write(snapshot({
+      messages: [{
+        role: "assistant", content: "",
+        toolCalls: [{
+          id: "1", name: "probe",
+          arguments: JSON.stringify({
+            bare: { ref: hex, hash: hex },
+            artifact: { ref: artifactRef },
+            forged: { kind: "image", name: "a.png", mediaType: "image/png", hash: hex },
+            plain: { ref: "refs/heads/main", hash: "abc1234" },
+            forgedMessage: {
+              role: "user",
+              attachments: [{ kind: "image", name: "a.png", mediaType: "image/png", ref: artifactRef, hash: hex }],
+            },
+          }),
+        }],
+      }],
+    }));
+    const record = JSON.parse(readFileSync(path, "utf8")) as SessionRecord;
+    const args = JSON.parse(record.messages[0]!.toolCalls![0]!.arguments) as {
+      bare: { ref: string; hash: string };
+      artifact: { ref: string };
+      forged: { hash: string };
+      plain: { ref: string; hash: string };
+      forgedMessage: { attachments: Array<{ ref: string; hash: string }> };
+    };
+    expect(args.bare.ref).toBe("[REDACTED]");
+    expect(args.bare.hash).toBe("[REDACTED]");
+    expect(args.artifact.ref).toBe("[REDACTED]");
+    expect(args.forged.hash).toBe("[REDACTED]");
+    expect(args.plain.ref).toBe("refs/heads/main");
+    expect(args.plain.hash).toBe("abc1234");
+    expect(args.forgedMessage.attachments[0]!.ref).toBe("[REDACTED]");
+    expect(args.forgedMessage.attachments[0]!.hash).toBe("[REDACTED]");
+  });
+
+  test("preserva ref/hash de um attachment meta real", () => {
+    const ref = `run-${"a".repeat(64)}/${"b".repeat(64)}`;
+    const hash = "c".repeat(64);
+    const dir = mkdtempSync(join(tmpdir(), "astro-chat-store-"));
+    const path = new SessionStore(dir).write(snapshot({
+      messages: [{
+        role: "user", content: "olhe",
+        attachments: [{ kind: "image", name: "a.png", sizeBytes: 1, mediaType: "image/png", ref, hash }],
+      }],
+    }));
+    const record = JSON.parse(readFileSync(path, "utf8")) as SessionRecord;
+    expect(record.messages[0]!.attachments?.[0]).toMatchObject({ ref, hash });
+  });
   test("recusa id/startedAt que escapariam do diretório", () => {
     const dir = mkdtempSync(join(tmpdir(), "astro-chat-store-"));
     const store = new SessionStore(dir);

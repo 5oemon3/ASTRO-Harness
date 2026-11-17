@@ -10,6 +10,7 @@ import {
   resolveArtifactRoot,
   validateArtifactRoot,
 } from "../src/attachments/store";
+import { AttachmentError } from "../src/attachments/model";
 import { FAKE_PRIVATE_ACL } from "./setup";
 
 const dirs: string[] = [];
@@ -245,7 +246,7 @@ describe("ArtifactStore", () => {
     }
   });
 
-  test("read de ref ausente ou adulterado falha tipado", () => {
+  test("read de ref inválido ou adulterado falha tipado", () => {
     const { root, cwd, astroHome } = sandbox();
     const store = new ArtifactStore(root, context(cwd, astroHome));
     expect(() => store.read("session-abc/def")).toThrow(/attachment_image_invalid|ref/i);
@@ -253,6 +254,39 @@ describe("ArtifactStore", () => {
     const [dir, file] = saved.ref.split("/");
     writeFileSync(join(root, dir!, file!), "adulterado");
     expect(() => store.read(saved.ref)).toThrow(/attachment_image_invalid|hash/i);
+  });
+
+  test("artefato/sidecar ausente usa attachment_artifact_missing", () => {
+    const { root, cwd, astroHome } = sandbox();
+    const store = new ArtifactStore(root, context(cwd, astroHome));
+    const saved = store.save(owner, new TextEncoder().encode("x"), "image/png");
+    const [dir, hash] = saved.ref.split("/");
+    unlinkSync(join(root, dir!, hash!));
+    const readErr = (() => { try { store.read(saved.ref); } catch (error) { return error as AttachmentError; } })();
+    expect(readErr?.code).toBe("attachment_artifact_missing");
+
+    unlinkSync(join(root, dir!, `${hash!}.json`));
+    const metaErr = (() => { try { store.meta(saved.ref); } catch (error) { return error as AttachmentError; } })();
+    expect(metaErr?.code).toBe("attachment_artifact_missing");
+  });
+
+  test("sidecar ilegível e diretório no hash são attachment_image_invalid", () => {
+    const { root, cwd, astroHome } = sandbox();
+    const store = new ArtifactStore(root, context(cwd, astroHome));
+    const corrupted = store.save(owner, new TextEncoder().encode("x"), "image/png");
+    const [dir, hash] = corrupted.ref.split("/");
+    writeFileSync(join(root, dir!, `${hash!}.json`), "{", "utf8");
+    const metaErr = (() => { try { store.meta(corrupted.ref); } catch (error) { return error as AttachmentError; } })();
+    expect(metaErr?.code).toBe("attachment_image_invalid");
+    expect(metaErr?.message).toMatch(/ilegível/i);
+
+    const replaced = store.save(owner, new TextEncoder().encode("y"), "image/png");
+    const [dir2, hash2] = replaced.ref.split("/");
+    unlinkSync(join(root, dir2!, hash2!));
+    mkdirSync(join(root, dir2!, hash2!));
+    const readErr = (() => { try { store.read(replaced.ref); } catch (error) { return error as AttachmentError; } })();
+    expect(readErr?.code).toBe("attachment_image_invalid");
+    expect(readErr?.message).toMatch(/ilegível/i);
   });
 
   test("rejeita ref com traversal", () => {

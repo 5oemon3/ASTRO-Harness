@@ -88,7 +88,10 @@ describe("compactação integrada à sessão e ao comando (F-25)", () => {
     const interval = readSourceRefs(o.ledger, refs);
     expect(interval).toHaveLength(1);
     expect(interval[0]!.run).toBe("r1"); // não vazou o run vizinho
-    expect(() => readSourceRefs(o.ledger, { ...refs, ledger_id: "a".repeat(64) })).toThrow(HandoffError);
+    const other = "a".repeat(64);
+    const err = (() => { try { readSourceRefs(o.ledger, { ...refs, ledger_id: other }); } catch (e) { return e as HandoffError; } })();
+    expect(err).toBeInstanceOf(HandoffError);
+    expect(err!.message).toContain(other); // ID do ledger visível para correlação
   });
 
   test("astro handoff show inspeciona o artefato com a auditoria da compactação", () => {
@@ -106,6 +109,10 @@ describe("compactação integrada à sessão e ao comando (F-25)", () => {
     expect(out).toContain("truncate (dropou: open_questions)");
     expect(out).toContain("truncado (120 → 30 tokens)");
     expect(out).toContain("arte.txt");
-    expect(() => formatHandoffShow(o.ledger, "deadbeef")).toThrow(/não encontrado no ledger/);
+    const missing = "f".repeat(64);
+    const err = (() => { try { formatHandoffShow(o.ledger, missing); } catch (e) { return e as HandoffError; } })();
+    expect(err).toBeInstanceOf(HandoffError);
+    expect(err!.message).toContain("não encontrado no ledger");
+    expect(err!.message).toContain(missing); // handoff show cita o ID sem redigir
   });
 });

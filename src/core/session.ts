@@ -912,7 +912,7 @@ export async function runMultiAgentSession(
     awaitAck(() => (opts.ackHandoff !== undefined ? opts.ackHandoff(h.artifact, receiver) : ackHandoff(handoffDeps, h.handoff_id, receiver)), ackTimeoutMs);
   const ackTimeoutError = (h: { handoff_id: string; artifact: HandoffArtifactV1 }) => {
     recordHandoffEvent("handoff.ack_timeout", handoffDeps, h.artifact, h.artifact.from, { reason: `sem ack em ${ackTimeoutMs}ms` });
-    return new HandoffError("handoff_ack_timeout", `handoff ${h.handoff_id} sem ack em ${ackTimeoutMs}ms`);
+    return new HandoffError("handoff_ack_timeout", `handoff ${h.handoff_id} sem ack em ${ackTimeoutMs}ms`, { hexIdentifiers: true });
   };
 
   const tracer = opts.tracer;
@@ -941,8 +941,14 @@ export async function runMultiAgentSession(
     // Varredura de retomada (F-24): pendências do run no ledger do cwd corrente
     const resume = scanHandoffs(opts.ledger, opts.run).at(-1);
     if (resume !== undefined && resume.state === "failed") {
-      // Falho permanente: reporta e não reexecuta (I-19)
-      throw new Error(`handoff ${resume.handoff_id} falhou permanentemente e não será reexecutado${resume.reason === undefined ? "" : `: ${resume.reason}`}`);
+      // Falho permanente: reporta e não reexecuta (I-19). HandoffError (D-18)
+      // preserva o ID interno; o reason é redigido normalmente ANTES de juntar.
+      const reason = resume.reason === undefined ? "" : `: ${redactSecrets(resume.reason)}`;
+      throw new HandoffError(
+        "handoff_mismatch",
+        `handoff ${resume.handoff_id} falhou permanentemente e não será reexecutado${reason}`,
+        { hexIdentifiers: true },
+      );
     }
     if (resume !== undefined && resume.state === "pending") {
       const pending = resume;
@@ -1121,7 +1127,7 @@ export async function runMultiAgentSession(
         cleanupSpawns("completed");
         tracer?.end(stepSpan, { "tool.calls": 0 });
         tracer?.end(rootSpan, { status: "ok", steps: step });
-        return { final: response.content, steps: step, agentsUsed: agentsUsed.map(redactSecrets) };
+        return { final: response.content, steps: step, agentsUsed: agentsUsed.map((value) => redactSecrets(value)) };
       }
 
       messages.push({

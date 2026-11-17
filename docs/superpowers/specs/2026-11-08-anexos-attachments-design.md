@@ -74,7 +74,7 @@ interface ChatMessage {
 
 `loadPastedText(text)`: clipboard sem path, dedupe por hash.
 
-**Erros tipados** (`AttachmentError`): `attachment_hard_blocked`, `attachment_outside_denied`, `attachment_too_large`, `attachment_turn_too_large`, `attachment_unsupported_binary`, `attachment_image_invalid`, `attachment_range_invalid`, `attachment_directory_too_large`, `attachment_root_invalid`. Mensagem cita caminho, nunca conteúdo.
+**Erros tipados** (`AttachmentError`): `attachment_hard_blocked`, `attachment_outside_denied`, `attachment_too_large`, `attachment_turn_too_large`, `attachment_unsupported_binary`, `attachment_image_invalid`, `attachment_artifact_missing`, `attachment_range_invalid`, `attachment_directory_too_large`, `attachment_root_invalid`. Mensagem cita caminho, nunca conteúdo.
 
 ## Config (`src/config.ts`, seção `attachments`)
 

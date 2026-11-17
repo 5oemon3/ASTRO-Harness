@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { ARTIFACT_KEY_PATTERN, ARTIFACT_REF_PATTERN, SHA256_HEX } from "../internal-ids";
 import { canonicalize, isWithin } from "../tools/paths";
 import { defaultCheckPrivate, hardenWindowsAcl, type WindowsAcl, windowsAclIsPrivate } from "./acl";
 import { AttachmentError, MAX_ATTACHMENT_BYTES } from "./model";
@@ -61,11 +62,15 @@ export interface GcMarker {
   removed: number;
 }
 
-const REF_PATTERN = /^(?:session|run)-[a-f0-9]{64}\/[a-f0-9]{64}$/;
-const KEY_PATTERN = /^(?:session|run)-[a-f0-9]{64}$/;
 const GC_FILE = "gc.json";
 const DEFAULT_TTL_DAYS = 7;
 const DEFAULT_MAX_BYTES = 1024 ** 3;
+
+/** Ausente de verdade: só ENOENT/ENOTDIR vira `attachment_artifact_missing`. */
+function isMissingFile(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
 
 /** Marcador de GC puro e read-only; ausente/inválido é `undefined`, nunca cria a raiz. */
 export function readGcMarker(root: string): GcMarker | undefined {
@@ -213,7 +218,7 @@ export class ArtifactStore {
     let total = 0;
     for (const key of this.#keys()) {
       for (const name of readdirSync(join(this.root, key))) {
-        if (!/^[a-f0-9]{64}$/.test(name)) continue;
+        if (!SHA256_HEX.test(name)) continue;
         total += statSync(join(this.root, key, name)).size;
       }
     }
@@ -255,7 +260,7 @@ export class ArtifactStore {
 
   /** Lê e valida o metadado do artefato; ref/sidecar ausente ou adulterado falha tipado. */
   meta(ref: string): ArtifactMeta {
-    if (!REF_PATTERN.test(ref)) {
+    if (!ARTIFACT_REF_PATTERN.test(ref)) {
       throw new AttachmentError("attachment_image_invalid", `ref de artefato inválido: ${ref}`);
     }
     const [key, hash] = ref.split("/") as [string, string];
@@ -264,11 +269,20 @@ export class ArtifactStore {
     if (rel.startsWith("..") || isAbsolute(rel)) {
       throw new AttachmentError("attachment_image_invalid", `ref fora da raiz de artefato: ${ref}`);
     }
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch (error) {
+      if (isMissingFile(error)) {
+        throw new AttachmentError("attachment_artifact_missing", `metadado ausente: ${ref}`);
+      }
+      throw new AttachmentError("attachment_image_invalid", `metadado ilegível: ${ref}`);
+    }
     let meta: ArtifactMeta;
     try {
-      meta = JSON.parse(readFileSync(path, "utf8")) as ArtifactMeta;
+      meta = JSON.parse(raw) as ArtifactMeta;
     } catch {
-      throw new AttachmentError("attachment_image_invalid", `metadado ausente ou ilegível: ${ref}`);
+      throw new AttachmentError("attachment_image_invalid", `metadado ilegível: ${ref}`);
     }
     if (
       meta === null || typeof meta !== "object" || meta.schema !== "artifact/v1" ||
@@ -291,7 +305,7 @@ export class ArtifactStore {
 
   /** Lê e valida o hash; ref ausente/adulterado falha tipado. */
   read(ref: string): Uint8Array {
-    if (!REF_PATTERN.test(ref)) {
+    if (!ARTIFACT_REF_PATTERN.test(ref)) {
       throw new AttachmentError("attachment_image_invalid", `ref de artefato inválido: ${ref}`);
     }
     const [key, hash] = ref.split("/") as [string, string];
@@ -303,8 +317,11 @@ export class ArtifactStore {
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(readFileSync(path));
-    } catch {
-      throw new AttachmentError("attachment_image_invalid", `artefato ausente ou expirado: ${ref}`);
+    } catch (error) {
+      if (isMissingFile(error)) {
+        throw new AttachmentError("attachment_artifact_missing", `artefato ausente ou expirado: ${ref}`);
+      }
+      throw new AttachmentError("attachment_image_invalid", `artefato ilegível: ${ref}`);
     }
     if (sha256(bytes) !== hash) {
       throw new AttachmentError("attachment_image_invalid", `hash do artefato divergente: ${ref}`);
@@ -320,7 +337,7 @@ export class ArtifactStore {
     for (const key of this.#keys()) {
       const dir = join(this.root, key);
       for (const name of readdirSync(dir)) {
-        if (!/^[a-f0-9]{64}$/.test(name)) continue;
+        if (!SHA256_HEX.test(name)) continue;
         const ref = `${key}/${name}`;
         if (keep.has(ref)) continue;
         const metaPath = join(dir, `${name}.json`);
@@ -358,7 +375,7 @@ export class ArtifactStore {
 
   #keys(): string[] {
     try {
-      return readdirSync(this.root).filter((name) => KEY_PATTERN.test(name));
+      return readdirSync(this.root).filter((name) => ARTIFACT_KEY_PATTERN.test(name));
     } catch {
       return [];
     }

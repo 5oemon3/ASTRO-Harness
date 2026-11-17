@@ -483,7 +483,7 @@ export class Ledger {
       ...(opts.credentialRef === undefined ? {} : { credentialRef: redactSecrets(opts.credentialRef) }),
       ...(opts.profile === undefined ? {} : { profile: redactSecrets(opts.profile) }),
       ...(opts.reason === undefined ? {} : { reason: redactSecrets(opts.reason) }),
-      ...(opts.snapshot_id === undefined ? {} : { snapshot_id: redactSecrets(opts.snapshot_id) }),
+      ...(opts.snapshot_id === undefined ? {} : { snapshot_id: redactSecrets(opts.snapshot_id, { hexIdentifiers: true }) }),
       pid: opts.pid ?? process.pid,
       seq: 0,
     };

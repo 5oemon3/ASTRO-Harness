@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Auditor } from "../src/audit";
 import { MAX_TURN_BYTES, type LoadedAttachment } from "../src/attachments/model";
 import { loadPastedText } from "../src/attachments/load";
 import { ArtifactStore } from "../src/attachments/store";
@@ -100,6 +101,21 @@ describe("prepareTurnAttachments (ADR-0026, #392)", () => {
     expect(prompt).toContain("a.png - imagem não redigível - 70 bytes decodificados");
     expect(prompt).toContain("t.txt - texto - linhas 2-3 - 12 bytes");
     expect(prompt).toContain("clipboard - texto - 6 bytes");
+  });
+
+  test("attachment.approved no audit.jsonl preserva o ref completo do artifact store", async () => {
+    const audit = new Auditor(join(base, "audit.jsonl"));
+    const prepared = await prepareTurnAttachments({
+      attachments: [image("a.png", pngData)], owner, store, approver: () => true,
+      audit: (tipo, payload) => { audit.append({ run: "r1", tipo, payload }); },
+    });
+    const ref = prepared.metas[0]!.ref!;
+    const hash = prepared.metas[0]!.hash!;
+    const event = audit.readAll().find((entry) => entry.tipo === "attachment.approved")!;
+    const imageMeta = (event.payload.images as Array<{ ref: string; hash: string }>)[0]!;
+    expect(imageMeta.ref).toBe(ref);
+    expect(imageMeta.hash).toBe(hash);
+    expect(JSON.stringify(event)).not.toContain("[REDACTED]");
   });
   test("formatApprovalPrompt mostra path, sanitiza controle e mantém nome sem path", () => {
     const text = formatApprovalPrompt([

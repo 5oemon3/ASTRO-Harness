@@ -9,8 +9,7 @@
  *     return { name: "minhas-tools", tools: [myTool] };
  *   }
  */
-import type { Tool, ToolContext, ToolManifest, ToolResult } from "../tools/types";
-import { ToolError } from "../tools/types";
+import { ToolError, isToolClass, type Tool, type ToolContext, type ToolManifest, type ToolResult } from "../tools/types";
 
 // Re-exports do contrato (superfície estável do SDK)
 export type { Tool, ToolContext, ToolManifest, ToolResult };
@@ -18,9 +17,6 @@ export { ToolError };
 
 const RISKS: ReadonlySet<string> = new Set(["low", "medium", "high"]);
 const SIDE_EFFECTS: ReadonlySet<string> = new Set(["none", "filesystem", "network", "process"]);
-const TOOL_CLASSES: ReadonlySet<string> = new Set([
-  "read_common", "read_critical", "edit", "delete", "shell", "identity_swap",
-]);
 
 /** Valida um manifesto de tool (I-12); lança ToolError com campo culpado. */
 export function validateManifest(value: unknown): ToolManifest {
@@ -44,7 +40,7 @@ export function validateManifest(value: unknown): ToolManifest {
   if (typeof m.permission !== "string" || m.permission.trim().length === 0) {
     throw new ToolError("manifesto.permission deve ser uma string não vazia");
   }
-  if (typeof m.class !== "string" || !TOOL_CLASSES.has(m.class)) {
+  if (typeof m.class !== "string" || !isToolClass(m.class)) {
     throw new ToolError(
       'manifesto.class deve ser "read_common", "read_critical", "edit", "delete", "shell" ou "identity_swap"',
     );

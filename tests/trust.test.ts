@@ -139,13 +139,14 @@ describe("ensureTrustedCwd (#267, I-11)", () => {
     const { dir, path } = tmpStore();
     new TrustedFolders(path).trust(dir);
     let asked = 0;
-    await ensureTrustedCwd(dir, {
+    const trusted = await ensureTrustedCwd(dir, {
       path,
       ask: async () => {
         asked++;
         return false;
       },
     });
+    expect(trusted).toBe(true);
     expect(asked).toBe(0);
   });
   test("negar joga TrustDeniedError (trust_denied), audita deny e não persiste", async () => {
@@ -163,7 +164,7 @@ describe("ensureTrustedCwd (#267, I-11)", () => {
   });
   test("sem ask (não-TTY/eval) prossegue em silêncio e não persiste", async () => {
     const { dir, path } = tmpStore();
-    await ensureTrustedCwd(dir, { path });
+    expect(await ensureTrustedCwd(dir, { path })).toBe(false); // não confiável: plugin local não carrega
     expect(existsSync(path)).toBe(false);
   });
   test("trustPrompt cita a pasta; trustChoice aceita s/sim/y/yes e nega o resto (incl. EOF)", () => {

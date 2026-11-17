@@ -52,6 +52,7 @@ export type AttachmentErrorCode =
   | "attachment_turn_too_large"
   | "attachment_unsupported_binary"
   | "attachment_image_invalid"
+  | "attachment_artifact_missing"
   | "attachment_image_denied"
   | "attachment_range_invalid"
   | "attachment_directory_too_large"

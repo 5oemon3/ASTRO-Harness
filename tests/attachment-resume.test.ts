@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession } from "../src/chat/agent-session";
-import { AttachmentError, type AttachmentMeta } from "../src/attachments/model";
+import { SessionApi } from "../src/chat/session-api";
+import { type AttachmentMeta } from "../src/attachments/model";
 import { ArtifactStore, type ArtifactOwner } from "../src/attachments/store";
 import { FAKE_PRIVATE_ACL, testEnv } from "./setup";
 
@@ -82,17 +83,8 @@ describe("attachment resume (ADR-0026, #392)", () => {
     }
   });
 
-  test("resume falha tipado para artefato ausente, adulterado ou de outra sessão", async () => {
+  test("resume falha tipado para artefato adulterado ou de outra sessão", async () => {
     const { root, session, artifact, meta, stop } = setup();
-    const missing = artifact();
-    unlinkSync(join(root, ...missing.ref.split("/")));
-    const missingChat = session();
-    try {
-      expect(() => missingChat.resume(snapshot("s2", meta(missing)))).toThrow(AttachmentError);
-      expect(missingChat.messages.map((message) => message.role)).toEqual(["system"]);
-    } finally {
-      missingChat.close();
-    }
 
     const tampered = artifact();
     writeFileSync(join(root, ...tampered.ref.split("/")), "adulterado");
@@ -206,6 +198,147 @@ describe("attachment resume (ADR-0026, #392)", () => {
       expect(summary?.attachments?.[0]).toMatchObject({ ref: saved.ref, hash: saved.hash });
     } finally {
       chat.close();
+      stop();
+    }
+  });
+
+  test("SessionApi save/load preserva ref/hash e resume reidrata a imagem", () => {
+    const { session, artifact, meta, stop } = setup();
+    const saved = artifact();
+    const apiDir = mkdtempSync(join(tmpdir(), "astro-session-api-"));
+    dirs.push(apiDir);
+    const api = new SessionApi(apiDir);
+    try {
+      api.save({ schemaVersion: 1, ...snapshot("s3", meta(saved)) });
+      const loaded = api.load("s3");
+      expect(loaded.messages[0]!.attachments?.[0]).toMatchObject({ ref: saved.ref, hash: saved.hash });
+
+      const chat = session();
+      try {
+        chat.resume(loaded);
+        const user = chat.messages.find((message) => message.role === "user");
+        expect(user?.images?.[0]?.dataBase64).toBe(PNG);
+      } finally {
+        chat.close();
+      }
+    } finally {
+      api.close();
+      stop();
+    }
+  });
+
+  test("resume descarta imagem com ref redigido e avisa em vez de abortar", () => {
+    const { session, stop } = setup();
+    const warnings: string[] = [];
+    const warning = spyOn(console, "warn").mockImplementation((message?: unknown) => {
+      warnings.push(String(message));
+    });
+    const chat = session();
+    try {
+      chat.resume(snapshot("s4", {
+        kind: "image", name: "a.png", sizeBytes: 10, mediaType: "image/png",
+        ref: "session-[REDACTED]/[REDACTED]", hash: "[REDACTED]",
+      }));
+      const user = chat.messages.find((message) => message.role === "user");
+      expect(user?.images).toBeUndefined();
+      expect(warnings.join("\n")).toMatch(/indisponível|ignorada/i);
+    } finally {
+      warning.mockRestore();
+      chat.close();
+      stop();
+    }
+  });
+
+  test("resume descarta imagem cujo artefato e sidecar sumiram e avisa", () => {
+    const { root, session, artifact, meta, stop } = setup();
+    const saved = artifact();
+    const [key, hash] = saved.ref.split("/");
+    unlinkSync(join(root, key!, hash!));
+    unlinkSync(join(root, key!, `${hash!}.json`));
+    const warnings: string[] = [];
+    const warning = spyOn(console, "warn").mockImplementation((message?: unknown) => {
+      warnings.push(String(message));
+    });
+    const chat = session();
+    try {
+      chat.resume(snapshot("s5", meta(saved)));
+      const user = chat.messages.find((message) => message.role === "user");
+      expect(user?.images).toBeUndefined();
+      expect(user?.attachments).toBeUndefined();
+      expect(warnings.join("\n")).toMatch(/indisponível|ignorada|ausente/i);
+    } finally {
+      warning.mockRestore();
+      chat.close();
+      stop();
+    }
+  });
+
+  test("resume é fatal para sidecar ilegível", () => {
+    const { root, session, artifact, meta, stop } = setup();
+    const saved = artifact();
+    const [dir, hash] = saved.ref.split("/");
+    writeFileSync(join(root, dir!, `${hash!}.json`), "{", "utf8");
+    const chat = session();
+    try {
+      expect(() => chat.resume(snapshot("s7", meta(saved)))).toThrow(/attachment_image_invalid|ilegível/i);
+      expect(chat.messages.map((message) => message.role)).toEqual(["system"]);
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("resume é fatal quando o hash é diretório", () => {
+    const { root, session, artifact, meta, stop } = setup();
+    const saved = artifact();
+    const [dir, hash] = saved.ref.split("/");
+    unlinkSync(join(root, dir!, hash!));
+    mkdirSync(join(root, dir!, hash!));
+    const chat = session();
+    try {
+      expect(() => chat.resume(snapshot("s8", meta(saved)))).toThrow(/attachment_image_invalid|ilegível/i);
+      expect(chat.messages.map((message) => message.role)).toEqual(["system"]);
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("resume reidrata imagem boa e poda metadado morto; SessionApi persiste podado", () => {
+    const { root, session, artifact, meta, stop } = setup();
+    const good = artifact();
+    const dead = artifact({ sessionId: "s-dead", runId: "r1", lineage: [] });
+    const [deadDir, deadHash] = dead.ref.split("/");
+    unlinkSync(join(root, deadDir!, deadHash!));
+    unlinkSync(join(root, deadDir!, `${deadHash!}.json`));
+    const warnings: string[] = [];
+    const warning = spyOn(console, "warn").mockImplementation((message?: unknown) => {
+      warnings.push(String(message));
+    });
+    const apiDir = mkdtempSync(join(tmpdir(), "astro-session-api-mixed-"));
+    dirs.push(apiDir);
+    const chat = session();
+    const api = new SessionApi(apiDir);
+    try {
+      chat.resume({
+        ...snapshot("s6", meta(good)),
+        messages: [{ role: "user", content: "olhe", attachments: [meta(good), meta(dead)] }],
+      });
+      const user = chat.messages.find((message) => message.role === "user");
+      expect(user?.images).toHaveLength(1);
+      expect(user?.attachments).toHaveLength(1);
+      expect(user?.attachments?.[0]?.ref).toBe(good.ref);
+      expect(warnings.join("\n")).toMatch(/indisponível|ignorada/i);
+
+      api.save({ schemaVersion: 1, ...chat.snapshot() });
+      const loaded = api.load(chat.id);
+      const loadedUser = loaded.messages.find((message) => message.role === "user");
+      expect(loadedUser?.attachments).toHaveLength(1);
+      expect(loadedUser?.attachments?.[0]?.ref).toBe(good.ref);
+    } finally {
+      api.close();
+      chat.close();
+      warning.mockRestore();
       stop();
     }
   });

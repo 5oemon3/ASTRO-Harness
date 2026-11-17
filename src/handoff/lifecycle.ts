@@ -53,11 +53,13 @@ export function ackHandoff(deps: { ledger: Ledger; run: string; cwd?: string }, 
     .readHandoffs()
     .find((e) => e.kind === "handoff.created" && e.handoff_id === handoffId);
   if (created === undefined) {
-    throw new HandoffError("handoff_mismatch", `handoff ${handoffId} não encontrado no ledger`);
+    // D-18: handoff_mismatch mapeia para invalid_request e NÃO é retryable;
+    // só handoff_ack_timeout é transient_rate_limit/retryable (RETRYABLE em types.ts).
+    throw new HandoffError("handoff_mismatch", `handoff ${handoffId} não encontrado no ledger`, { hexIdentifiers: true });
   }
   // Verifier de identidade (F-26): o id gravado precisa casar com o artefato
   if (handoffIdOf(created.artifact) !== handoffId) {
-    throw new HandoffError("handoff_mismatch", `handoff_id divergente do artefato: ${handoffId}`);
+    throw new HandoffError("handoff_mismatch", `handoff_id divergente do artefato: ${handoffId}`, { hexIdentifiers: true });
   }
   const artifact = validateHandoffArtifact(created.artifact);
   // Recepção (F-25): artefatos citados existem dentro do cwd e o digest bate (I-11)
@@ -74,7 +76,7 @@ export function ackHandoff(deps: { ledger: Ledger; run: string; cwd?: string }, 
  */
 export function readSourceRefs(ledger: Ledger, refs: HandoffSourceRefs): LedgerAnyEntry[] {
   if (refs.ledger_id !== ledger.id()) {
-    throw new HandoffError("handoff_mismatch", `source_refs aponta para outro ledger: ${refs.ledger_id}`);
+    throw new HandoffError("handoff_mismatch", `source_refs aponta para outro ledger: ${refs.ledger_id}`, { hexIdentifiers: true });
   }
   return ledger.readSeqRange(refs.seq_start, refs.seq_end);
 }
@@ -83,7 +85,7 @@ export function readSourceRefs(ledger: Ledger, refs: HandoffSourceRefs): LedgerA
 export function formatHandoffShow(ledger: Ledger, handoffId: string): string {
   const events = ledger.readHandoffs().filter((e) => e.handoff_id === handoffId);
   if (events.length === 0) {
-    throw new HandoffError("handoff_mismatch", `handoff ${handoffId} não encontrado no ledger`);
+    throw new HandoffError("handoff_mismatch", `handoff ${handoffId} não encontrado no ledger`, { hexIdentifiers: true });
   }
   const latest = events.at(-1)!;
   const a = latest.artifact;

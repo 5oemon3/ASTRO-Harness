@@ -56,10 +56,12 @@ describe("tool spawn_agent (S-11, A1/A2/A3/A5)", () => {
     expect(spawns.get("sub-1")?.instructions).toBe("sub tarefa");
 
     const created = ledger.readAllEntries().find((e) => e.kind === "agent" && e.event === "created");
+    const snapshotId = created?.kind === "agent" ? created.snapshot_id : undefined;
     expect(created).toMatchObject({
       agent_id: "sub-1", parent_agent_id: "planner", model: "m1", provider: "p1", profile: "fast",
       reason: "default_rank", need: "writing-code", snapshot_id: expect.any(String),
     });
+    expect(snapshotId).toMatch(/^[0-9a-f]{64}$/); // I-06: snapshot correlacionável
   });
 
   test("sem conta livre o snapshot fica vazio; snapshot velho falha no lock", async () => {

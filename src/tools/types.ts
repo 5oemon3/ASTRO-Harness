@@ -13,6 +13,15 @@ export type ToolClass =
   | "shell"
   | "identity_swap";
 
+const TOOL_CLASS_SET: ReadonlySet<string> = new Set([
+  "read_common", "read_critical", "edit", "delete", "shell", "identity_swap",
+]);
+
+/** Guard de runtime: manifestos de plugin não passam pelo typechecker (#264). */
+export function isToolClass(value: unknown): value is ToolClass {
+  return typeof value === "string" && TOOL_CLASS_SET.has(value);
+}
+
 /** Metadados obrigatórios de uma tool (I-12). */
 export interface ToolManifest {
   name: string;
@@ -92,7 +101,7 @@ export interface AuditLike {
 export interface ToolResult {
   output: string;
   isError?: boolean;
-  /** Código estável de erro de política (ADR-0027): path_hard_blocked, allow_invalid, sandbox_required_for_shell. */
+  /** Código estável de erro de política (ADR-0027): path_hard_blocked, allow_invalid, sandbox_required_for_shell, invalid_manifest. */
   code?: string;
 }
 

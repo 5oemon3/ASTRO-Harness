@@ -67,6 +67,7 @@ describe("lock de via única do handoff (F-26)", () => {
     appendFileSync(ledgerPath, `${JSON.stringify({ schemaVersion: 1, ts: new Date().toISOString(), run: "r9", kind: "handoff.created", handoff_id: bogus, artifact: sanitizeHandoffArtifact(a), agent: "planner" })}\n`, "utf8");
     const err = (() => { try { ackHandoff({ ledger, run: "r9" }, bogus, "coder"); } catch (e) { return e as HandoffError; } })();
     expect(err?.code).toBe("handoff_mismatch");
+    expect(err?.message).toContain(bogus); // erro visível preserva o ID para correlação
     expect(ledger.readHandoffs().filter((e) => e.kind === "handoff.received")).toHaveLength(0);
   });
 

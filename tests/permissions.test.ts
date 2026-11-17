@@ -303,6 +303,107 @@ describe("gate no executor (#259)", () => {
   });
 });
 
+describe("fail closed sem class (#264, P0)", () => {
+  function rawTool(onRun: () => void = () => {}): Tool {
+    return {
+      manifest: {
+        name: "raw_plugin",
+        description: "tool de plugin sem class",
+        parameters: { type: "object", properties: {} },
+        risk: "high", permission: "execute", timeoutMs: 1_000,
+        retryable: false, idempotent: false, sideEffects: "process",
+      } as unknown as Tool["manifest"],
+      async execute() {
+        onRun();
+        return { output: "executou" };
+      },
+    };
+  }
+
+  test("classe desconhecida nega em todos os modos, nunca undefined", () => {
+    for (const mode of ["bypass", "allow-edits", "ask"] as const) {
+      expect(permissionDecision(mode, "root" as ActionClass)).toBe("deny");
+    }
+  });
+
+  test("actionClassOf rejeita class ausente/desconhecida", () => {
+    expect(() => actionClassOf(rawTool(), { name: "raw_plugin", input: {} })).toThrow(/class/);
+    const unknown = rawTool();
+    (unknown.manifest as { class?: string }).class = "root";
+    expect(() => actionClassOf(unknown, { name: "raw_plugin", input: {} })).toThrow(/class/);
+  });
+
+  test("tool crua sem class não executa em ask, mesmo com aprovador", async () => {
+    let ran = false;
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm-noclass-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    const executor = new ToolExecutor({
+      tools: [rawTool(() => { ran = true; })],
+      allow: ["raw_plugin"],
+      audit,
+      permissionMode: "ask",
+      approveTool: () => true,
+    });
+    const result = await executor.run(
+      { cwd, run: "r1", agent: "a" },
+      { id: "c1", name: "raw_plugin", arguments: "{}" },
+    );
+
+    expect(ran).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.code).toBe("invalid_manifest");
+    const denied = audit.readAll().filter((e) => e.tipo === "tool.denied");
+    expect(denied.at(-1)?.payload).toMatchObject({ name: "raw_plugin", reason: "invalid_manifest" });
+  });
+
+  test("tool com class desconhecida também não executa em ask", async () => {
+    let ran = false;
+    const tool = rawTool(() => { ran = true; });
+    (tool.manifest as { class?: string }).class = "root";
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm-unknown-class-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    const executor = new ToolExecutor({
+      tools: [tool],
+      allow: ["raw_plugin"],
+      audit,
+      permissionMode: "ask",
+      approveTool: () => true,
+    });
+    const result = await executor.run(
+      { cwd, run: "r1", agent: "a" },
+      { id: "c1", name: "raw_plugin", arguments: "{}" },
+    );
+
+    expect(ran).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.code).toBe("invalid_manifest");
+  });
+
+  test("manifesto removido após o load nega invalid_manifest, nunca TypeError", async () => {
+    let ran = false;
+    const tool = rawTool(() => { ran = true; });
+    const cwd = mkdtempSync(join(tmpdir(), "astro-perm-nomanifest-"));
+    const audit = new Auditor(join(cwd, "audit.jsonl"));
+    const executor = new ToolExecutor({
+      tools: [tool],
+      allow: ["raw_plugin"],
+      audit,
+      permissionMode: "ask",
+      approveTool: () => true,
+    });
+    // Simula plugin que zera o manifesto depois do registro no executor.
+    (tool as { manifest: unknown }).manifest = undefined;
+    const result = await executor.run(
+      { cwd, run: "r1", agent: "a" },
+      { id: "c1", name: "raw_plugin", arguments: "{}" },
+    );
+
+    expect(ran).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.code).toBe("invalid_manifest");
+  });
+});
+
 describe("ask sem TTY (#262)", () => {
   test("ask sem aprovador nega, audita pending e não executa", async () => {
     let ran = false;

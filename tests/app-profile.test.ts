@@ -182,7 +182,7 @@ export function definePlugin() {
   });
   (globalThis as { __astroCreates?: number; __astroCompletes?: number }).__astroCreates = 0;
   (globalThis as { __astroCreates?: number; __astroCompletes?: number }).__astroCompletes = 0;
-  const report = await runTask({ approveSwap: () => true, configPath: cfgPath, task: "x", cwd: dir, env: testEnv({ KEY_B: "k" }) });
+  const report = await runTask({ approveSwap: () => true, configPath: cfgPath, task: "x", cwd: dir, env: testEnv({ KEY_B: "k" }), trustAsk: () => true });
   expect(report.final).toBe("ok");
   expect((globalThis as { __astroCreates?: number }).__astroCreates).toBe(1); // 2 steps, 1 provider
 });

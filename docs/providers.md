@@ -166,8 +166,12 @@ Exemplo completo: `examples/tool-sql/sql.ts` (~70 linhas).
 
 | Entrada em `plugins` | Carrega? |
 |---|---|
-| Caminho local (`./x.ts`, absoluto) | Sim — está no disco do usuário |
-| Pacote remoto (`meu-plugin`, `@org/plugin`) | Só se listado em `ASTRO_PLUGIN_ALLOWLIST` (env, separado por vírgula); fora dela, warn e segue sem o plugin |
+| Caminho local (`./x.ts`, absoluto) dentro do cwd do run | Só com o cwd confiável/aprovado no trust (#255). Pasta não confiável e sem TTY: warn e segue sem o plugin — importar executaria código do projeto antes da aprovação |
+| Pacote remoto (`meu-plugin`, `@org/plugin`) | Só se listado em `ASTRO_PLUGIN_ALLOWLIST` do env do run (separado por vírgula); fora dela, warn e segue sem o plugin |
+
+Caminho relativo resolve a partir do cwd do run, não do diretório do processo. Caminho local fora do cwd (inclusive via symlink) é ignorado: o trust da pasta não cobre código externo. `file:` URL é tratada como pacote remoto: exige `ASTRO_PLUGIN_ALLOWLIST` do env e NÃO passa pelo confinamento do cwd; prefira caminho local para herdar o trust da pasta.
+
+O loader valida o manifesto completo da tool (I-12); tool de plugin sem os campos obrigatórios é ignorada no load com warn. O dispatch revalida e nega com `invalid_manifest` (#264).
 
 `astro config push` não publica config com `plugins` sem `--allow-plugins`, e `pull` remove os plugins da config puxada sem a mesma flag (a config gravada registra `provenance.registry`). O env é o único trust anchor que uma config puxada não consegue alterar.
 

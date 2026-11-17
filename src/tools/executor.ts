@@ -24,6 +24,7 @@ import {
   type ToolPermissionRequest,
 } from "../permissions";
 import { AllowlistInvalidError, classifyPath, type PathClass } from "../path-class";
+import { validateManifest } from "../sdk/tool";
 import { join, relative } from "node:path";
 import type { ToolCall, ToolDef } from "../providers/types";
 import type { Tool, ToolContext, ToolResult } from "./types";
@@ -48,6 +49,19 @@ function safeRunDir(run: string): string {
 
 function failure(message: string): ToolResult {
   return { output: message, isError: true };
+}
+
+/**
+ * Problema do manifesto no dispatch (#264): tool de plugin não passa pelo
+ * typechecker e `class` ausente/desconhecida deixaria o gate sem decisão.
+ */
+function manifestProblem(manifest: unknown): string | undefined {
+  try {
+    validateManifest(manifest);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : "manifesto inválido";
+  }
 }
 
 /**
@@ -159,7 +173,7 @@ export class ToolExecutor {
     if (step !== undefined && journal !== undefined) {
       const id = callId(ctx.run, step, call);
       const tool = this.byName.get(call.name);
-      const cached = tool?.manifest.idempotent === true ? journal.lookup(id) : undefined;
+      const cached = tool?.manifest?.idempotent === true ? journal.lookup(id) : undefined;
       if (cached !== undefined) {
         // Chamada suprimida NÃO emite tool.call/tool.result: as métricas de
         // duração continuam medindo só execuções reais.
@@ -238,6 +252,19 @@ export class ToolExecutor {
         payload: { name: call.name, reason },
       });
       return failure(reason);
+    }
+    // Manifesto inválido falha fechado antes de qualquer decisão (#264): sem
+    // `class` válida o gate não pode escolher entre allow/ask/deny e o
+    // `requiredPermission` não pode tocar um manifesto ausente.
+    const problem = manifestProblem(tool.manifest);
+    if (problem !== undefined) {
+      this.auditRef.append({
+        run: ctx.run,
+        agent: ctx.agent,
+        tipo: "tool.denied",
+        payload: { name: call.name, reason: "invalid_manifest" },
+      });
+      return { ...failure(`tool "${call.name}" recusada: ${problem}`), code: "invalid_manifest" };
     }
     // Perfil do agent (#58): a permissão mais restritiva entre I-01 e o perfil vence
     const required = requiredPermission(tool.manifest);

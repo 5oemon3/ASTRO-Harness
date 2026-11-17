@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ErrorClass } from "../providers/types";
-import { redactSecrets } from "../sanitize-external";
+import { redactSecrets, type RedactSecretsOptions } from "../sanitize-external";
 import { ToolError } from "../tools/types";
 
 /** Códigos estáveis de erro de handoff (ADR-0006); mapeados à taxonomia fixa de D-18. */
@@ -18,8 +18,8 @@ export class HandoffError extends ToolError {
   readonly retryable: boolean;
   readonly errClass: ErrorClass;
 
-  constructor(code: HandoffErrorCode, message: string) {
-    super(`${code}: ${redactSecrets(message)}`);
+  constructor(code: HandoffErrorCode, message: string, redact: RedactSecretsOptions = {}) {
+    super(`${code}: ${redactSecrets(message, redact)}`);
     this.name = "HandoffError";
     this.code = code;
     this.retryable = RETRYABLE.has(code);
@@ -288,13 +288,13 @@ export function sanitizeHandoffArtifact(a: HandoffArtifactV1): HandoffArtifactV1
     ...a,
     run: redactSecrets(a.run), from: redactSecrets(a.from), to: redactSecrets(a.to), task: redactSecrets(a.task),
     objective: redactSecrets(a.objective),
-    decisions: a.decisions.map(redactSecrets),
-    constraints: a.constraints.map(redactSecrets),
-    next_steps: a.next_steps.map(redactSecrets),
-    ...(a.open_questions === undefined ? {} : { open_questions: a.open_questions.map(redactSecrets) }),
+    decisions: a.decisions.map((value) => redactSecrets(value)),
+    constraints: a.constraints.map((value) => redactSecrets(value)),
+    next_steps: a.next_steps.map((value) => redactSecrets(value)),
+    ...(a.open_questions === undefined ? {} : { open_questions: a.open_questions.map((value) => redactSecrets(value)) }),
     ...(a.from_profile === undefined ? {} : { from_profile: redactSecrets(a.from_profile) }),
     ...(a.to_profile === undefined ? {} : { to_profile: redactSecrets(a.to_profile) }),
     ...(a.artifacts === undefined ? {} : { artifacts: a.artifacts.map((r) => ({ ...r, path: redactSecrets(r.path) })) }),
-    ...(a.compaction === undefined ? {} : { compaction: { ...a.compaction, droppedFields: a.compaction.droppedFields.map(redactSecrets) } }),
+    ...(a.compaction === undefined ? {} : { compaction: { ...a.compaction, droppedFields: a.compaction.droppedFields.map((value) => redactSecrets(value)) } }),
   };
 }

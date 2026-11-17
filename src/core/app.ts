@@ -575,9 +575,6 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     ? Math.min(config.agent.maxSteps, config.run.maxTurns)
     : config.agent.maxSteps;
 
-  // Plugins (F7-1): tools e provider factories; falha de load é isolada
-  const loaded = await loadPlugins(config.plugins ?? [], { allowlist: pluginAllowlistFromEnv() });
-
   // Sandbox do run_command (F4-6): configurado antes de qualquer execução
   const sandboxEnabled = resolveSandboxSetting(config.tools?.run_command?.sandbox);
   configureRunCommand({ sandbox: sandboxEnabled });
@@ -616,9 +613,16 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     audit.append({ run, agent: AGENT_NAME, tipo: "security.allowlist_applied", payload: { ...ev } });
   }
   // Trust por pasta (I-11, #267): 1º open pergunta no TTY e persiste; negar para o run; sem TTY segue sem gravar.
-  await ensureTrustedCwd(cwd, {
+  const cwdTrusted = await ensureTrustedCwd(cwd, {
     ask: opts.trustAsk,
     onDecision: (folder, decision) => audit.append({ run, agent: AGENT_NAME, tipo: "trust.decision", payload: { folder, decision } }),
+  });
+  // Plugins locais (#255, P0): só depois do trust/aprovação. Sem TTY e pasta
+  // não confiável, o módulo não é importado (config não executa código).
+  const loaded = await loadPlugins(config.plugins ?? [], {
+    allowlist: pluginAllowlistFromEnv(env),
+    localTrusted: cwdTrusted,
+    baseDir: cwd,
   });
   /** Gate auditado (F-19): sem approver do caller a decisão é "pending" (não bloqueia TTY). */
   const approveSwap: SwapApprover = async (request) => {

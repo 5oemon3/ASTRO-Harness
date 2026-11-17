@@ -12,7 +12,7 @@
  */
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import type { SideEffects, Tool, ToolClass, ToolManifest } from "./tools/types";
+import { ToolError, isToolClass, type SideEffects, type Tool, type ToolClass, type ToolManifest } from "./tools/types";
 
 export type PermissionMode = "bypass" | "allow-edits" | "ask";
 
@@ -180,9 +180,10 @@ export function nonInteractiveApprover(): (request: {
   };
 }
 
-/** Decisão do modo para a classe de ação. */
+/** Decisão do modo para a classe de ação; classe fora do vocabulário nega (#264). */
 export function permissionDecision(mode: PermissionMode, action: ActionClass): PermissionDecision {
-  return MATRIX[mode][action];
+  const row = MATRIX[mode] as Record<string, PermissionDecision> | undefined;
+  return row?.[action] ?? "deny";
 }
 
 /** Precedência do modo: explícito (CLI) > config > `ask` (CLI-01 liga a flag). */
@@ -231,6 +232,10 @@ export function actionClassOf(
   const candidates = pathCandidatesOf(call);
   const critical = candidates.some((path) => isCriticalPath(path));
   const declared = tool.manifest.class;
+  // Plugin não passa pelo typechecker: class ausente/desconhecida falha fechado (#264).
+  if (!isToolClass(declared)) {
+    throw new ToolError(`manifesto da tool "${call.name}" sem class válida: ausente ou fora do vocabulário`);
+  }
 
   if (declared === "read_common" || declared === "read_critical") {
     // O manifesto só pode elevar, nunca rebaixar: read_critical declarado

@@ -4,7 +4,10 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameS
 import { join, resolve, sep } from "node:path";
 import type { ChatMessage } from "../providers/types";
 import type { SessionSnapshot } from "./agent-session";
+import { ARTIFACT_REF_PATTERN, SHA256_HEX } from "../internal-ids";
 import { redactSecrets } from "../sanitize-external";
+
+const SECRET_KEY = /(token(?!s)|secret|password|api[-_]?key|access[-_]?key)/i;
 
 export interface SessionRecord {
   schemaVersion: 1;
@@ -23,8 +26,6 @@ export interface SessionRecord {
   /** Cadeia de sessões retomadas, do mais antigo ao mais novo (ADR-0010/#392). */
   lineage?: string[];
 }
-
-const SECRET_KEY = /(token(?!s)|secret|password|api[-_]?key|access[-_]?key)/i;
 
 export interface SessionSummary {
   path: string;
@@ -178,22 +179,44 @@ function parseResumedFrom(value: unknown): { resumedFrom?: { id: string; started
   return { resumedFrom: { id: origin.id, startedAt: origin.startedAt } };
 }
 
+/** Objeto de mensagem do chat: só nele `attachments` é a coleção do harness. */
+function isMessageObject(value: Record<string, unknown>): boolean {
+  return value.role === "system" || value.role === "user" || value.role === "assistant" || value.role === "tool";
+}
+
 /** Sanitiza strings JSON estruturalmente (inclusive `toolCalls.arguments`). */
-function sanitizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitizeValue);
+function sanitizeValue(value: unknown, key?: string, attachmentMeta = false, harness = true): unknown {
+  if (Array.isArray(value)) return value.map((item) => sanitizeValue(item, key, attachmentMeta, harness));
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-      key, SECRET_KEY.test(key) ? "[REDACTED]" : sanitizeValue(item),
+    const message = harness && isMessageObject(value as Record<string, unknown>);
+    return Object.fromEntries(Object.entries(value).map(([childKey, item]) => [
+      childKey,
+      SECRET_KEY.test(childKey)
+        ? "[REDACTED]"
+        : sanitizeValue(item, childKey, attachmentMeta || (message && childKey === "attachments"), harness),
     ]));
   }
   if (typeof value !== "string") return value;
   const text = value.trim();
   if (text.startsWith("{") || text.startsWith("[")) {
     try {
-      return JSON.stringify(sanitizeValue(JSON.parse(text)));
+      // JSON de toolCalls/content é output do modelo: nunca herda o trust de
+      // `attachments`; ref/hash forjados aqui são redigidos (#252).
+      return JSON.stringify(sanitizeValue(JSON.parse(text), key, false, false));
     } catch {
       // não era JSON: cai na redação textual
     }
+  }
+  const field = (key ?? "").toLowerCase();
+  if (field === "ref") {
+    const shaped = ARTIFACT_REF_PATTERN.test(value);
+    if (attachmentMeta && shaped) return value;
+    return shaped ? "[REDACTED]" : redactSecrets(value);
+  }
+  if (field === "hash") {
+    const shaped = SHA256_HEX.test(value);
+    if (attachmentMeta && shaped) return value;
+    return shaped ? "[REDACTED]" : redactSecrets(value);
   }
   return redactSecrets(value);
 }
