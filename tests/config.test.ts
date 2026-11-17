@@ -70,6 +70,25 @@ describe("agents (F3-1)", () => {
     expect(cfg.agents!.planner.tools).toEqual(["read_file"]);
     expect(cfg.agents!.planner.systemPrompt).toBe("Planeje a tarefa");
   });
+  test("nomes aceitos com _ e . passam no checkpoint (#135)", () => {
+    for (const name of ["code_reviewer", "review.v2"]) {
+      const raw = structuredClone(validWithAgents) as unknown as { agents: Record<string, unknown> };
+      raw.agents = { [name]: { model: "openai/gpt-4o-mini", maxSteps: 3, tools: ["read_file"] } };
+      expect(validateConfig(raw).agents![name]).toBeDefined();
+    }
+  });
+  test("nome de agent que não vira segmento do checkpoint falha no load (#135)", () => {
+    for (const name of ["review/security", "rev:sec", "..", "a".repeat(121), "rev\u202Esec"]) {
+      const raw = structuredClone(validWithAgents) as unknown as { agents: Record<string, unknown> };
+      raw.agents = { [name]: { model: "openai/gpt-4o-mini", maxSteps: 3, tools: ["read_file"] } };
+      expect(() => validateConfig(raw)).toThrow(/checkpoint/);
+    }
+  });
+  test("entryAgent com nome inválido para o checkpoint falha no load (#135)", () => {
+    const raw = structuredClone(validWithAgents) as unknown as { agent: { entryAgent?: string } };
+    raw.agent.entryAgent = "review/security";
+    expect(() => validateConfig(raw)).toThrow(/checkpoint/);
+  });
   test("agent com model inexistente → ConfigError", () => {
     const bad = structuredClone(validWithAgents);
     bad.agents!.planner.model = "openai/ghost";

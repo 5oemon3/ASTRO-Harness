@@ -13,6 +13,7 @@ import { isAuthHeader, isEnvName, isVaultCredentialRef, isVaultRef, looksLikeSec
 import { headerEnvName, isValidHeaderName } from "../mcp/headers";
 import { outboundUrlProblem, urlProblem } from "../url-safety";
 import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "../tags";
+import { checkpointIdProblem } from "../loop-guard";
 
 /** Configuração comum a todos os providers. */
 interface ProviderConfigBase {
@@ -806,12 +807,24 @@ function resolveProfileField(
   return { profile, model: entry.model };
 }
 
+/** Nome que vira segmento do checkpoint (run/agent) é validado no load, não no meio do run (#135). */
+function expectCheckpointName(name: string, field: string): string {
+  const problem = checkpointIdProblem(name);
+  if (problem !== undefined) {
+    fail(`config inválida: "${field}" não serve como nome de checkpoint (${problem}); use letras, números, "_", ".", "-", até 120 caracteres, sem separador, dois-pontos, ".." ou controle`);
+  }
+  return name;
+}
+
 function validateAgent(value: unknown, modelPool?: Record<string, ProfileConfig>): AgentConfig {
   const raw = expectObject(value, "agent");
   const systemPrompt =
     raw.systemPrompt === undefined ? undefined : expectString(raw.systemPrompt, "agent.systemPrompt");
   // entryAgent default "planner" (A13, Q-03, pinado em tests/tool-isolation.test.ts)
-  const entryAgent = raw.entryAgent === undefined ? "planner" : expectString(raw.entryAgent, "agent.entryAgent");
+  const entryAgent = expectCheckpointName(
+    raw.entryAgent === undefined ? "planner" : expectString(raw.entryAgent, "agent.entryAgent"),
+    "agent.entryAgent",
+  );
 
   // F-27 (ADR-0007): profile substitui model; os dois juntos são ambíguos.
   if (raw.profile !== undefined) {
@@ -1472,6 +1485,7 @@ export function validateConfig(raw: unknown): AstroConfig {
         maxActive = expectPositiveInteger(agentRaw, "agents.maxActive");
         continue;
       }
+      expectCheckpointName(name, `agents.${name}`);
       agents[name] = validateNamedAgent(name, agentRaw, agent, knownTools, seenModels, models, modelPool);
     }
   }

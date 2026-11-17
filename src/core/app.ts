@@ -967,6 +967,12 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         protectedPaths: [ledgerPath, auditPath],
         secretEnvNames,
         inheritAgentLock: true,
+        taskHash: shortTaskHash(prompt),
+        // L5/L6 (#135): o filho da task segue config.run e o decider do pai; o run do filho é codificado no path.
+        ...(config.run === undefined
+          ? {}
+          : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
+        ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
         ...(opts.allowCritical === undefined && opts.allowSensitive === undefined ? {} : { allowCritical: opts.allowCritical, allowSensitive: opts.allowSensitive }),
         ...(signal === undefined ? {} : { signal }),
         ...(quotaLimits === undefined ? {} : { quotaLimits }),
@@ -1053,6 +1059,11 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         baseMaxSteps: sessionMaxSteps,
         baseSystemPrompt: projectSystemPrompt(config, cwd),
         entryAgent,
+        taskHash: shortTaskHash(opts.task),
+        ...(config.run === undefined
+          ? {}
+          : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
+        ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
         ...(tracer === undefined ? {} : { tracer }),
         ...(opts.onToken === undefined ? {} : { onToken: opts.onToken }),
         resolveIdentity,

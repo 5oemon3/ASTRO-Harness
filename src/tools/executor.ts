@@ -1,5 +1,6 @@
 import { auditDurationMs, type Auditor } from "../audit";
 import { callId } from "../call-id";
+import { NoProgressError } from "../loop-guard";
 import { limitToolOutput } from "../output-limit";
 import { redactSecrets } from "../sanitize-external";
 import {
@@ -323,8 +324,8 @@ export class ToolExecutor {
       }
       return this.limitOutput(ctx, call, outcome);
     } catch (error) {
-      // Pending do gate sobe e para o run em ponto seguro (I-19), não vira tool error.
-      if (error instanceof PermissionPendingError) throw error;
+      // Pending do gate ou pausa por não-progresso sobe e para o run em ponto seguro (I-19), não vira tool error.
+      if (error instanceof PermissionPendingError || error instanceof NoProgressError) throw error;
       const message = error instanceof Error ? error.message : String(error);
       return failure(`erro na tool "${call.name}": ${message}`);
     } finally {

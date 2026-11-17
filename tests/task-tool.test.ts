@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
+import { NoProgressError } from "../src/loop-guard";
 import { PermissionPendingError } from "../src/permissions";
 import { createTaskTool, type TaskDelegator } from "../src/tools/task";
 import { ToolExecutor } from "../src/tools/executor";
@@ -116,5 +117,19 @@ describe("task tool respeita o perfil de permissão (#58)", () => {
       { cwd, run: "r1", agent: "plan" },
       { id: "c1", name: "task", arguments: JSON.stringify({ agent: "build", prompt: "x" }) },
     )).rejects.toBeInstanceOf(PermissionPendingError);
+  });
+
+  test("NoProgressError sobe do filho e do executor (I-19, #135)", async () => {
+    const { cwd, tool } = setup(async () => {
+      throw new NoProgressError(2, 3);
+    });
+    await expect(tool.execute({ agent: "build", prompt: "x" }, ctx(cwd)))
+      .rejects.toBeInstanceOf(NoProgressError);
+    const audit = new Auditor(join(cwd, "audit3.jsonl"));
+    const executor = new ToolExecutor({ tools: [tool], allow: ["task"], audit, permissionMode: "bypass" });
+    await expect(executor.run(
+      { cwd, run: "r1", agent: "plan" },
+      { id: "c1", name: "task", arguments: JSON.stringify({ agent: "build", prompt: "x" }) },
+    )).rejects.toBeInstanceOf(NoProgressError);
   });
 });

@@ -79,7 +79,9 @@ describe("runMultiAgentSession supervisor (F3-4)", () => {
     expect(callCount).toBe(2); // parou no limite do agent, não no global
   });
 
-  test("maxSteps global: soma de todos agents não excede baseMaxSteps", async () => {
+  // Multi-agent real (handoff, ledger e audit por step) passa do default de 5 s
+  // no Windows CI; os timeouts explícitos cobrem a folga sem mudar a produção.
+  test("maxSteps global: soma de todos agents não excede baseMaxSteps", { timeout: 30_000 }, async () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-orch-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
     const ledger = new Ledger(join(cwd, "ledger.jsonl"));
@@ -117,7 +119,7 @@ describe("runMultiAgentSession supervisor (F3-4)", () => {
     expect(step).toBe(5); // parou no global, não no per-agent
   });
 
-  test("golden: tarefa complexa resolvida por 3 agents em < 15 steps", async () => {
+  test("golden: tarefa complexa resolvida por 3 agents em < 15 steps", { timeout: 30_000 }, async () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-golden-"));
     const audit = new Auditor(join(cwd, "audit.jsonl"));
     const ledger = new Ledger(join(cwd, "ledger.jsonl"));

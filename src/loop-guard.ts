@@ -121,14 +121,63 @@ export class ProgressTracker {
 }
 
 const SAFE_ID = /^[A-Za-z0-9-]+$/;
+/** Prefixo de segmento codificado: contém "_", que nunca aparece num id seguro — sem ambiguidade. */
+const ENCODED_PREFIX = "x_";
+const ENCODED_ID = /^x_[A-Za-z0-9_-]+$/;
+/** Nomes de dispositivo do Windows não podem virar diretório, mesmo com id seguro. */
+const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+/** Teto do id cru: o codificado cabe no limite de nome de diretório do SO. */
+const MAX_ID_CHARS = 120;
+const MAX_ID_BYTES = 150;
+
+/**
+ * Motivo pelo qual o id não pode virar segmento de checkpoint (codificado ou
+ * não), ou undefined quando serve. Nome de agente aceito na config passa por
+ * aqui no load, então `checkpointPath` não surpreende no meio do run (#135).
+ */
+export function checkpointIdProblem(value: string): string | undefined {
+  if (value === "" || value === "." || value === "..") return "vazio, \".\" ou \"..\"";
+  if (value.length > MAX_ID_CHARS || Buffer.byteLength(value, "utf8") > MAX_ID_BYTES) return "longo demais";
+  if (/[/\\:\u0000-\u001f\u007f]/.test(value) || /[\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) {
+    return "contém separador, dois-pontos, controle ou caractere de formatação";
+  }
+  return undefined;
+}
+
+/** Recusa id que não pode virar segmento de caminho nem codificado. */
+function assertCheckpointId(value: string): void {
+  if (checkpointIdProblem(value) !== undefined) {
+    throw new Error("identificador de run/agent inválido para o checkpoint");
+  }
+}
+
+/** Segmento reversível para run/agent: id seguro fica como está; o resto vira base64url com prefixo. */
+export function encodeCheckpointId(value: string): string {
+  if (SAFE_ID.test(value) && !WINDOWS_DEVICE.test(value)) return value;
+  return `${ENCODED_PREFIX}${Buffer.from(value, "utf8").toString("base64url")}`;
+}
+
+/** Desfaz `encodeCheckpointId`; undefined para diretório que não é segmento nosso. */
+function decodeCheckpointId(name: string): string | undefined {
+  if (!name.startsWith(ENCODED_PREFIX)) return SAFE_ID.test(name) ? name : undefined;
+  if (!ENCODED_ID.test(name)) return undefined;
+  const decoded = Buffer.from(name.slice(ENCODED_PREFIX.length), "base64url").toString("utf8");
+  try {
+    assertCheckpointId(decoded);
+  } catch {
+    return undefined;
+  }
+  // Só aceita a forma canônica: fecha a porta para base64 não canônico.
+  return encodeCheckpointId(decoded) === name ? decoded : undefined;
+}
 
 /** Caminho do checkpoint no store da sessão (ADR-0010): `.astro/sessions/<run>/<agent>/checkpoint.json`. */
 export function checkpointPath(cwd: string, run: string, agent: string): string {
-  // run/agent entram no path do arquivo: só id alfanumérico com hífen (sem separador, sem "..")
-  if (!SAFE_ID.test(run) || !SAFE_ID.test(agent)) {
-    throw new Error("identificador de run/agent inválido para o checkpoint");
-  }
-  return join(resolve(cwd), ".astro", "sessions", run, agent, "checkpoint.json");
+  // run/agent entram no path do arquivo: separador/`..` é recusado; "_" e "."
+  // (nomes aceitos pela config) viram segmento codificado reversível (#135).
+  assertCheckpointId(run);
+  assertCheckpointId(agent);
+  return join(resolve(cwd), ".astro", "sessions", encodeCheckpointId(run), encodeCheckpointId(agent), "checkpoint.json");
 }
 
 /** Valida o checkpoint lido do disco e reaplica a sanitização (defesa em profundidade, I-03). */
@@ -221,8 +270,8 @@ export function loadCheckpoint(cwd: string, run: string, agent: string): Checkpo
 
 /** Lista os agentes com checkpoint no store do run; run inválido é recusado. */
 export function findCheckpointAgents(cwd: string, run: string): string[] {
-  if (!SAFE_ID.test(run)) throw new Error("identificador de run inválido para o checkpoint");
-  const root = join(resolve(cwd), ".astro", "sessions", run);
+  assertCheckpointId(run);
+  const root = join(resolve(cwd), ".astro", "sessions", encodeCheckpointId(run));
   let entries: Dirent[];
   try {
     entries = readdirSync(root, { withFileTypes: true });
@@ -231,9 +280,10 @@ export function findCheckpointAgents(cwd: string, run: string): string[] {
     throw error;
   }
   return entries
-    .filter((entry) => entry.isDirectory() && SAFE_ID.test(entry.name))
-    .filter((entry) => existsSync(join(root, entry.name, "checkpoint.json")))
-    .map((entry) => entry.name)
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => decodeCheckpointId(entry.name))
+    .filter((name): name is string => name !== undefined)
+    .filter((name) => existsSync(join(root, encodeCheckpointId(name), "checkpoint.json")))
     .sort();
 }
 

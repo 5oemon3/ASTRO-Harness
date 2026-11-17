@@ -4,6 +4,7 @@
  * O retorno é conteúdo do subagente (untrusted) e nunca é executado.
  */
 import { createHash } from "node:crypto";
+import { NoProgressError } from "../loop-guard";
 import { PermissionPendingError, type AgentPermission } from "../permissions";
 import { redactSecrets } from "../sanitize-external";
 import type { AuditLike, Tool, ToolContext, ToolResult } from "./types";
@@ -97,8 +98,9 @@ export function createTaskTool(deps: TaskToolDeps): Tool {
         });
         return { output: final };
       } catch (error) {
-        // Aprovação pendente interrompe o run pai em ponto seguro (I-19).
-        if (error instanceof PermissionPendingError) throw error;
+        // Aprovação pendente ou pausa por não-progresso interrompem o run pai
+        // em ponto seguro (I-19); não viram erro de tool.
+        if (error instanceof PermissionPendingError || error instanceof NoProgressError) throw error;
         return {
           output: redactSecrets(error instanceof Error ? error.message : String(error)),
           isError: true,
