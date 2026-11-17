@@ -35,7 +35,7 @@
     "prepack": "bun run build",
     "prepublishOnly": "bun run typecheck",
     "test": "bun test",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov && bun scripts/coverage-gate.ts coverage/lcov.info 0.8",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov && bun scripts/coverage-gate.ts --file coverage/lcov.info --threshold 0.8 --slice-threshold 0.8",
     "typecheck": "bunx tsc --noEmit",
     "eval": "bun src/cli.ts eval",
     "bench:providers": "bun src/cli.ts bench"

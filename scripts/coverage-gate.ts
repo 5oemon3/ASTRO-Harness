@@ -6,10 +6,13 @@
  * O threshold do Bun é por arquivo, então UI parcialmente coberta derrubaria o
  * total; por isso o gate soma LF/LH e FNF/FNH de todos os registros.
  *
- * Exit code: só os totais decidem (fail-closed: abaixo do threshold ou lcov
- * vazio/sem métricas). O relatório por slice é informativo e nunca altera o
- * exit code; slice sem registros imprime `n/a` em vez de quebrar. O veredito
- * sai no stdout, depois da tabela.
+ * Exit code: os totais decidem sempre (fail-closed: abaixo do threshold ou lcov
+ * vazio/sem métricas). `--slice-threshold <0..1>` liga o gate por slice: todo
+ * slice C1–C4 com `files > 0` cujo percentual de linhas ou funções fique abaixo
+ * do limiar reprova. Slice sem registros imprime `n/a` e não reprova;
+ * `unmapped` nunca é gate. Sem a flag, a tabela é informativa e não altera o
+ * exit code; o default do helper `sliceThresholdGaps` é 0.8. O veredito sai no
+ * stdout, depois da tabela.
  *
  * Mapa de slices (`SLICE_MAPPING`): cada chave é um slice, cada valor uma lista
  * de padrões de caminho de `SF:` do lcov. Casamento, na ordem da lista:
@@ -28,8 +31,10 @@
  *
  * Uso (flags e posicionais não se misturam):
  *   bun scripts/coverage-gate.ts [--file coverage/lcov.info] [--threshold 0.8]
+ *     [--slice-threshold 0.8]
  *   bun scripts/coverage-gate.ts <lcov> [threshold]
- * `--threshold` fora de (0, 1] ou não numérico imprime o uso e sai 1.
+ * `--threshold`/`--slice-threshold` fora de (0, 1] ou não numérico imprime o
+ * uso e sai 1. A forma posicional não aceita `--slice-threshold`.
  */
 import { readFileSync } from "node:fs";
 
@@ -182,6 +187,41 @@ export function sliceCoverage(text: string, mapping: SliceMapping = SLICE_MAPPIN
   }));
 }
 
+export interface SliceGap {
+  slice: string;
+  metric: "lines" | "functions";
+  hit: number;
+  found: number;
+  rate: number;
+}
+
+/**
+ * Slices C1–C4 abaixo do limiar, na ordem do relatório. `unmapped` e slices com
+ * `files === 0` nunca entram; uma métrica sem registros é `n/a` e também não
+ * reprova. Com `files > 0`, cada métrica medida precisa alcançar o limiar.
+ */
+export function sliceThresholdGaps(
+  slices: readonly SliceCoverage[],
+  threshold = 0.8,
+): SliceGap[] {
+  const gaps: SliceGap[] = [];
+  for (const slice of slices) {
+    if (slice.slice === UNMAPPED_SLICE || slice.files === 0) continue;
+    for (const metric of ["lines", "functions"] as const) {
+      const value = slice[metric];
+      if (value.found === 0 || value.rate >= threshold) continue;
+      gaps.push({
+        slice: slice.slice,
+        metric,
+        hit: value.hit,
+        found: value.found,
+        rate: value.rate,
+      });
+    }
+  }
+  return gaps;
+}
+
 function percent(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;
 }
@@ -190,8 +230,14 @@ function rateLabel(value: CoverageMetric): string {
   return value.found === 0 ? "n/a" : percent(value.rate);
 }
 
-/** Tabela textual do relatório por slice (informativo). */
-export function formatSliceReport(slices: readonly SliceCoverage[]): string[] {
+/**
+ * Tabela textual do relatório por slice. Sem `sliceThreshold` o cabeçalho
+ * declara o relatório informativo; com limiar, declara o gate ativo.
+ */
+export function formatSliceReport(
+  slices: readonly SliceCoverage[],
+  sliceThreshold: number | null = null,
+): string[] {
   const header = ["slice", "lines", "functions", "lines hit/found", "files"];
   const rows = slices.map((slice) => slice.files === 0
     ? [slice.slice, "n/a", "n/a", "n/a", "0"]
@@ -210,26 +256,40 @@ export function formatSliceReport(slices: readonly SliceCoverage[]): string[] {
       : cell.padStart(widths[index] ?? cell.length)).join("  ");
 
   return [
-    "coverage por slice (informativo, não altera o exit code):",
+    sliceThreshold === null
+      ? "coverage por slice (informativo, não altera o exit code):"
+      : `coverage por slice (threshold ${percent(sliceThreshold)}):`,
     render(header),
     ...rows.map(render),
   ];
 }
 
+/** Veredito do gate por slice, no stdout como o veredito dos totais. */
+function formatSliceVerdict(gaps: readonly SliceGap[], threshold: number): string {
+  if (gaps.length === 0) return `coverage por slice: ok (threshold ${percent(threshold)})`;
+  const detail = gaps
+    .map((gap) => `${gap.slice} ${gap.metric} ${percent(gap.rate)} (${gap.hit}/${gap.found})`)
+    .join("; ");
+  return `coverage por slice: abaixo do threshold ${percent(threshold)}: ${detail}`;
+}
+
 interface CliOptions {
   file: string;
   threshold: number;
+  sliceThreshold: number | null;
 }
 
 type CliParse = { ok: true; options: CliOptions } | { ok: false; message: string };
 
 export const USAGE =
-  "uso: bun scripts/coverage-gate.ts [--file <lcov>] [--threshold <0-1>] | <lcov> [threshold]";
+  "uso: bun scripts/coverage-gate.ts [--file <lcov>] [--threshold <0-1>] " +
+  "[--slice-threshold <0-1>] | <lcov> [threshold]";
 
 /** Aceita flags ou a forma posicional, nunca as duas. Validação falha fechado. */
 function parseArgs(argv: readonly string[]): CliParse {
   let file = "coverage/lcov.info";
   let threshold = 0.8;
+  let sliceThreshold: number | null = null;
   const positional: string[] = [];
   let sawFlag = false;
 
@@ -240,7 +300,7 @@ function parseArgs(argv: readonly string[]): CliParse {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
-    if (arg !== "--file" && arg !== "--threshold") {
+    if (arg !== "--file" && arg !== "--threshold" && arg !== "--slice-threshold") {
       positional.push(arg);
       continue;
     }
@@ -256,9 +316,13 @@ function parseArgs(argv: readonly string[]): CliParse {
     }
     const parsed = readThreshold(next);
     if (parsed === null) {
-      return { ok: false, message: `threshold inválido: ${next} (esperado número em (0, 1])` };
+      return {
+        ok: false,
+        message: `${arg.slice(2)} inválido: ${next} (esperado número em (0, 1])`,
+      };
     }
-    threshold = parsed;
+    if (arg === "--threshold") threshold = parsed;
+    else sliceThreshold = parsed;
   }
 
   if (sawFlag && positional.length > 0) return { ok: false, message: "não misture flags e posicionais" };
@@ -271,7 +335,7 @@ function parseArgs(argv: readonly string[]): CliParse {
     }
     threshold = parsed;
   }
-  return { ok: true, options: { file, threshold } };
+  return { ok: true, options: { file, threshold, sliceThreshold } };
 }
 
 if (import.meta.main) {
@@ -281,7 +345,7 @@ if (import.meta.main) {
     console.error(USAGE);
     process.exit(1);
   }
-  const { file, threshold } = parsed.options;
+  const { file, threshold, sliceThreshold } = parsed.options;
   let text: string;
   try {
     text = readFileSync(file, "utf8");
@@ -290,12 +354,15 @@ if (import.meta.main) {
     process.exit(1);
   }
   const totals = parseLcov(text, threshold);
+  const slices = sliceCoverage(text, SLICE_MAPPING);
+  const gaps = sliceThreshold === null ? [] : sliceThresholdGaps(slices, sliceThreshold);
   console.log(
     `coverage: ${percent(totals.lines.rate)} linhas (${totals.lines.hit}/${totals.lines.found}) · ` +
     `${percent(totals.functions.rate)} funções (${totals.functions.hit}/${totals.functions.found}) · ` +
     `threshold ${percent(threshold)}`,
   );
-  for (const line of formatSliceReport(sliceCoverage(text, SLICE_MAPPING))) console.log(line);
+  for (const line of formatSliceReport(slices, sliceThreshold)) console.log(line);
+  if (sliceThreshold !== null) console.log(formatSliceVerdict(gaps, sliceThreshold));
   console.log(totals.ok ? "coverage: ok" : "coverage: abaixo do threshold");
-  if (!totals.ok) process.exit(1);
+  if (!totals.ok || gaps.length > 0) process.exit(1);
 }

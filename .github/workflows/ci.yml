@@ -34,7 +34,7 @@ jobs:
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
-      - name: Coverage gate (80% lines and functions)
+      - name: Coverage gate (80% total and per C1-C4 slice)
         run: bun run test:coverage
 
   eval:

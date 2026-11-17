@@ -12,13 +12,21 @@ Resumo: jobs que rodam em todo PR, pré-requisitos de runner e equivalente local
 |---|---|---|---|
 | `test` | ubuntu-latest + windows-latest | `bun install --frozen-lockfile`, `bun run typecheck`, `bun test --timeout 20000` | os mesmos comandos |
 | `eval` | ubuntu-latest | `bun src/cli.ts eval --threshold 0.85 --report eval-report.json` (mock) | idem |
-| `coverage` | ubuntu-latest | `bun test --coverage --coverage-reporter=lcov` + `scripts/coverage-gate.ts` (total de linhas e funções ≥ 80%) | `bun run test:coverage` |
+| `coverage` | ubuntu-latest | `bun test --coverage --coverage-reporter=lcov` + `scripts/coverage-gate.ts` (total e cada slice C1–C4 com registros ≥ 80%) | `bun run test:coverage` |
 | `bench-mock` | ubuntu-latest + windows-latest × filtro `nvidia`/`openrouter` | `bun test tests/bench.test.ts -t "filtro do CI matrix restringe o bench com mocks: <filtro>"` com providers mock; não é required | idem |
 | `secrets` | ubuntu-latest | gitleaks no histórico | — |
 
 A matriz `test` roda nos dois SOs de propósito: há regressões específicas de win32 (paths, quirk de stdout do Bun) e de Linux (POSIX, Docker).
 
-O gate de cobertura também imprime um relatório por slice (C1–C4 + `unmapped`); ele é informativo e só os totais decidem o exit code. Mapa e como adicionar slice: cabeçalho de `scripts/coverage-gate.ts`.
+### Gate de cobertura: contrato do cabeçalho
+
+`bun run test:coverage` equivale a `bun test --coverage --coverage-reporter=lcov && bun scripts/coverage-gate.ts --file coverage/lcov.info --threshold 0.8 --slice-threshold 0.8`. Flags, mapa de slices e como adicionar um slice: cabeçalho de `scripts/coverage-gate.ts`.
+
+- `--threshold` (default 0.8) decide pelos totais de linhas e funções; `--slice-threshold` (default do helper 0.8) decide por cada slice C1–C4.
+- Sem `--slice-threshold` o relatório por slice é **informativo** e não altera o exit code.
+- Slice com `files > 0` reprova se linhas ou funções ficarem abaixo do limiar; slice sem registros — e métrica sem registros — é `n/a` e não reprova.
+- `unmapped` nunca é gate: arquivo fora do mapa não derruba o job.
+- Exit code: `0` só com total e slices aprovados; `1` abaixo do limiar, lcov ausente/sem métricas ou flag inválida.
 
 O bench noturno/ manual fica em `.github/workflows/bench.yml`; métricas, filtro e opt-in em `docs/eval.md`.
 

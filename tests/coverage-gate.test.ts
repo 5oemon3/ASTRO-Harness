@@ -7,6 +7,7 @@ import {
   formatSliceReport,
   parseLcov,
   sliceCoverage,
+  sliceThresholdGaps,
 } from "../scripts/coverage-gate";
 
 const lcov = [
@@ -185,6 +186,53 @@ describe("sliceCoverage (#59)", () => {
   });
 });
 
+describe("sliceThresholdGaps (#59)", () => {
+  test("aprova quando todo slice C1–C4 fica no limiar", () => {
+    const text = [
+      ...record("src/skills/loader.ts", 8, 10, 4, 5),
+      ...record("src/mcp/client.ts", 10, 10, 4, 4),
+    ].join("\n");
+    expect(sliceThresholdGaps(sliceCoverage(text, SLICE_MAPPING), 0.8)).toEqual([]);
+  });
+
+  test("reprova linhas e funções abaixo e nomeia a métrica", () => {
+    const text = [
+      ...record("src/skills/loader.ts", 8, 10, 4, 5),
+      ...record("src/mcp/client.ts", 7, 10, 4, 4),
+      ...record("src/tools/web-fetch.ts", 10, 10, 1, 4),
+    ].join("\n");
+    expect(sliceThresholdGaps(sliceCoverage(text, SLICE_MAPPING), 0.8)).toEqual([
+      { slice: "C2 mcp", metric: "lines", hit: 7, found: 10, rate: 0.7 },
+      { slice: "C3 web", metric: "functions", hit: 1, found: 4, rate: 0.25 },
+    ]);
+  });
+
+  test("slice vazio (n/a) e unmapped nunca entram no gate", () => {
+    const text = [...record("src/ledger.ts", 0, 10, 0, 2)].join("\n");
+    const slices = sliceCoverage(text, SLICE_MAPPING);
+    expect(slices.find((slice) => slice.slice === "unmapped")?.files).toBe(1);
+    expect(sliceThresholdGaps(slices, 0.99)).toEqual([]);
+  });
+
+  test("métrica sem registros é n/a e não reprova", () => {
+    const slices = sliceCoverage(record("src/tools/web-fetch.ts", 5, 5, 0, 0).join("\n"), SLICE_MAPPING);
+    expect(sliceThresholdGaps(slices, 0.8)).toEqual([]);
+  });
+
+  test("usa 0.8 quando o limiar é omitido", () => {
+    const slice = sliceCoverage(record("src/mcp/client.ts", 7, 10, 1, 1).join("\n"), SLICE_MAPPING);
+    expect(sliceThresholdGaps(slice).map((gap) => gap.metric)).toEqual(["lines"]);
+  });
+
+  test("regressão: slice sem registros imprime n/a e não reprova", () => {
+    const slices = sliceCoverage(record("src/mcp/client.ts", 4, 4, 1, 1).join("\n"), SLICE_MAPPING);
+    const report = formatSliceReport(slices, 0.8).join("\n");
+    expect(report).toContain("n/a");
+    expect(report).not.toContain("informativo");
+    expect(sliceThresholdGaps(slices, 0.8)).toEqual([]);
+  });
+});
+
 describe("coverage gate CLI (#59)", () => {
   const root = join(import.meta.dir, "..");
   const script = join(root, "scripts", "coverage-gate.ts");
@@ -242,5 +290,78 @@ describe("coverage gate CLI (#59)", () => {
     const result = withLcov(passing, (file) => run(["--file", file, "0.8"]));
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("uso:");
+  });
+
+  // Total ≥80% (17/20 linhas, 5/6 funções) com C1 em 70% de linhas.
+  const totalOkSliceLow = [
+    ...record("src/skills/loader.ts", 7, 10, 1, 2),
+    ...record("src/ledger.ts", 10, 10, 4, 4),
+  ].join("\n");
+  // Total 50% (unmapped), mas C1 em 100%: só o total reprova.
+  const totalLowSliceOk = [
+    ...record("src/skills/loader.ts", 10, 10, 2, 2),
+    ...record("src/ledger.ts", 0, 10, 0, 10),
+  ].join("\n");
+
+  test("--slice-threshold reprova slice C1–C4 abaixo mesmo com total ok", () => {
+    const result = withLcov(totalOkSliceLow, (file) =>
+      run(["--file", file, "--threshold", "0.8", "--slice-threshold", "0.8"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("coverage: ok");
+    expect(result.stdout).toContain("C1 skills lines 70.00% (7/10)");
+    expect(result.stdout).toContain("coverage por slice: abaixo do threshold");
+    expect(result.stderr).toBe("");
+  });
+
+  test("--slice-threshold aprova fatia no limiar exato", () => {
+    const exact = [...record("src/skills/loader.ts", 8, 10, 4, 5)].join("\n");
+    const result = withLcov(exact, (file) =>
+      run(["--file", file, "--threshold", "0.8", "--slice-threshold", "0.8"]));
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("coverage por slice: ok");
+    expect(result.stdout).toContain("coverage: ok");
+  });
+
+  test("total reprovado mantém exit 1 mesmo com slices ok", () => {
+    const result = withLcov(totalLowSliceOk, (file) =>
+      run(["--file", file, "--threshold", "0.8", "--slice-threshold", "0.8"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("coverage por slice: ok");
+    expect(result.stdout).toContain("coverage: abaixo do threshold");
+  });
+
+  test("ambos reprovados sai 1 e reporta as duas causas", () => {
+    const text = [
+      ...record("src/skills/loader.ts", 3, 10, 1, 2),
+      ...record("src/ledger.ts", 0, 10, 0, 10),
+    ].join("\n");
+    const result = withLcov(text, (file) =>
+      run(["--file", file, "--slice-threshold", "0.8"]));
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("C1 skills lines 30.00%");
+    expect(result.stdout).toContain("coverage: abaixo do threshold");
+  });
+
+  test("sem a flag o slice abaixo do limiar continua informativo", () => {
+    const result = withLcov(totalOkSliceLow, (file) => run(["--file", file]));
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("informativo");
+    expect(result.stdout).toContain("70.00%");
+    expect(result.stdout).not.toContain("coverage por slice: abaixo");
+  });
+
+  test("--slice-threshold inválido falha com uso", () => {
+    const cases = [
+      ["--slice-threshold"],
+      ["--slice-threshold", "abc"],
+      ["--slice-threshold", "1.5"],
+      ["--slice-threshold", "0"],
+    ];
+    for (const args of cases) {
+      const result = withLcov(passing, (file) => run(["--file", file, ...args]));
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("uso:");
+      expect(result.stdout).toBe("");
+    }
   });
 });
