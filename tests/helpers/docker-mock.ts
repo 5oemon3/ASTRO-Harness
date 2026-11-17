@@ -78,6 +78,7 @@ export function installDockerSpawnMock(run?: (argv: string[]) => DockerRunReply)
 
   const spawnSyncMock = (arg: unknown, maybeOpts?: unknown): unknown => {
     const { cmd } = cmdOf(arg, maybeOpts);
+    calls.push(cmd);
     if (cmd[0] !== "docker") return origSpawnSync(arg, maybeOpts);
     return { exitCode: 0, success: true, pid: 424_242, stdout: new Uint8Array(0), stderr: new Uint8Array(0) };
   };
