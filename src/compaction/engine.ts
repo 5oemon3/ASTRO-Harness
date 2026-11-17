@@ -172,7 +172,9 @@ export interface CompactInput {
   /** Orçamento da parte recente; default 15.000 tokens (CMP-2). */
   recentBudget?: number;
   /** Resumo sem tools; recebe system de instrução + histórico reduzido. */
-  summarize: (messages: ChatMessage[]) => Promise<string>;
+  summarize: (messages: ChatMessage[], signal?: AbortSignal) => Promise<string>;
+  /** Cancelamento do job de background (CMP-9). */
+  signal?: AbortSignal;
 }
 
 export interface CompactResult {
@@ -184,6 +186,8 @@ export interface CompactResult {
   returnedTokens: number;
   /** Mensagens antigas substituídas; 0 = nada a compactar. */
   olderCount: number;
+  /** Índice onde começa a parte recente no histórico original (CMP-9). */
+  recentStart: number;
 }
 
 /** Executa uma compactação: parte recente, redução do antigo, resumo e artefato. */
@@ -208,6 +212,7 @@ export async function compactSession(input: CompactInput): Promise<CompactResult
       originalTokens,
       returnedTokens: originalTokens,
       olderCount: 0,
+      recentStart,
     };
   }
   const recentTokens = countMessageTokens(recent, countOpts).tokens;
@@ -233,7 +238,7 @@ export async function compactSession(input: CompactInput): Promise<CompactResult
       { role: "system", content: SUMMARY_PROMPT },
       // ADR-0027: o resumidor recebe o histórico já redigido (I-03).
       ...reduction.messages.map(redactMessage),
-    ]);
+    ], input.signal);
 
   // ADR-0027: o artefato montado no contexto sai redigido (resumo também).
   const artifact = buildCompactionArtifact({
@@ -255,5 +260,6 @@ export async function compactSession(input: CompactInput): Promise<CompactResult
     originalTokens,
     returnedTokens: countMessageTokens(compacted, countOpts).tokens,
     olderCount: older.length,
+    recentStart,
   };
 }
