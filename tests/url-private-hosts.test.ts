@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { outboundUrlProblem, urlProblem } from "../src/url-safety";
 
 function baseConfig(): Record<string, unknown> {

@@ -1,4 +1,4 @@
-import type { MCPServerConfig } from "../config";
+import type { MCPServerConfig } from "../core/config";
 import { sanitizeExternal } from "../sanitize-external";
 import type { AuditLike, Tool, ToolContext } from "../tools/types";
 import { mcpToolName, type MCPDiscoveredTool } from "./registry";

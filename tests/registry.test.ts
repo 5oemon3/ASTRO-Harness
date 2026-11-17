@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { AstroConfig } from "../src/config";
-import { validateConfig } from "../src/config";
-import { Registry } from "../src/registry";
+import type { AstroConfig } from "../src/core/config";
+import { validateConfig } from "../src/core/config";
+import { Registry } from "../src/core/registry";
 
 const cfg: AstroConfig = validateConfig({
   providers: {

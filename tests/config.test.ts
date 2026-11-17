@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, loadConfig, updateConfigPermissionsMode, validateConfig } from "../src/config";
-import type { ModelConfig, ModelStatus } from "../src/config";
+import { ConfigError, loadConfig, updateConfigPermissionsMode, validateConfig } from "../src/core/config";
+import type { ModelConfig, ModelStatus } from "../src/core/config";
 import type { PermissionMode } from "../src/permissions";
 import { isKnownTag } from "../src/tags";
 

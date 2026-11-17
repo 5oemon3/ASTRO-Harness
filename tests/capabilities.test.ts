@@ -5,8 +5,8 @@ import {
   missingCapabilities,
   type Capability,
 } from "../src/capabilities";
-import { validateConfig } from "../src/config";
-import { Registry } from "../src/registry";
+import { validateConfig } from "../src/core/config";
+import { Registry } from "../src/core/registry";
 
 const baseModel = (over: Record<string, unknown> = {}) => ({
   provider: "openai",

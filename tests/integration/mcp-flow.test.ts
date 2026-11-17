@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { runTask } from "../../src/app";
+import { runTask } from "../../src/core/app";
 import { testEnv } from "../setup";
 import { newWorkspace, readAudit, removeWorkspace, requestMessages, startMockProvider, writeConfig, type TestServer } from "./helpers";
 

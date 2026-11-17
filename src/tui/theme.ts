@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
-import { ConfigError } from "../config";
+import { ConfigError } from "../core/config";
 
 export type Theme = "dark" | "light" | "contrast";
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { runHealthCheck } from "../src/health";
 import { resolveEffectiveConfig } from "../src/providers/profiles";
 import { redactSecrets } from "../src/sanitize-external";

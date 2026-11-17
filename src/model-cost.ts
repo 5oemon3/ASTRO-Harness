@@ -3,8 +3,8 @@
  * declarados e, com profile, a cadeia transitiva de profiles. É a mesma conta
  * usada pelo runtime e pelo filtro de candidatos (S-09), para não divergirem.
  */
-import type { AstroConfig } from "./config";
-import type { ModelEntry, Registry } from "./registry";
+import type { AstroConfig } from "./core/config";
+import type { ModelEntry, Registry } from "./core/registry";
 
 export interface CallCost {
   /** Custo máximo em USD; 0 quando nenhum elo tem preço. */

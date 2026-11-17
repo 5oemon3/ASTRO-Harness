@@ -11,7 +11,7 @@ import {
   runChecks,
   satisfiesMinimum,
   type DoctorFacts,
-} from "../scripts/doctor";
+} from "../src/doctor";
 
 const VALID_SKILL = `---\nname: ok\ndescription: ok\nversion: 1.0.0\n---\nPrompt\n`;
 

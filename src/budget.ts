@@ -3,7 +3,7 @@
  * Escopos day/month/project integram quota/team pelo limite mais restritivo;
  * use-as-you-go só registra/exibe (B2) e preço ausente é "n/d", nunca zero (B6).
  */
-import type { BudgetConfig } from "./config";
+import type { BudgetConfig } from "./core/config";
 import type { Auditor } from "./audit";
 import type { Ledger } from "./ledger";
 import { redactSecrets } from "./sanitize-external";

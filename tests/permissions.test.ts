@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { chatApprovers } from "../src/chat/approvers";
 import type { ReplIO } from "../src/chat/repl";
-import { ConfigError, validateConfig } from "../src/config";
+import { ConfigError, validateConfig } from "../src/core/config";
 import {
   actionClassOf,
   isCriticalPath,

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { resolveEntropyThreshold } from "../config";
+import { resolveEntropyThreshold } from "../core/config";
 import { shannonEntropyBitsPerChar } from "../entropy";
 import { classifyPath } from "../path-class";
 import { redactSecrets } from "../sanitize-external";

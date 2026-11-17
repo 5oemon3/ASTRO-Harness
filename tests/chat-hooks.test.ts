@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { Auditor } from "../src/audit";
 import type { ChatMessage } from "../src/providers/types";
 import { Ledger } from "../src/ledger";

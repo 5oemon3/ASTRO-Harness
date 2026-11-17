@@ -3,7 +3,7 @@ import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { ProviderScreen, listActions } from "../src/tui/provider-screen";
 import { ProfileManager } from "../src/providers/profile-manager";
 import { getThemeColors } from "../src/tui/theme";

@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProvider } from "../src/app";
-import { validateConfig } from "../src/config";
+import { createProvider } from "../src/core/app";
+import { validateConfig } from "../src/core/config";
 import { resolveCredentialValue } from "../src/credential-ref";
-import type { ModelEntry } from "../src/registry";
+import type { ModelEntry } from "../src/core/registry";
 import { Vault, type VaultBackend } from "../src/vault";
 
 // Sentinelas construídos em runtime para não disparar o gate de segredos.

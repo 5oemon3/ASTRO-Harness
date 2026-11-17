@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { ProviderError } from "../src/providers/types";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { editTool } from "../src/tools/edit";
 import { readFileTool } from "../src/tools/read-file";
 import { writeFileTool } from "../src/tools/write-file";

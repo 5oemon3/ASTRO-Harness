@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MCPError } from "../src/mcp/types";
-import type { MCPServerConfig } from "../src/config";
+import type { MCPServerConfig } from "../src/core/config";
 import { MCPRegistry } from "../src/mcp/registry";
 
 const STUB = `

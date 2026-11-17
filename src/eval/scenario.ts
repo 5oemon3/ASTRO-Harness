@@ -6,8 +6,8 @@
  */
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { runTask } from "../app";
-import { validateConfig, type AstroConfig } from "../config";
+import { runTask } from "../core/app";
+import { validateConfig, type AstroConfig } from "../core/config";
 import { runHealthCheck, type HealthReport } from "../health";
 import { looksLikeSecret } from "../secrets";
 import { parseSkill } from "../skills/loader";

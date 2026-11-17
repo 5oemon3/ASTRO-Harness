@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { runTask } from "../src/app";
-import { validateConfig, ConfigError } from "../src/config";
+import { runTask } from "../src/core/app";
+import { validateConfig, ConfigError } from "../src/core/config";
 import { realpathPreservingDots } from "../src/tools/paths";
 import { ToolError } from "../src/tools/types";
 import {

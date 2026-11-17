@@ -1,5 +1,5 @@
 /** Resumo da config do harness para `/config` (#273): puro, sem I/O. */
-import type { AstroConfig, BudgetConfig } from "../config";
+import type { AstroConfig, BudgetConfig } from "../core/config";
 import type { PermissionMode } from "../permissions";
 
 export interface CostLine {

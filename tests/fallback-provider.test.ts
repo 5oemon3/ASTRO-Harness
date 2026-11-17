@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, validateConfig, type PriceConfig } from "../src/config";
+import { ConfigError, validateConfig, type PriceConfig } from "../src/core/config";
 import { AccountLockedError, activeLocks, type AgentLock } from "../src/agent-lock";
 import { Ledger } from "../src/ledger";
-import { Registry } from "../src/registry";
+import { Registry } from "../src/core/registry";
 import { Auditor } from "../src/audit";
 import { FallbackProvider } from "../src/providers/fallback-provider";
 import { ProviderError, type CompletionRequest, type CompletionResponse, type Provider } from "../src/providers/types";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { testEnv } from "./setup";
 
 const resp = (p: Partial<CompletionResponse> = {}): CompletionResponse => ({ content: "ok", toolCalls: [], usage: { inputTokens: 10, outputTokens: 5 }, ...p });

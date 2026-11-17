@@ -1,6 +1,6 @@
-import type { AstroConfig } from "./config";
+import type { AstroConfig } from "./core/config";
 import type { Auditor } from "./audit";
-import { Registry, type ModelEntry } from "./registry";
+import { Registry, type ModelEntry } from "./core/registry";
 
 /** Agent ativo no manager (F-28): nome, profile e modelo resolvido. */
 export interface ManagedAgent {

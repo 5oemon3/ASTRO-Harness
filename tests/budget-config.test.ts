@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
-import { ConfigError, validateConfig } from "../src/config";
-import type { ModelConfig } from "../src/config";
+import { runTask } from "../src/core/app";
+import { ConfigError, validateConfig } from "../src/core/config";
+import type { ModelConfig } from "../src/core/config";
 
 const valid = {
   providers: { openai: { kind: "openai-compat", baseUrl: "https://api.openai.com/v1", credentialRef: "KEY" } },

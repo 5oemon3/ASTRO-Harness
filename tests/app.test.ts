@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { testEnv } from "./setup";
 
 async function withMockProvider(handler: (call: number) => unknown, fn: (baseUrl: string) => Promise<void>) {

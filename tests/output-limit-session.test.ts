@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { ToolExecutor } from "../src/tools/executor";
 import type { Tool, ToolResult } from "../src/tools/types";
 import { testEnv } from "./setup";

@@ -14,8 +14,8 @@ import {
   type CheckpointV1,
 } from "../src/loop-guard";
 import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
-import type { ModelEntry } from "../src/registry";
-import { runSession, MaxStepsError, type SessionOptions } from "../src/session";
+import type { ModelEntry } from "../src/core/registry";
+import { runSession, MaxStepsError, type SessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor";
 import { writeFileTool } from "../src/tools/write-file";
 

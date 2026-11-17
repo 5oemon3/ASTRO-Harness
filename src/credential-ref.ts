@@ -2,7 +2,7 @@
  * Resolução de `credentialRef` (ADR-0019, #311): env nomeada ou `vault:<id>`.
  * O valor existe só em memória; erros nomeiam o ref, nunca o segredo (I-03).
  */
-import { ConfigError } from "./config";
+import { ConfigError } from "./core/config";
 import { isVaultId, isVaultRef, VAULT_REF_PREFIX } from "./secrets";
 
 /** Leitor mínimo do cofre; `Vault` satisfaz sem expor o resto da API. */

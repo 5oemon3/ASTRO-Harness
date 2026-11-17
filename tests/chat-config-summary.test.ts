@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { configLines, configSummaryOf, type ConfigSummary } from "../src/chat/config-summary";
 
 const base = {

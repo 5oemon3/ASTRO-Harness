@@ -1,7 +1,7 @@
 /** Bootstrap da TUI: Ink é carregado por import dinâmico só neste comando. */
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { ConfigError } from "../config";
+import { ConfigError } from "../core/config";
 import { ProfileManager } from "../providers/profile-manager";
 import { NoProviderError, NO_PROVIDER_MESSAGE, loadProjectConfig } from "../providers/profiles";
 import { redactSecrets } from "../sanitize-external";

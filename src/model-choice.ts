@@ -5,8 +5,8 @@
  * usage) por quem faz o spawn.
  */
 import { createHash } from "node:crypto";
-import type { AstroConfig, BudgetConfig } from "./config";
-import { providerAccountRefFor } from "./config";
+import type { AstroConfig, BudgetConfig } from "./core/config";
+import { providerAccountRefFor } from "./core/config";
 import { activeLocks } from "./agent-lock";
 import { budgetStatus } from "./budget";
 import type { Ledger } from "./ledger";
@@ -18,7 +18,7 @@ import {
   resetProviderHealth,
 } from "./providers/health-state";
 import { quotaAvailable, type QuotaLimit } from "./quota";
-import type { ModelEntry, Registry } from "./registry";
+import type { ModelEntry, Registry } from "./core/registry";
 import { CAPACITY_TAGS, ROLE_TAGS } from "./tags";
 
 /** Candidato ranqueado; `model` é a identidade composta `provider/id` (S-06). */

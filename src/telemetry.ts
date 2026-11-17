@@ -3,7 +3,7 @@
  * endpoint configurável. Off por default; falha de envio nunca derruba o run.
  * Sem PII: nenhum prompt, caminho ou conteúdo de arquivo.
  */
-import type { TelemetryConfig } from "./config";
+import type { TelemetryConfig } from "./core/config";
 
 /** Payload enviado por run; campos estritamente métricos. */
 export interface TelemetryPayload {

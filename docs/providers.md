@@ -13,7 +13,7 @@ Objetivo: guia de configuração de providers, validação manual de credenciais
 | `openai-compat` | NVIDIA NIM, OpenRouter, Ollama/LM Studio | `credentialRef` (env nomeada ou `vault:<credentialId>`; opcional para provider local) | `src/providers/openai-compat.ts` |
 | `codex-oauth` | Codex OAuth | `~/.codex/auth.json` (lido em runtime; o login da TUI grava nesse caminho) | `src/providers/codex-oauth.ts` |
 
-Kinds de plugin são aceitos com `kind` custom e factory registrada por plugin (`src/plugins.ts`, `src/config.ts`).
+Kinds de plugin são aceitos com `kind` custom e factory registrada por plugin (`src/plugins.ts`, `src/core/config.ts`).
 
 ## Sementes do catálogo e `astro models list` (#307)
 

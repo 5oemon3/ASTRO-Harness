@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import type { ChatSession } from "../src/chat/repl";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { ProfileManager } from "../src/providers/profile-manager";
 import { TuiApp } from "../src/tui/app";
 

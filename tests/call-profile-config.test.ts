@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CallConfig } from "../src/call-profile";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 
 function cfg(call?: unknown): Record<string, unknown> {
   return {

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { activeLocks } from "../src/agent-lock";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { Ledger } from "../src/ledger";
 import { testEnv } from "./setup";
 

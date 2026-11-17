@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { buildSkillRegistry, isSkillCommand, resolveSkillCommand, resolveTaskSkill } from "../src/skills/executor";
 import { loadSkillsFromRoot } from "../src/skills/loader";
 import { testEnv } from "./setup";

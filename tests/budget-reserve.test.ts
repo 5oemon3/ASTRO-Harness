@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { budgetStatus, outstandingReservations } from "../src/budget";
-import type { BudgetConfig } from "../src/config";
+import type { BudgetConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 
 interface Row {

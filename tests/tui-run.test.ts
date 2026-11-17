@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError } from "../src/config";
+import { ConfigError } from "../src/core/config";
 import { openSession } from "../src/tui/run";
 import { saveTuiConfig } from "../src/tui/theme";
 

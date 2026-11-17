@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { runPoolHealthCheck } from "../src/health";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, validateConfig } from "../src/config";
+import { ConfigError, validateConfig } from "../src/core/config";
 import { CodexOAuthProvider } from "../src/providers/codex-oauth";
 import { OpenAICompatProvider } from "../src/providers/openai-compat";
 import { errorPolicy } from "../src/providers/policy";

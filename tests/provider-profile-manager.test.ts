@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateConfig, type AstroConfig } from "../src/config";
+import { validateConfig, type AstroConfig } from "../src/core/config";
 import { ProfileManager, type ProfileDraft } from "../src/providers/profile-manager";
 import { loadProfileStore, saveProfileStore } from "../src/providers/profiles";
 

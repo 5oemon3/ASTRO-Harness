@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Auditor } from "../src/audit";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
-import { Registry } from "../src/registry";
+import { Registry } from "../src/core/registry";
 import { AgentManager, formatAgentsList } from "../src/agent-manager";
 import { assertAgentQuota } from "../src/team";
 

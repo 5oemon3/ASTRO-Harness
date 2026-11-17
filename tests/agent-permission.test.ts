@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { Ledger } from "../src/ledger";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import {
   AGENT_PERMISSIONS,
   mostRestrictive,
@@ -13,8 +13,8 @@ import {
   type AgentPermission,
 } from "../src/permissions";
 import type { CompletionResponse, Provider } from "../src/providers/types";
-import type { AgentEntry, ModelEntry } from "../src/registry";
-import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
+import type { AgentEntry, ModelEntry } from "../src/core/registry";
+import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor";
 import type { Tool, ToolClass } from "../src/tools/types";
 

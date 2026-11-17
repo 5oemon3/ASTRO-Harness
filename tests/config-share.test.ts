@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitHubConfigRegistry, isValidSemver, prepareConfigForPush, preparePulledConfig } from "../src/config-share";
-import { validateConfig, ConfigError } from "../src/config";
+import { validateConfig, ConfigError } from "../src/core/config";
 
 const validConfig = {
   version: "1.2.0",

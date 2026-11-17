@@ -46,7 +46,7 @@ Redirect não é seguido nos transports `http` e `sse` (GET e POST usam `redirec
 - Falha da tool vira `ToolResult` de erro; o timeout do executor cobre o pior caso do retry do registry.
 - Manifesto: `risk: high`, `idempotent: false`, `retryable: false` (tool opaca) e `sideEffects` por transporte.
 
-## Fiação (`src/app.ts`)
+## Fiação (`src/core/app.ts`)
 
 - `connectAll` no início do run; servidor que falhou fica indisponível e o run segue.
 - Tool `mcp__*` na allowlist que não foi descoberta é pulada com warn; não derruba a config (só tool desconhecida sem prefixo continua erro).

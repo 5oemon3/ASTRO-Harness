@@ -43,17 +43,17 @@ The current module boundaries are:
 | Path | Responsibility |
 |---|---|
 | `src/cli.ts` | Argument parsing and command routing. |
-| `src/app.ts`, `src/session.ts` | Run orchestration and the single-agent loop. |
+| `src/core/` | Run orchestration, config, registry and the single-agent loop. |
 | `src/providers/` | Provider adapters, profiles, fallback and model routing. |
 | `src/tools/` | Built-in tools, path confinement, sandbox and web tools. |
 | `src/skills/`, `src/mcp/` | Skills and MCP capability integrations. |
 | `src/audit.ts`, `src/ledger.ts`, `src/metrics.ts`, `src/tracing.ts` | Audit, cost, metrics and tracing. |
 | `src/chat/`, `src/tui/` | REPL and full-screen terminal UI. |
 | `src/attachments/` | Image artifact store and privacy checks. |
-| `scripts/doctor.ts` | Diagnostics behind `astro doctor`. |
+| `src/doctor.ts` | Diagnostics behind `astro doctor`. |
 | `tests/` | Test suites mirroring `src/`. |
 
-The planned `src/core` split (event bus and runtime boundaries, ADR-0020/0021/0022) is not implemented; the table above is the current contract.
+The orchestration and config modules now live under `src/core/`; the wider event-bus and runtime-boundary split (ADR-0020/0021/0022) is still not implemented, and the table above is the current contract.
 
 ## Installation
 

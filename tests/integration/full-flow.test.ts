@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { runTask } from "../../src/app";
+import { runTask } from "../../src/core/app";
 import { installDockerSpawnMock } from "../helpers/docker-mock";
 import { testEnv } from "../setup";
 import { newWorkspace, readAudit, removeWorkspace, requestMessages, startMockProvider, writeConfig } from "./helpers";

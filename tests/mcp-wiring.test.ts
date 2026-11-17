@@ -2,8 +2,8 @@ import { expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
-import { validateConfig } from "../src/config";
+import { runTask } from "../src/core/app";
+import { validateConfig } from "../src/core/config";
 import { testEnv } from "./setup";
 
 /** Config mínima válida; `mcpServers` é o que cada teste varia. */

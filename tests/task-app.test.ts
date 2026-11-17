@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { Auditor } from "../src/audit";
 import { Ledger } from "../src/ledger";
 import { testEnv } from "./setup";

@@ -2,17 +2,17 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capability } from "./capabilities";
-import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type ThinkingMode } from "./call-profile";
-import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "./output-limit";
-import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
-import type { ModelRouting } from "./providers/model-routing";
-import type { WebSearchConfig, WebSearchProvider } from "./tools/web-search";
-import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "./permissions";
-import { isAuthHeader, isEnvName, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
-import { headerEnvName, isValidHeaderName } from "./mcp/headers";
-import { outboundUrlProblem, urlProblem } from "./url-safety";
-import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "./tags";
+import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capability } from "../capabilities";
+import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type ThinkingMode } from "../call-profile";
+import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "../output-limit";
+import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "../compaction/engine";
+import type { ModelRouting } from "../providers/model-routing";
+import type { WebSearchConfig, WebSearchProvider } from "../tools/web-search";
+import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "../permissions";
+import { isAuthHeader, isEnvName, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "../secrets";
+import { headerEnvName, isValidHeaderName } from "../mcp/headers";
+import { outboundUrlProblem, urlProblem } from "../url-safety";
+import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "../tags";
 
 /** Configuração comum a todos os providers. */
 interface ProviderConfigBase {

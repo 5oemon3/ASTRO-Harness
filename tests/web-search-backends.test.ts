@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { createWebSearchTool, retryAfterMs, type WebSearchConfig, type WebSearchDeps } from "../src/tools/web-search";
 
 const HOST_SECRET = ["s", "k", "-"].join("") + "host-secret-123456";

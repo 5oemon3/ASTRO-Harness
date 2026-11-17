@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { SwapDeniedError, swapDelta, type SwapRequest } from "../src/approval";
 import { Ledger } from "../src/ledger";
 import { FallbackProvider } from "../src/providers/fallback-provider";

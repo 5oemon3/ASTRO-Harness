@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProvider } from "../src/app";
-import { validateConfig, type AstroConfig } from "../src/config";
+import { createProvider } from "../src/core/app";
+import { validateConfig, type AstroConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 import { OpenAICompatProvider } from "../src/providers/openai-compat";
-import { Registry } from "../src/registry";
+import { Registry } from "../src/core/registry";
 
 function configFor(provider: Record<string, unknown>): AstroConfig {
   return validateConfig({

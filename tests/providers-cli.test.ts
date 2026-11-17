@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
-import { ConfigError, validateConfig } from "../src/config";
+import { ConfigError, validateConfig } from "../src/core/config";
 import { formatProvidersList, runHealthCheck, testProvider } from "../src/health";
 
 const baseConfig = {

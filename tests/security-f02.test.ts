@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { Ledger, hashToolCalls } from "../src/ledger";
 import type { CompletionResponse, Provider } from "../src/providers/types";
-import type { ModelEntry } from "../src/registry";
-import { runSession, type SessionOptions } from "../src/session";
+import type { ModelEntry } from "../src/core/registry";
+import { runSession, type SessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor";
 import { writeFileTool } from "../src/tools/write-file";
 

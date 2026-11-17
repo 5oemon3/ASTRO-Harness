@@ -4,8 +4,8 @@ import { Auditor } from "../src/audit"; import { Ledger } from "../src/ledger";
 import { buildHandoffArtifact, handoffId, HandoffError, type HandoffArtifactV1, type HandoffDraft } from "../src/handoff/types";
 import { ackHandoff, scanHandoffs } from "../src/handoff/lifecycle";
 import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
-import type { AgentEntry, ModelEntry } from "../src/registry";
-import { MaxStepsError, runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
+import type { AgentEntry, ModelEntry } from "../src/core/registry";
+import { MaxStepsError, runMultiAgentSession, type MultiAgentSessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor"; import { handoffTool } from "../src/tools/handoff";
 
 const model: ModelEntry = { provider: "openai", id: "gpt-4o-mini", tags: ["writing-code"], context: 128000, status: "active" };

@@ -6,7 +6,7 @@ import {
   MAX_ENTROPY_THRESHOLD,
   resolveEntropyThreshold,
   validateConfig,
-} from "../src/config";
+} from "../src/core/config";
 import { shannonEntropyBitsPerChar } from "../src/entropy";
 
 /** base64 sintética gerada em runtime (gate G6: sem literal de segredo no diff). */

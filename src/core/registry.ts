@@ -1,6 +1,6 @@
 import type { AstroConfig, ModelConfig, ModelStatus, NamedAgentConfig, ProfileConfig } from "./config";
 import { ConfigError } from "./config";
-import { missingCapabilities, type Capability } from "./capabilities";
+import { missingCapabilities, type Capability } from "../capabilities";
 
 /** Modelo da configuração com o status sempre resolvido. */
 export type ModelEntry = ModelConfig & { status: ModelStatus };

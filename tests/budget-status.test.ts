@@ -3,9 +3,9 @@ import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { budgetStatus, formatBudgetEstimate, restrictBudget } from "../src/budget";
-import type { BudgetConfig } from "../src/config";
+import type { BudgetConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 
 const budget = (extra: Partial<BudgetConfig> = {}): BudgetConfig =>

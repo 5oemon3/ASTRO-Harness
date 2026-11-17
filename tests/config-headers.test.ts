@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 
 function configWithHeaders(headers: Record<string, string>): unknown {
   return {

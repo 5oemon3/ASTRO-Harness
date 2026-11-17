@@ -6,9 +6,9 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type OpenAICompatProviderConfig, type ProviderConfig } from "./config";
+import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type OpenAICompatProviderConfig, type ProviderConfig } from "./core/config";
 import { DEFAULT_PRIORITY } from "./providers/fallback-provider";
-import { Registry } from "./registry";
+import { Registry } from "./core/registry";
 import { vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
 
 // Predicates: PluginProviderConfig (kind: string) sobrepõe os literais dos

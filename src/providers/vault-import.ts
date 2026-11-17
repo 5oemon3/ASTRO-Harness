@@ -3,7 +3,7 @@
  * da env nomeada, cria a credencial no cofre e troca só a referência no
  * profile/config. Dry-run por default; o segredo nunca é impresso (I-03).
  */
-import { ConfigError, updateConfigProviderCredentialRef } from "../config";
+import { ConfigError, updateConfigProviderCredentialRef } from "../core/config";
 import { isEnvName, isVaultCredentialRef, isVaultRef } from "../secrets";
 import { defaultScheme, Vault, vaultPath } from "../vault";
 import { loadEffectiveConfig, loadProfileStore, profilesPath, providerIdentityFor, saveProfileStore } from "./profiles";

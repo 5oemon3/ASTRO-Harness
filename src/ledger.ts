@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
-import type { PriceConfig } from "./config";
+import type { PriceConfig } from "./core/config";
 import { DEFAULT_LOCK_TIMEOUT_MS, FileLockError, processAlive, withFileLock } from "./file-lock";
 import type { FallbackRecord } from "./providers/types";
 import { handoffId, sanitizeHandoffArtifact, type HandoffArtifactV1 } from "./handoff/types";

@@ -14,7 +14,7 @@ Objetivo: definir o formato de toda documentação publicada no repositório.
 | 1 | Cada documento começa com uma linha de **objetivo** e uma tabela de **escopo** (o que cobre, o que não cobre). |
 | 2 | Preferir tabela a prosa para comparações, IDs, variáveis e status. |
 | 3 | Um conceito por seção. Nenhum parágrafo com mais de 4 linhas. |
-| 4 | Referências internas sempre por ID: `#62`, `F-03`, `I-03`, `D-18`, `src/session.ts:22`. |
+| 4 | Referências internas sempre por ID: `#62`, `F-03`, `I-03`, `D-18`, `src/core/session.ts:22`. |
 | 5 | Tamanho alvo: `README.md` até 200 linhas; cada doc de `docs/` até 150; roadmap em tabelas, sem texto corrido por item. |
 | 6 | Sem emojis, sem marketing, sem "vamos", "nosso"; linguagem direta e impessoal. |
 | 7 | Todo item de roadmap tem: ID, título, fase, status (`concluído` \| `em andamento` \| `planejado` \| `bloqueado`), issue (`#n`) e dependências. |

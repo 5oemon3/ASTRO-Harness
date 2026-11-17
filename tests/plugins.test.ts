@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { definePlugin, loadPlugins, pluginAllowlistFromEnv } from "../src/plugins";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { testEnv } from "./setup";
 
 /** Plugin de teste: tool sql_query + provider factory bigquery. */

@@ -8,8 +8,8 @@ import { join } from "node:path";
 import type { Auditor } from "./audit";
 import { AccountLockedError, acquireAgentLock, activeLocks, releaseAgentLock } from "./agent-lock";
 import { redactSecrets } from "./sanitize-external";
-import type { AstroConfig, BudgetConfig } from "./config";
-import { providerAccountRefFor } from "./config";
+import type { AstroConfig, BudgetConfig } from "./core/config";
+import { providerAccountRefFor } from "./core/config";
 import type { Ledger } from "./ledger";
 import {
   CandidateSetChangedError,
@@ -20,7 +20,7 @@ import {
   type ModelCandidate,
 } from "./model-choice";
 import type { QuotaLimit } from "./quota";
-import type { AgentEntry, Registry } from "./registry";
+import type { AgentEntry, Registry } from "./core/registry";
 import type { AgentPermission } from "./permissions";
 import { ROLE_TAGS } from "./tags";
 import type { Tool, ToolContext, ToolResult } from "./tools/types";

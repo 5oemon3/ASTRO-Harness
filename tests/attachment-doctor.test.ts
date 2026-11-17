@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectFacts, runChecks } from "../scripts/doctor";
+import { collectFacts, runChecks } from "../src/doctor";
 import { ArtifactStore } from "../src/attachments/store";
 import { FAKE_PRIVATE_ACL } from "./setup";
 

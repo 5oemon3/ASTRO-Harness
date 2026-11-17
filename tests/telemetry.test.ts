@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateConfig, ConfigError } from "../src/config";
+import { validateConfig, ConfigError } from "../src/core/config";
 import { shouldSample, sendTelemetry, type TelemetryPayload } from "../src/telemetry";
 
 const baseConfig = {

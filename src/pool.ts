@@ -1,5 +1,5 @@
-import type { AstroConfig } from "./config";
-import { Registry } from "./registry";
+import type { AstroConfig } from "./core/config";
+import { Registry } from "./core/registry";
 
 /** Linhas do `astro pool list` (F-27). Pricing NÃO aparece: preço vive em `models[]` (ADR-0007). */
 export function formatPoolList(config: AstroConfig): string {

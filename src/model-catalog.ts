@@ -1,5 +1,5 @@
 /** Catálogo efetivo de modelos derivado da config (#307): listagem sem tocar segredo (I-03). */
-import type { ModelStatus, PriceConfig } from "./config";
+import type { ModelStatus, PriceConfig } from "./core/config";
 import {
   providerIdentityFor,
   type EffectiveConfig,

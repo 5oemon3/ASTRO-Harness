@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { ConfigError, DEFAULT_ATTACHMENTS, isPlainObject, loadConfigRaw, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../config";
+import { ConfigError, DEFAULT_ATTACHMENTS, isPlainObject, loadConfigRaw, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../core/config";
 import { globalConfigPath } from "../astro-home";
 import { assertDeclaredProviders, assertLayerSchema, assertNarrowed, mergeConfigLayers, mergeModelLayers } from "../config-overlay";
 import { isKnownTag } from "../tags";

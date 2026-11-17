@@ -1,5 +1,5 @@
 /** CRUD de perfis de provider: store global + visão do projeto, com guardas. */
-import type { AstroConfig, ProviderConfig } from "../config";
+import type { AstroConfig, ProviderConfig } from "../core/config";
 import {
   loadProfileStore,
   profileFromEnv,

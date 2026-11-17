@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireAgentLock } from "../src/agent-lock";
 import { Auditor } from "../src/audit";
-import { validateConfig, type AstroConfig } from "../src/config";
+import { validateConfig, type AstroConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 import { listModelCandidates, resetCandidateSnapshots } from "../src/model-choice";
-import { Registry } from "../src/registry";
+import { Registry } from "../src/core/registry";
 import { createSpawnAgentTool, SpawnRegistry } from "../src/spawn";
 import type { ToolContext } from "../src/tools/types";
 

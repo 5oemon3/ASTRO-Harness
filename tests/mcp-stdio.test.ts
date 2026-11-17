@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { MCPClient } from "../src/mcp/client";
-import type { MCPServerConfig } from "../src/config";
+import type { MCPServerConfig } from "../src/core/config";
 
 const SERVER_SRC = `
 const lines = [];

@@ -4,7 +4,7 @@ import type { AuditLike, Tool, ToolContext, ToolResult } from "./types";
 
 export type WebSearchProvider = "exa" | "brave" | "google" | "custom";
 
-/** Configuração `webSearch` (validação em `src/config.ts`). */
+/** Configuração `webSearch` (validação em `src/core/config.ts`). */
 export interface WebSearchConfig {
   provider: WebSearchProvider;
   apiKeyEnv: string;

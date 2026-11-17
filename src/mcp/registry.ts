@@ -1,4 +1,4 @@
-import type { MCPServerConfig } from "../config";
+import type { MCPServerConfig } from "../core/config";
 import { MCPClient } from "./client";
 import { headerEnvNames } from "./headers";
 import { MCPError, type MCPToolDescriptor, type MCPToolResult } from "./types";

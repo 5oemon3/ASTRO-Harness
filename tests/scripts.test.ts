@@ -17,11 +17,11 @@ test("dev abre a TUI a partir da fonte, sem build", () => {
   expect(existsSync(join(root, "src", "cli.ts"))).toBe(true);
 });
 
-test("smoke e doctor apontam para scripts existentes", () => {
+test("smoke e doctor apontam para arquivos existentes", () => {
   expect(pkg.scripts.smoke).toContain("scripts/smoke.ts");
-  expect(pkg.scripts.doctor).toBe("bun scripts/doctor.ts");
+  expect(pkg.scripts.doctor).toBe("bun src/doctor.ts");
   expect(existsSync(join(root, "scripts", "smoke.ts"))).toBe(true);
-  expect(existsSync(join(root, "scripts", "doctor.ts"))).toBe(true);
+  expect(existsSync(join(root, "src", "doctor.ts"))).toBe(true);
 });
 
 test("comandos secundários continuam disponíveis", () => {

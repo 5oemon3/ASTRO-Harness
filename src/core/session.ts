@@ -1,34 +1,34 @@
-import type { Auditor } from "./audit";
-import { isAbortError, throwIfAborted } from "./abort";
-import type { AttachmentMeta } from "./attachments/model";
-import { SwapDeniedError, type SwapApprover, type SwapRequest } from "./approval";
-import { CallJournal } from "./call-id";
-import { hashToolCalls, type HandoffEventKind, type Ledger } from "./ledger";
-import { buildHandoffArtifact, HandoffError, handoffId, sanitizeHandoffArtifact, taskHash, type HandoffArtifactV1, type HandoffDraft } from "./handoff/types";
-import { ackHandoff, scanHandoffs, readSourceRefs, type HandoffStatus } from "./handoff/lifecycle";
-import { verifyHandoffIdentity } from "./handoff/verifier";
-import { compactDraft, digestArtifacts } from "./handoff/compact";
+import type { Auditor } from "../audit";
+import { isAbortError, throwIfAborted } from "../abort";
+import type { AttachmentMeta } from "../attachments/model";
+import { SwapDeniedError, type SwapApprover, type SwapRequest } from "../approval";
+import { CallJournal } from "../call-id";
+import { hashToolCalls, type HandoffEventKind, type Ledger } from "../ledger";
+import { buildHandoffArtifact, HandoffError, handoffId, sanitizeHandoffArtifact, taskHash, type HandoffArtifactV1, type HandoffDraft } from "../handoff/types";
+import { ackHandoff, scanHandoffs, readSourceRefs, type HandoffStatus } from "../handoff/lifecycle";
+import { verifyHandoffIdentity } from "../handoff/verifier";
+import { compactDraft, digestArtifacts } from "../handoff/compact";
 import { DEFAULT_ACK_TIMEOUT_MS } from "./config";
 import type { BudgetConfig, PriceConfig } from "./config";
-import { budgetStatus, budgetWarningPayload, enforceBudget, BudgetExceededError, type BudgetDecider } from "./budget";
-import type { ChatMessage, CompletionResponse, ImagePart, Provider } from "./providers/types";
-import { VisionUnsupportedError } from "./providers/types";
+import { budgetStatus, budgetWarningPayload, enforceBudget, BudgetExceededError, type BudgetDecider } from "../budget";
+import type { ChatMessage, CompletionResponse, ImagePart, Provider } from "../providers/types";
+import { VisionUnsupportedError } from "../providers/types";
 import type { ModelEntry } from "./registry";
-import { ToolExecutor } from "./tools/executor";
+import { ToolExecutor } from "../tools/executor";
 import type { AgentEntry } from "./registry";
-import { redactSecrets } from "./sanitize-external";
-import type { SpanHandle, TracerLike } from "./tracing";
-import { assertWithinQuota, type QuotaLimit } from "./quota";
-import { assertAgentQuota, assertProjectBudget } from "./team";
-import { acquireAgentLock, findAgentLock, releaseAgentLock } from "./agent-lock";
-import type { AppliedCallProfile, CallSelection } from "./call-profile";
-import type { ModelRouting } from "./providers/model-routing";
-import { CompactionPausedError } from "./compaction/breaker";
-import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
-import { completeWithCompaction } from "./compaction/runtime";
-import { effectiveOutputCap, type OutputLimitConfig } from "./output-limit";
-import type { SpawnRegistry } from "./spawn";
-import { mostRestrictive } from "./permissions";
+import { redactSecrets } from "../sanitize-external";
+import type { SpanHandle, TracerLike } from "../tracing";
+import { assertWithinQuota, type QuotaLimit } from "../quota";
+import { assertAgentQuota, assertProjectBudget } from "../team";
+import { acquireAgentLock, findAgentLock, releaseAgentLock } from "../agent-lock";
+import type { AppliedCallProfile, CallSelection } from "../call-profile";
+import type { ModelRouting } from "../providers/model-routing";
+import { CompactionPausedError } from "../compaction/breaker";
+import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "../compaction/engine";
+import { completeWithCompaction } from "../compaction/runtime";
+import { effectiveOutputCap, type OutputLimitConfig } from "../output-limit";
+import type { SpawnRegistry } from "../spawn";
+import { mostRestrictive } from "../permissions";
 import {
   buildCheckpoint,
   budgetCheckpointDue,
@@ -40,7 +40,7 @@ import {
   toolCallPath,
   turnCheckpointDue,
   type NoProgressDecider,
-} from "./loop-guard";
+} from "../loop-guard";
 
 /** Identidade efetiva de quem atendeu o completion (F-31d). */
 export interface EffectiveIdentity {

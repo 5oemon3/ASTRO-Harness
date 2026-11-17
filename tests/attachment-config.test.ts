@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigError, validateConfig } from "../src/config";
+import { ConfigError, validateConfig } from "../src/core/config";
 
 const base = {
   providers: { p: { kind: "openai-compat", baseUrl: "http://localhost", credentialRef: "KEY" } },

@@ -3,7 +3,7 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { ConfigError, isPlainObject } from "./config";
+import { ConfigError, isPlainObject } from "./core/config";
 import { isVaultRef } from "./secrets";
 
 /** Ranque de permissão: `ask` é o mais restrito, `bypass` o mais largo. */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigError, validateConfig } from "../src/config";
+import { ConfigError, validateConfig } from "../src/core/config";
 
 function cfg(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {

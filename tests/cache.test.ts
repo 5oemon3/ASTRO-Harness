@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateConfig, ConfigError } from "../src/config";
+import { validateConfig, ConfigError } from "../src/core/config";
 import { CompletionCache, cacheKey, cachedProvider } from "../src/cache";
 import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
 

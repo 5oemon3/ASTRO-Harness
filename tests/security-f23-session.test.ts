@@ -3,8 +3,8 @@ import { mkdtempSync, readFileSync } from "node:fs"; import { tmpdir } from "nod
 import { Auditor } from "../src/audit"; import { Ledger } from "../src/ledger";
 import { HandoffError, type HandoffDraft } from "../src/handoff/types";
 import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
-import type { AgentEntry, ModelEntry } from "../src/registry";
-import { runMultiAgentSession, runSession } from "../src/session";
+import type { AgentEntry, ModelEntry } from "../src/core/registry";
+import { runMultiAgentSession, runSession } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor"; import { handoffTool } from "../src/tools/handoff";
 import { OtlpTracer } from "../src/tracing";
 

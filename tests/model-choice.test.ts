@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireAgentLock } from "../src/agent-lock";
 import { Auditor } from "../src/audit";
-import { validateConfig, type AstroConfig } from "../src/config";
+import { validateConfig, type AstroConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 import {
   CandidateSetChangedError,
@@ -15,7 +15,7 @@ import {
   resolveModelChoice,
   type CandidateDeps,
 } from "../src/model-choice";
-import { Registry } from "../src/registry";
+import { Registry } from "../src/core/registry";
 import { markProviderFailure, markProviderSuccess } from "../src/providers/health-state";
 import { createListModelCandidatesTool } from "../src/tools/list-model-candidates";
 

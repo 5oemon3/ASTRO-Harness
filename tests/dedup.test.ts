@@ -6,8 +6,8 @@ import { Auditor } from "../src/audit";
 import { callId, CallJournal } from "../src/call-id";
 import { Ledger } from "../src/ledger";
 import type { CompletionResponse, Provider } from "../src/providers/types";
-import type { ModelEntry } from "../src/registry";
-import { runSession, runMultiAgentSession, type SessionOptions, type MultiAgentSessionOptions } from "../src/session";
+import type { ModelEntry } from "../src/core/registry";
+import { runSession, runMultiAgentSession, type SessionOptions, type MultiAgentSessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor";
 import type { Tool, ToolResult } from "../src/tools/types";
 

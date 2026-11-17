@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { saveProfileStore } from "../src/providers/profiles";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 

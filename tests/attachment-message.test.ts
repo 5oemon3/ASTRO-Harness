@@ -7,8 +7,8 @@ import type { AttachmentMeta } from "../src/attachments/model";
 import { SessionStore, type SessionRecord } from "../src/chat/store";
 import { Ledger } from "../src/ledger";
 import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
-import type { ModelEntry } from "../src/registry";
-import { runSession, safePrompt, type SessionOptions } from "../src/session";
+import type { ModelEntry } from "../src/core/registry";
+import { runSession, safePrompt, type SessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor";
 
 const model: ModelEntry = {

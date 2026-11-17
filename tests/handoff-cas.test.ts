@@ -5,8 +5,8 @@ import { buildHandoffArtifact, HandoffError, sanitizeHandoffArtifact, taskHash, 
 import { verifyHandoffIdentity } from "../src/handoff/verifier";
 import { ackHandoff, scanHandoffs } from "../src/handoff/lifecycle";
 import type { CompletionResponse, Provider } from "../src/providers/types";
-import type { AgentEntry, ModelEntry } from "../src/registry";
-import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
+import type { AgentEntry, ModelEntry } from "../src/core/registry";
+import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor"; import { handoffTool } from "../src/tools/handoff";
 
 const model: ModelEntry = { provider: "openai", id: "gpt-4o-mini", tags: ["writing-code"], context: 128000, status: "active" };

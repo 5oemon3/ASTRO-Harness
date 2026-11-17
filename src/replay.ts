@@ -10,7 +10,7 @@ import type { SwapApprover } from "./approval";
 import type { BudgetDecider } from "./budget";
 import type { TrustAsk } from "./trust";
 import type { NoProgressDecider } from "./loop-guard";
-import { runTask } from "./app";
+import { runTask } from "./core/app";
 
 /** Métricas do run original, extraídas do evento run.completed. */
 export interface OriginalRunMetrics {

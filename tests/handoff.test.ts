@@ -5,15 +5,15 @@ import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { Ledger, LEDGER_SCHEMA_VERSION } from "../src/ledger";
 import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
-import type { ModelEntry } from "../src/registry";
+import type { ModelEntry } from "../src/core/registry";
 import { ToolExecutor } from "../src/tools/executor";
 import { readFileTool } from "../src/tools/read-file";
 import { writeFileTool } from "../src/tools/write-file";
 import { runCommandTool } from "../src/tools/run-command";
 import type { Tool } from "../src/tools/types";
-import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
+import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/core/session";
 import { handoffTool } from "../src/tools/handoff";
-import type { AgentEntry } from "../src/registry";
+import type { AgentEntry } from "../src/core/registry";
 
 const model: ModelEntry = {
   provider: "openai", id: "gpt-4o-mini", tags: ["writing-code"], context: 128000, status: "active",

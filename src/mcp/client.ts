@@ -1,4 +1,4 @@
-import type { MCPServerConfig } from "../config";
+import type { MCPServerConfig } from "../core/config";
 import { MCPError, type MCPServerInfo, type MCPToolDescriptor, type MCPToolResult } from "./types";
 import { StdioTransport } from "./transport/stdio";
 import { HttpTransport } from "./transport/http";

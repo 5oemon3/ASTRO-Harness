@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { Auditor } from "../src/audit";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 import { createRoutedProvider, routedModelKey } from "../src/providers/model-routing";
 import { ProviderError, type CompletionRequest, type CompletionResponse, type Provider } from "../src/providers/types";
-import type { ModelEntry } from "../src/registry";
-import { runSession } from "../src/session";
+import type { ModelEntry } from "../src/core/registry";
+import { runSession } from "../src/core/session";
 import { ToolExecutor } from "../src/tools/executor";
 import { testEnv } from "./setup";
 

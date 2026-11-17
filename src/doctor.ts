@@ -7,14 +7,14 @@ import { accessSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, 
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { DEFAULT_ATTACHMENTS, loadConfig, loadConfigRaw, type MCPServerConfig } from "../src/config";
-import { loadEffectiveConfig } from "../src/providers/profiles";
-import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "../src/attachments/store";
-import { headerEnvNames } from "../src/mcp/headers";
-import { resolveAstroHome } from "../src/permissions";
-import { redactSecrets } from "../src/sanitize-external";
-import { isVaultCredentialRef, isVaultRef } from "../src/secrets";
-import { loadSkillsFromRoot } from "../src/skills/loader";
+import { DEFAULT_ATTACHMENTS, loadConfig, loadConfigRaw, type MCPServerConfig } from "./core/config";
+import { loadEffectiveConfig } from "./providers/profiles";
+import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "./attachments/store";
+import { headerEnvNames } from "./mcp/headers";
+import { resolveAstroHome } from "./permissions";
+import { redactSecrets } from "./sanitize-external";
+import { isVaultCredentialRef, isVaultRef } from "./secrets";
+import { loadSkillsFromRoot } from "./skills/loader";
 
 export type CheckLevel = "ok" | "warn" | "fail";
 

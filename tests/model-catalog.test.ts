@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { validateConfig, type AstroConfig } from "../src/config";
+import { validateConfig, type AstroConfig } from "../src/core/config";
 import {
   profileFromEnv,
   resolveEffectiveConfig,

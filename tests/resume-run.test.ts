@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Auditor } from "../src/audit";
-import { runTask } from "../src/app";
+import { runTask } from "../src/core/app";
 import { Ledger, processAlive } from "../src/ledger";
 import { rebuildAgentTree } from "../src/resume";
 import { testEnv } from "./setup";

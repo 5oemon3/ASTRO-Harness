@@ -30,7 +30,7 @@
     "dev": "bun src/cli.ts tui",
     "dev:launcher": "bun run build && node dist/launcher.js",
     "smoke": "bun run build && bun scripts/smoke.ts",
-    "doctor": "bun scripts/doctor.ts",
+    "doctor": "bun src/doctor.ts",
     "release:check": "bun scripts/release-check.ts",
     "prepack": "bun run build",
     "prepublishOnly": "bun run typecheck",

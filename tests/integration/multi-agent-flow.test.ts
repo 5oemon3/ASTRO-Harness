@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { activeLocks } from "../../src/agent-lock";
-import { runTask } from "../../src/app";
+import { runTask } from "../../src/core/app";
 import { Ledger } from "../../src/ledger";
 import { rebuildAgentTree } from "../../src/resume";
 import { testEnv } from "../setup";

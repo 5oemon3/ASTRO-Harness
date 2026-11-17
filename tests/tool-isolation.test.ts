@@ -330,10 +330,10 @@ describe("regressão do tool guard: registro dinâmico e escopo de subagent (S-0
     expect(result2.isError).toBeFalsy();
   });
 
-  test("(e) entryAgent default name 'planner' pinado contra src/config.ts:82-83 (A13, Q-03)", async () => {
+  test("(e) entryAgent default name 'planner' pinado contra src/core/config.ts:82-83 (A13, Q-03)", async () => {
     // Teste de configuração: o entryAgent default deve ser "planner"
     // Este teste valida que a constante não muda silenciosamente
-    const { validateConfig } = await import("../src/config");
+    const { validateConfig } = await import("../src/core/config");
 
     const config = validateConfig({
       providers: { a: { kind: "openai-compat", baseUrl: "http://x/v1", credentialRef: "K" } },

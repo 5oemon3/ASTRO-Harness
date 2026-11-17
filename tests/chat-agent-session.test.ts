@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { AgentSession } from "../src/chat/agent-session";
 import type { LoadedAttachment } from "../src/attachments/model";
-import { loadConfig } from "../src/config";
+import { loadConfig } from "../src/core/config";
 import type { PermissionMode } from "../src/permissions";
 import type { ChatMessage } from "../src/providers/types";
 import { Ledger } from "../src/ledger";
