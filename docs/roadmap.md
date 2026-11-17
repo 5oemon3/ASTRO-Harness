@@ -61,7 +61,7 @@ Objetivo: registro verificável das fases F0–F7, com issue, PR e commit de fec
 
 | ID | Entrega | Issue | Status | Fechamento |
 |---|---|---|---|---|
-| F5-1 | Golden dataset (50 cases) | #12 | concluído | PR #39 (c65be26) |
+| F5-1 | Golden dataset (65 cases) | #12 | concluído | PR #39 (c65be26) |
 | F5-2 | Auto-eval harness | #13 | concluído | PR #40 (b8d0c81) |
 | F5-3 | Regression gate no CI | #14 | concluído | PR #41 (652ec4d) |
 | F5-4 | Benchmark de providers | #15 | concluído | PR #42 (acd6861) |

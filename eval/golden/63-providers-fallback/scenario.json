@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret",
+    "EVAL_BACKUP_KEY": "eval-backup-secret"
+  },
+  "config": {
+    "providers": {
+      "primary": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerDownUrl}}",
+        "credentialRef": "EVAL_KEY",
+        "fallback": [
+          "backup"
+        ],
+        "maxRetries": 0,
+        "retryBackoffMs": 1,
+        "priority": 1
+      },
+      "backup": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_BACKUP_KEY",
+        "priority": 2
+      }
+    },
+    "models": [
+      {
+        "provider": "primary",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      },
+      {
+        "provider": "backup",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      }
+    ],
+    "agent": {
+      "model": "primary/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "write_file"
+      ]
+    }
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/fallback.txt",
+            "content": "fallback served\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "fallback ok"
+    }
+  ],
+  "expect": {
+    "final": "fallback ok",
+    "audit": [
+      "provider.failure",
+      "provider.complete",
+      "agent.lock.moved"
+    ],
+    "auditEvents": [
+      {
+        "tipo": "provider.failure",
+        "payload": {
+          "provider": "primary"
+        }
+      },
+      {
+        "tipo": "agent.lock.moved",
+        "payload": {
+          "provider": "backup"
+        }
+      },
+      {
+        "tipo": "provider.complete",
+        "payload": {
+          "provider": "backup",
+          "model": "mock-1",
+          "attempt": 1
+        }
+      }
+    ],
+    "models": [
+      "mock-1",
+      "mock-1"
+    ],
+    "requests": 2,
+    "requestsContain": [
+      "fallback served"
+    ]
+  }
+}

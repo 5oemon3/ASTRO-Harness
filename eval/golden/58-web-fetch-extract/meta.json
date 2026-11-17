@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "web-fetch-extract",
+  "category": "web",
+  "difficulty": 2,
+  "tags": [
+    "tools",
+    "analysis"
+  ],
+  "files": [
+    "out/page.md"
+  ]
+}

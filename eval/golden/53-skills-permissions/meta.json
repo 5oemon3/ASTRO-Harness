@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "id": "skills-permissions",
+  "category": "skills",
+  "difficulty": 3,
+  "tags": [
+    "writing-code",
+    "tools"
+  ],
+  "files": []
+}

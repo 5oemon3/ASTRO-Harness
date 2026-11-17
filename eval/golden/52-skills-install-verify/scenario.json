@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "seed": [
+    {
+      "from": "fixtures/verify.md",
+      "to": ".astro/skills/verify/SKILL.md"
+    }
+  ],
+  "sidecars": [
+    ".astro/skills/verify"
+  ],
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/verified.txt",
+            "content": "skill verificada\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "verify ok"
+    }
+  ],
+  "expect": {
+    "final": "verify ok",
+    "audit": [
+      "skill.loaded",
+      "tool.call"
+    ],
+    "auditText": [
+      "\"name\":\"verify\""
+    ],
+    "requests": 2,
+    "requestsContain": [
+      "Confirme a skill instalada"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "mcp-filesystem-read",
+  "category": "mcp",
+  "difficulty": 2,
+  "tags": [
+    "tools",
+    "analysis"
+  ],
+  "files": [
+    "out/mcp.txt"
+  ]
+}

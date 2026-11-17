@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "web-rate-limit",
+  "category": "web",
+  "difficulty": 3,
+  "tags": [
+    "tools",
+    "analysis"
+  ],
+  "files": [
+    "out/retry.txt"
+  ]
+}

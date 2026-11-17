@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "multi-agent-task-delegation",
+  "category": "multi-agent",
+  "difficulty": 3,
+  "tags": [
+    "planning",
+    "writing-code"
+  ],
+  "files": [
+    "out/delegated.txt"
+  ]
+}

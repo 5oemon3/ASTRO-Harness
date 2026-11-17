@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "config": {
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "mcp__fs__read_file",
+        "write_file"
+      ]
+    },
+    "mcpServers": {
+      "fs": {
+        "transport": "http",
+        "url": "{{mcpUrl}}",
+        "timeoutMs": 2000,
+        "retryBackoffMs": 1
+      }
+    }
+  },
+  "mcp": {
+    "tools": [
+      {
+        "name": "read_file",
+        "text": "never returned"
+      }
+    ],
+    "failCall": true
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "mcp__fs__read_file",
+          "arguments": {
+            "path": "notes.txt"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/continued.txt",
+            "content": "continued after mcp failure\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "mcp survived"
+    }
+  ],
+  "expect": {
+    "final": "mcp survived",
+    "audit": [
+      "mcp.call",
+      "tool.call",
+      "run.completed"
+    ],
+    "auditEvents": [
+      {
+        "tipo": "mcp.call",
+        "payload": {
+          "server": "fs",
+          "tool": "read_file",
+          "status": "error"
+        }
+      }
+    ],
+    "requests": 2
+  }
+}

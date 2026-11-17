@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "seed": [
+    {
+      "from": "fixtures/skill.md",
+      "to": ".astro/skills/commit/SKILL.md"
+    }
+  ],
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/skill.txt",
+            "content": "skill carregada\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "skill ok"
+    }
+  ],
+  "expect": {
+    "final": "skill ok",
+    "audit": [
+      "skill.loaded",
+      "tool.call",
+      "run.completed"
+    ],
+    "auditText": [
+      "\"name\":\"commit\""
+    ],
+    "requests": 2,
+    "requestsContain": [
+      "Registre a execução da skill"
+    ]
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret",
+    "EVAL_ALT_KEY": "eval-alt-secret"
+  },
+  "config": {
+    "providers": {
+      "mock": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_KEY"
+      },
+      "alt": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_ALT_KEY"
+      }
+    },
+    "models": [
+      {
+        "provider": "mock",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      },
+      {
+        "provider": "mock",
+        "id": "strong",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      },
+      {
+        "provider": "alt",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      }
+    ],
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "write_file"
+      ],
+      "entryAgent": "plan"
+    },
+    "agents": {
+      "plan": {
+        "model": "mock/mock-1",
+        "maxSteps": 8,
+        "tools": [
+          "write_file"
+        ],
+        "modelRouting": {
+          "strongModel": "mock/strong"
+        }
+      }
+    }
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/routed.txt",
+            "content": "strong route\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "routing ok"
+    }
+  ],
+  "expect": {
+    "final": "routing ok",
+    "audit": [
+      "tool.call",
+      "run.completed"
+    ],
+    "models": [
+      "strong",
+      "strong"
+    ],
+    "requests": 2
+  }
+}

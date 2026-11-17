@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "seed": [
+    {
+      "from": "fixtures/skill.md",
+      "to": ".astro/skills/deploy/SKILL.md"
+    }
+  ],
+  "config": {
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 4,
+      "tools": [
+        "read_file"
+      ]
+    }
+  },
+  "turns": [],
+  "expect": {
+    "error": "skill \"deploy\" pede tools fora da allowlist do agent: run_command",
+    "audit": [
+      "run.stopped"
+    ],
+    "auditAbsent": [
+      "skill.loaded",
+      "tool.call"
+    ],
+    "requests": 0,
+    "absentFiles": [
+      "out/deploy.txt"
+    ]
+  }
+}

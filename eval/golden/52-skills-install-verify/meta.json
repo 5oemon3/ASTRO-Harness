@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "skills-install-verify",
+  "category": "skills",
+  "difficulty": 2,
+  "tags": [
+    "writing-code",
+    "tools"
+  ],
+  "files": [
+    "out/verified.txt"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "providers-fallback",
+  "category": "providers",
+  "difficulty": 2,
+  "tags": [
+    "writing-code",
+    "fast"
+  ],
+  "files": [
+    "out/fallback.txt"
+  ]
+}

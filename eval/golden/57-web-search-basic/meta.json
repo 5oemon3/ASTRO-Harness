@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "web-search-basic",
+  "category": "web",
+  "difficulty": 2,
+  "tags": [
+    "tools",
+    "analysis"
+  ],
+  "files": [
+    "out/search.txt"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "skills-load",
+  "category": "skills",
+  "difficulty": 2,
+  "tags": [
+    "writing-code",
+    "tools"
+  ],
+  "files": [
+    "out/skill.txt"
+  ]
+}

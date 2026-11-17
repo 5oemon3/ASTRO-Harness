@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret",
+    "EVAL_WEB_KEY": "eval-web-secret-123"
+  },
+  "config": {
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "web_search",
+        "write_file"
+      ]
+    },
+    "webSearch": {
+      "provider": "exa",
+      "apiKeyEnv": "EVAL_WEB_KEY",
+      "baseUrl": "{{searchUrl}}"
+    }
+  },
+  "search": {
+    "results": [
+      {
+        "title": "Retry",
+        "url": "https://retry.test",
+        "snippet": "RATE-LIMIT-OK"
+      }
+    ],
+    "retryOnce": true
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "web_search",
+          "arguments": {
+            "query": "rate limit"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/retry.txt",
+            "content": "RATE-LIMIT-OUTPUT\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "retry ok"
+    }
+  ],
+  "expect": {
+    "final": "retry ok",
+    "audit": [
+      "web.search",
+      "tool.call"
+    ],
+    "auditText": [
+      "\"status\":200"
+    ],
+    "requests": 2,
+    "toolResultsContain": [
+      "RATE-LIMIT-OK"
+    ],
+    "searchRequests": 2
+  }
+}

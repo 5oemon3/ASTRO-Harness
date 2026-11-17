@@ -51,6 +51,21 @@
     "feature-truncate": true,
     "feature-pick": true,
     "feature-sleep": true,
-    "feature-round-to": true
+    "feature-round-to": true,
+    "skills-load": true,
+    "skills-install-verify": true,
+    "skills-permissions": true,
+    "mcp-filesystem-read": true,
+    "mcp-server-disconnect": true,
+    "mcp-allowlist-respect": true,
+    "web-search-basic": true,
+    "web-fetch-extract": true,
+    "web-rate-limit": true,
+    "multi-agent-plan-to-build": true,
+    "multi-agent-task-delegation": true,
+    "multi-agent-permission-boundary": true,
+    "providers-fallback": true,
+    "providers-routing": true,
+    "providers-health-check": true
   }
 }

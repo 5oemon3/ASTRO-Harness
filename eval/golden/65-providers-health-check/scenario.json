@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "kind": "health",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "config": {
+    "providers": {
+      "up": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_KEY",
+        "priority": 1
+      },
+      "down": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerDownUrl}}",
+        "credentialRef": "EVAL_KEY",
+        "priority": 2
+      }
+    },
+    "models": [
+      {
+        "provider": "up",
+        "id": "mock-1",
+        "tags": [
+          "writing-code"
+        ],
+        "context": 8192
+      },
+      {
+        "provider": "down",
+        "id": "mock-1",
+        "tags": [
+          "writing-code"
+        ],
+        "context": 8192
+      }
+    ],
+    "agent": {
+      "model": "up/mock-1",
+      "maxSteps": 2,
+      "tools": []
+    }
+  },
+  "turns": [],
+  "expect": {
+    "requests": 0,
+    "health": {
+      "status": "degraded",
+      "checks": {
+        "provider:up": "ok",
+        "provider:down": "down"
+      }
+    }
+  }
+}

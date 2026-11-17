@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "mcp-server-disconnect",
+  "category": "mcp",
+  "difficulty": 3,
+  "tags": [
+    "tools",
+    "analysis"
+  ],
+  "files": [
+    "out/continued.txt"
+  ]
+}

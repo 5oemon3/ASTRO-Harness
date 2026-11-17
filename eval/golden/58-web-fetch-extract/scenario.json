@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "config": {
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "web_fetch",
+        "write_file"
+      ]
+    }
+  },
+  "page": {
+    "html": "<html><body><h1>Título</h1><script>evil()</script><p>PAGE-CONTENT</p></body></html>"
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "web_fetch",
+          "arguments": {
+            "url": "{{pageUrl}}",
+            "format": "markdown"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/page.md",
+            "content": "# Título\n\nPAGE-OUTPUT\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "fetch ok"
+    }
+  ],
+  "expect": {
+    "final": "fetch ok",
+    "audit": [
+      "web.fetch",
+      "tool.call"
+    ],
+    "requests": 2,
+    "toolResultsContain": [
+      "PAGE-CONTENT"
+    ]
+  }
+}

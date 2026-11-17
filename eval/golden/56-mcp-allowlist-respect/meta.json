@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "mcp-allowlist-respect",
+  "category": "mcp",
+  "difficulty": 2,
+  "tags": [
+    "tools",
+    "analysis"
+  ],
+  "files": [
+    "out/denied.txt"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret"
+  },
+  "config": {
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "write_file"
+      ]
+    },
+    "mcpServers": {
+      "fs": {
+        "transport": "http",
+        "url": "{{mcpUrl}}",
+        "timeoutMs": 3000
+      }
+    }
+  },
+  "mcp": {
+    "tools": [
+      {
+        "name": "read_file",
+        "text": "MCP-FS-CONTENT"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "mcp__fs__read_file",
+          "arguments": {
+            "path": "notes.txt"
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/denied.txt",
+            "content": "allowlist respected\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "allowlist ok"
+    }
+  ],
+  "expect": {
+    "final": "allowlist ok",
+    "audit": [
+      "tool.denied",
+      "tool.call"
+    ],
+    "auditText": [
+      "mcp__fs__read_file"
+    ],
+    "auditAbsent": [
+      "mcp.call"
+    ],
+    "toolsAbsent": [
+      "mcp__fs__read_file"
+    ],
+    "requests": 2
+  }
+}

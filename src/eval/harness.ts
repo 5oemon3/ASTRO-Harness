@@ -16,6 +16,7 @@ import { runSession } from "../session";
 import { ToolExecutor } from "../tools/executor";
 import { readFileTool } from "../tools/read-file";
 import { writeFileTool } from "../tools/write-file";
+import { runScenario, type ScenarioSpec } from "./scenario";
 
 const MODEL: ModelEntry = {
   provider: "mock", id: "golden-mock", tags: ["writing-code"], context: 128000, status: "active",
@@ -26,6 +27,8 @@ export interface GoldenCase {
   id: string;
   category: string;
   files: string[];
+  /** Presente nos cases multi-step (#59); ausente nos 50 cases de arquivo único. */
+  scenario?: ScenarioSpec;
 }
 
 export interface CaseResult {
@@ -65,7 +68,14 @@ export function listGoldenCases(goldenRoot: string): GoldenCase[] {
       const meta = JSON.parse(readFileSync(join(dir, "meta.json"), "utf8")) as {
         id: string; category: string; files: string[];
       };
-      return { dir, id: meta.id, category: meta.category, files: meta.files };
+      const scenarioPath = join(dir, "scenario.json");
+      const scenario = existsSync(scenarioPath)
+        ? JSON.parse(readFileSync(scenarioPath, "utf8")) as ScenarioSpec
+        : undefined;
+      return {
+        dir, id: meta.id, category: meta.category, files: meta.files,
+        ...(scenario === undefined ? {} : { scenario }),
+      };
     });
 }
 
@@ -171,37 +181,45 @@ export async function runCase(golden: GoldenCase, opts: { mock: boolean }): Prom
       cpSync(workspaceDir, cwd, { recursive: true });
     }
 
-    const auditPath = join(cwd, ".audit.jsonl");
-    const ledgerPath = join(cwd, ".ledger.jsonl");
-    const audit = new Auditor(auditPath);
-    const ledger = new Ledger(ledgerPath, { warn: () => {} }); // eval não precisa de aviso de preço
-    const executor = new ToolExecutor({
-      tools: [readFileTool, writeFileTool],
-      allow: ["read_file", "write_file"],
-      audit,
-      // Eval roda em modo ask sem TTY: aprovador automático determinístico.
-      approveTool: () => true,
-    });
-
-    // Modo mock (determinístico, sem credenciais): o provider aplica os arquivos
-    // esperados via write_file, exercitando o loop real de sessão + tools.
-    const provider = mockProvider(golden.dir, golden.files);
-    await runSession(
-      {
-        run: `eval-${golden.id}`, agent: "eval", credentialRef: "MOCK", quotaDomain: "eval",
-        cwd, provider, model: MODEL, executor, ledger, audit, maxSteps: 5,
-      },
-      readFileSync(join(golden.dir, "task.md"), "utf8"),
-    );
-
-    const tokens = ledger.readAll().reduce((acc, e) => acc + e.tokensIn + e.tokensOut, 0);
-
+    const task = readFileSync(join(golden.dir, "task.md"), "utf8");
     const diffSummary: string[] = [];
-    let passed = true;
+    let tokens = 0;
+
+    if (golden.scenario !== undefined) {
+      // Cenário (#59): roda o app real contra os mocks declarados no scenario.json.
+      const scenario = await runScenario(golden.scenario, { cwd, caseDir: golden.dir, task });
+      tokens = scenario.tokens;
+      diffSummary.push(...scenario.diffSummary);
+    } else {
+      const auditPath = join(cwd, ".audit.jsonl");
+      const ledgerPath = join(cwd, ".ledger.jsonl");
+      const audit = new Auditor(auditPath);
+      const ledger = new Ledger(ledgerPath, { warn: () => {} }); // eval não precisa de aviso de preço
+      const executor = new ToolExecutor({
+        tools: [readFileTool, writeFileTool],
+        allow: ["read_file", "write_file"],
+        audit,
+        // Eval roda em modo ask sem TTY: aprovador automático determinístico.
+        approveTool: () => true,
+      });
+
+      // Modo mock (determinístico, sem credenciais): o provider aplica os arquivos
+      // esperados via write_file, exercitando o loop real de sessão + tools.
+      const provider = mockProvider(golden.dir, golden.files);
+      await runSession(
+        {
+          run: `eval-${golden.id}`, agent: "eval", credentialRef: "MOCK", quotaDomain: "eval",
+          cwd, provider, model: MODEL, executor, ledger, audit, maxSteps: 5,
+        },
+        task,
+      );
+
+      tokens = ledger.readAll().reduce((acc, e) => acc + e.tokensIn + e.tokensOut, 0);
+    }
+
     for (const file of golden.files) {
       const producedPath = join(cwd, file);
       if (!existsSync(producedPath)) {
-        passed = false;
         diffSummary.push(`${file}: não foi criado`);
         continue;
       }
@@ -209,11 +227,13 @@ export async function runCase(golden: GoldenCase, opts: { mock: boolean }): Prom
       const expected = readFileSync(join(golden.dir, "expected", file), "utf8");
       const cmp = await compareFile(file, produced, expected);
       if (!cmp.equal) {
-        passed = false;
         diffSummary.push(`${file}: conteúdo divergente (${cmp.mode})`);
       }
     }
-    return { case: golden.id, category: golden.category, passed, tokens, latencyMs: Date.now() - started, diffSummary };
+    return {
+      case: golden.id, category: golden.category, passed: diffSummary.length === 0,
+      tokens, latencyMs: Date.now() - started, diffSummary,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "multi-agent-permission-boundary",
+  "category": "multi-agent",
+  "difficulty": 3,
+  "tags": [
+    "planning",
+    "writing-code"
+  ],
+  "files": [
+    "out/boundary.txt"
+  ]
+}

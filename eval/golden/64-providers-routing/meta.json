@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "providers-routing",
+  "category": "providers",
+  "difficulty": 2,
+  "tags": [
+    "writing-code",
+    "fast"
+  ],
+  "files": [
+    "out/routed.txt"
+  ]
+}

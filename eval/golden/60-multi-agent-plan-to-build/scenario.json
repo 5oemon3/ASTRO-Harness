@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret",
+    "EVAL_BUILDER_KEY": "eval-builder-secret"
+  },
+  "config": {
+    "providers": {
+      "mock": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_KEY"
+      },
+      "builder": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_BUILDER_KEY"
+      }
+    },
+    "models": [
+      {
+        "provider": "mock",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      },
+      {
+        "provider": "builder",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      }
+    ],
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "spawn_agent",
+        "handoff",
+        "write_file"
+      ],
+      "entryAgent": "planner"
+    },
+    "agents": {
+      "planner": {
+        "model": "mock/mock-1",
+        "maxSteps": 8,
+        "tools": [
+          "spawn_agent",
+          "handoff",
+          "write_file"
+        ]
+      }
+    },
+    "modelPool": {
+      "builder": {
+        "model": "builder/mock-1"
+      }
+    }
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "spawn_agent",
+          "arguments": {
+            "need": "writing-code",
+            "task": "construir",
+            "tools": [
+              "write_file"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "name": "handoff",
+          "arguments": {
+            "to": "sub-1",
+            "task": "construir",
+            "objective": "criar o arquivo",
+            "decisions": [],
+            "constraints": [],
+            "next_steps": []
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/build.txt",
+            "content": "built by subagent\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "build ok"
+    }
+  ],
+  "expect": {
+    "final": "build ok",
+    "audit": [
+      "agent.spawned",
+      "agent.switch",
+      "tool.call"
+    ],
+    "requests": 4,
+    "agents": [
+      "planner",
+      "sub-1"
+    ]
+  }
+}

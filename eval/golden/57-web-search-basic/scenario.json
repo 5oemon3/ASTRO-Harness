@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret",
+    "EVAL_WEB_KEY": "eval-web-secret-123"
+  },
+  "config": {
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "web_search",
+        "write_file"
+      ]
+    },
+    "webSearch": {
+      "provider": "exa",
+      "apiKeyEnv": "EVAL_WEB_KEY",
+      "baseUrl": "{{searchUrl}}",
+      "defaultMaxResults": 2
+    }
+  },
+  "search": {
+    "results": [
+      {
+        "title": "ASTRO",
+        "url": "https://astro.test",
+        "snippet": "WEB-SNIPPET"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "web_search",
+          "arguments": {
+            "query": "astro harness",
+            "maxResults": 2
+          }
+        },
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/search.txt",
+            "content": "WEB-OUTPUT\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "web ok"
+    }
+  ],
+  "expect": {
+    "final": "web ok",
+    "audit": [
+      "web.search",
+      "tool.call"
+    ],
+    "auditText": [
+      "\"status\":200"
+    ],
+    "requests": 2,
+    "toolResultsContain": [
+      "WEB-SNIPPET"
+    ],
+    "searchRequests": 1
+  }
+}

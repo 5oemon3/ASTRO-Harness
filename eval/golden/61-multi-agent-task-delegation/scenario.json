@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "kind": "app",
+  "env": {
+    "EVAL_KEY": "eval-provider-secret",
+    "EVAL_ALT_KEY": "eval-alt-secret"
+  },
+  "config": {
+    "providers": {
+      "mock": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_KEY"
+      },
+      "alt": {
+        "kind": "openai-compat",
+        "baseUrl": "{{providerUrl}}",
+        "credentialRef": "EVAL_ALT_KEY"
+      }
+    },
+    "models": [
+      {
+        "provider": "mock",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      },
+      {
+        "provider": "alt",
+        "id": "mock-1",
+        "tags": [
+          "writing-code",
+          "tools"
+        ],
+        "context": 8192,
+        "capabilities": {
+          "tools": true
+        }
+      }
+    ],
+    "agent": {
+      "model": "mock/mock-1",
+      "maxSteps": 8,
+      "tools": [
+        "task",
+        "write_file"
+      ],
+      "entryAgent": "planner"
+    },
+    "agents": {
+      "planner": {
+        "model": "mock/mock-1",
+        "maxSteps": 8,
+        "tools": [
+          "task",
+          "write_file"
+        ]
+      },
+      "builder": {
+        "model": "mock/mock-1",
+        "maxSteps": 4,
+        "tools": [
+          "write_file"
+        ]
+      }
+    }
+  },
+  "turns": [
+    {
+      "toolCalls": [
+        {
+          "name": "task",
+          "arguments": {
+            "agent": "builder",
+            "prompt": "escreva o arquivo delegado"
+          }
+        }
+      ]
+    },
+    {
+      "toolCalls": [
+        {
+          "name": "write_file",
+          "arguments": {
+            "path": "out/delegated.txt",
+            "content": "delegated\n"
+          }
+        }
+      ]
+    },
+    {
+      "content": "child done"
+    },
+    {
+      "content": "delegation ok"
+    }
+  ],
+  "expect": {
+    "final": "delegation ok",
+    "audit": [
+      "task.delegated",
+      "tool.call"
+    ],
+    "requests": 4,
+    "requestsContain": [
+      "delegated"
+    ]
+  }
+}
