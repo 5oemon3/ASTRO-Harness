@@ -203,6 +203,14 @@ export function toSessionRecord(snapshot: SessionSnapshot): SessionRecord {
   return { schemaVersion: 1, ...snapshot };
 }
 
+/** Motivo da recusa ao excluir uma sessão ainda viva; `undefined` libera a exclusão (#366). */
+export function activeSessionRefusal(snapshot: SessionSnapshot, id: string): string | undefined {
+  if (id === snapshot.id) return "não é possível excluir a sessão atual";
+  // a retomada grava um id novo, mas resumedFrom/lineage seguem apontando para a origem (#366)
+  if (id === snapshot.resumedFrom?.id) return "não é possível excluir a origem retomada (a conversa continua a partir dela)";
+  return undefined;
+}
+
 /** Valida e sanitiza um registro v1 para persistência ou migração. */
 export function sanitizeSessionRecord(value: unknown): SessionRecord {
   const record = sanitizeValue(parseRecord(value)) as SessionRecord;

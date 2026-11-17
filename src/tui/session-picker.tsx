@@ -1,4 +1,4 @@
-/** Modal de sessões da TUI (#64): listar, renomear e retomar. */
+/** Modal de sessões da TUI (#64): listar, renomear, excluir e retomar. */
 import { Box, Text, useInput, useWindowSize } from "ink";
 import { useRef, useState, type ReactElement } from "react";
 import { sessionSummaryLine } from "../chat/store";
@@ -17,12 +17,14 @@ export interface SessionPickerProps {
   onResume(session: SessionSummary): void;
   /** Aplica o nome à sessão escolhida (por id; o rename grava no SQLite). */
   onRename(session: SessionSummary, name: string): string | undefined;
+  /** Exclui a sessão escolhida; erro volta como texto e o modal continua aberto. */
+  onDelete(session: SessionSummary): string | undefined;
   /** Linhas visíveis da lista; default derivado da altura do terminal. */
   maxRows?: number;
 }
 
 export function SessionPicker({
-  sessions, colors, onClose, onExit, onResume, onRename, maxRows,
+  sessions, colors, onClose, onExit, onResume, onRename, onDelete, maxRows,
 }: SessionPickerProps): ReactElement {
   // Refs espelham o estado: o handler do ink pode rodar antes do efeito do
   // useEffectEvent ver o render novo (mesmo padrão do inputRef do app)
@@ -31,9 +33,11 @@ export function SessionPicker({
   const selectedRef = useRef(0);
   const renamingRef = useRef(false);
   const draftRef = useRef("");
+  const confirmingRef = useRef<SessionSummary | undefined>(undefined);
   const resumeRequestedRef = useRef(false); // um enter por sessão: repeat no mesmo chunk não duplica
   const [selected, setSelectedState] = useState(0);
   const [renaming, setRenamingState] = useState(false);
+  const [confirming, setConfirmingState] = useState<SessionSummary | undefined>(undefined);
   const [draft, setDraftState] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
   const index = Math.min(selected, Math.max(sessions.length - 1, 0));
@@ -60,6 +64,17 @@ export function SessionPicker({
     setError(undefined);
   };
   const current = (): SessionSummary | undefined => sessions[Math.min(selectedRef.current, Math.max(sessions.length - 1, 0))];
+  const startDelete = (): void => {
+    const chosen = current();
+    if (chosen === undefined) return;
+    confirmingRef.current = chosen;
+    setConfirmingState(chosen);
+    setError(undefined);
+  };
+  const cancelDelete = (): void => {
+    confirmingRef.current = undefined;
+    setConfirmingState(undefined);
+  };
 
   useInput((value, key) => {
     if (key.ctrl && (value === "c" || value === "d")) {
@@ -68,6 +83,7 @@ export function SessionPicker({
     }
     if (key.escape) {
       if (renamingRef.current) cancelRename();
+      else if (confirmingRef.current !== undefined) cancelDelete();
       else onClose();
       return;
     }
@@ -94,6 +110,19 @@ export function SessionPicker({
       }
       return;
     }
+    if (confirmingRef.current !== undefined) {
+      // confirmação de exclusão: só `s`/`y` sem modificador apagam; `n`/esc cancelam (já tratado acima)
+      const plain = !key.ctrl && !key.meta;
+      if (plain && (value === "s" || value === "S" || value === "y" || value === "Y")) {
+        const chosen = confirmingRef.current;
+        const failure = chosen === undefined ? undefined : onDelete(chosen);
+        cancelDelete();
+        setError(failure);
+      } else if (plain && (value === "n" || value === "N")) {
+        cancelDelete();
+      }
+      return;
+    }
     if (key.upArrow) {
       move(-1);
       return;
@@ -111,6 +140,7 @@ export function SessionPicker({
       return;
     }
     if (value === "r" && !key.ctrl && !key.meta && current() !== undefined) startRename();
+    if (value === "d" && !key.ctrl && !key.meta && current() !== undefined) startDelete();
   });
 
   return (
@@ -129,8 +159,13 @@ export function SessionPicker({
       })}
       {visible.end < sessions.length ? <Text dimColor>{`… ${sessions.length - visible.end} abaixo`}</Text> : null}
       {renaming ? <Text>nome: {draft}_</Text> : null}
+      {confirming === undefined ? null : <Text color={colors.warning}>{`excluir ${confirming.id}? (s/n)`}</Text>}
       {error === undefined ? null : <Text color={colors.error}>{error}</Text>}
-      <Text dimColor>{renaming ? "enter salvar · esc cancelar" : "↑↓ mover · enter retomar · r renomear · esc voltar"}</Text>
+      <Text dimColor>{renaming
+        ? "enter salvar · esc cancelar"
+        : confirming === undefined
+          ? "↑↓ mover · enter retomar · r renomear · d excluir · esc voltar"
+          : "s excluir · n/esc cancelar"}</Text>
     </Box>
   );
 }

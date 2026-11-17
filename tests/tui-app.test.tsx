@@ -1037,6 +1037,93 @@ test("/sessions renomeia a sessão atual e o auto-save preserva o nome (#428)", 
   }
 });
 
+test("/sessions: d exclui a sessão selecionada e recusa a atual (#366)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-delete-"));
+  const store = new SessionStore(join(cwd, ".astro", "sessions"));
+  store.write({
+    id: "abc", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
+    messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
+  });
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "eco:oi"));
+    await waitFor(() => sessionApi.list().some((item) => item.id === "s1"));
+
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50)); // assenta os hooks do modal
+
+    // a primeira linha é a sessão atual (s1): exclusão recusada
+    instance.stdin.write("d");
+    await waitFor(() => frameHas(instance, "excluir s1? (s/n)"));
+    instance.stdin.write("s");
+    await waitFor(() => frameHas(instance, "não é possível excluir a sessão atual"));
+    expect(sessionApi.list().some((item) => item.id === "s1")).toBe(true);
+
+    instance.stdin.write("\u001b[B"); // seleciona abc
+    instance.stdin.write("d");
+    await waitFor(() => frameHas(instance, "excluir abc? (s/n)"));
+    instance.stdin.write("s");
+    await waitFor(() => !sessionApi.list().some((item) => item.id === "abc"));
+    expect(store.list()).toEqual([]); // a cópia JSON legada foi purgada (#428)
+    await waitFor(() => frameHas(instance, "Sessões") && !frameHas(instance, "abc"));
+
+    instance.stdin.write("\u001b"); // fecha o picker
+    await waitFor(() => frameHas(instance, "Sessões") === false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("segundo");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "eco:segundo"));
+    expect(sessionApi.load("s1").turns).toBe(2); // a sessão atual continua viva no auto-save
+  } finally {
+    instance.unmount();
+    sessionApi.close();
+  }
+});
+
+test("/sessions: recusa excluir a sessão retomada que segue viva (#366)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-tui-delete-resumed-"));
+  const store = new SessionStore(join(cwd, ".astro", "sessions"));
+  store.write({
+    id: "abc", startedAt: "2026-10-01T10:00:00.000Z", model: "p/m1",
+    messages: [{ role: "user", content: "velho" }], turns: 1, tokensIn: 10, tokensOut: 5, costUsd: 0.001,
+  });
+  const sessionApi = new SessionApi(join(cwd, ".astro"));
+  const session = new FakeSession();
+  const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
+  try {
+    await waitFor(() => frameHas(instance, "turno(s)"));
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("\r"); // retoma abc
+    await waitFor(() => session.resumed.length === 1);
+    await waitFor(() => frameHas(instance, "Sessões") === false);
+
+    instance.stdin.write("/sessions");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "Sessões"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("d");
+    await waitFor(() => frameHas(instance, "excluir abc? (s/n)"));
+    instance.stdin.write("s");
+    await waitFor(() => frameHas(instance, "não é possível excluir a origem retomada (a conversa continua a partir dela)"));
+
+    expect(sessionApi.list().map(({ id }) => id)).toContain("abc");
+    expect(store.list().map(({ id }) => id)).toContain("abc");
+  } finally {
+    instance.unmount();
+    sessionApi.close();
+  }
+});
+
 test("80x24 e resize encolhem o picker sem quebrar o input (#64)", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-viewport-"));
   const store = new SessionStore(join(cwd, ".astro", "sessions"));

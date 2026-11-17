@@ -72,8 +72,12 @@ describe("comandos do chat (T1, #62)", () => {
 
   test("/sessions e /resume", () => {
     expect(parseCommand("/sessions")).toEqual({ kind: "sessions" });
+    expect(parseCommand("/sessions delete 2")).toEqual({ kind: "sessions", delete: "2" });
+    expect(parseCommand("/sessions delete abc-1")).toEqual({ kind: "sessions", delete: "abc-1" });
+    expect(parseCommand("/sessions delete")).toEqual({ kind: "sessions", delete: "" });
     expect(parseCommand("/resume")).toEqual({ kind: "resume" });
     expect(parseCommand("/resume 2")).toEqual({ kind: "resume", ref: "2" });
+    expect(HELP_TEXT).toContain("/sessions delete <n|id>");
   });
 
   test("/export e /init", () => {

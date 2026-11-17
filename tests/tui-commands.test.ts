@@ -182,6 +182,23 @@ describe("comandos da TUI (T2, #63)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  test("/sessions delete na TUI aponta para o d do picker (#366)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-tui-delete-command-"));
+    const api = new SessionApi(join(dir, ".astro"));
+    try {
+      const outcome = await runCommand(
+        { kind: "sessions", delete: "1" }, new FakeSession(), {}, { sessionApi: api },
+      );
+      expect(outcome.openSessions).toBeUndefined();
+      expect(outcome.entries[0]!.text).toContain("/sessions");
+      expect(outcome.entries[0]!.text).toContain("d");
+      expect(outcome.entries[0]!.text).toContain("excluir");
+    } finally {
+      api.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("/resume da TUI carrega pelo resumo da SessionApi sem depender do caminho JSON", async () => {
     const root = mkdtempSync(join(tmpdir(), "astro-tui-resume-api-"));
     const api = new SessionApi(join(root, ".astro"));

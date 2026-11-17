@@ -156,7 +156,11 @@ export async function runCommand(
       if (sessionApi === undefined) {
         return { entries: [{ kind: "info", text: "sem persistência configurada" }] };
       }
-      // na TUI o modal lista/renomeia/retoma; o REPL mantém a listagem em texto (#64)
+      if (command.delete !== undefined) {
+        // a exclusão na TUI é uma tecla do modal, com confirmação (#366)
+        return { entries: [{ kind: "info", text: "na TUI, use /sessions e pressione d para excluir" }] };
+      }
+      // na TUI o modal lista/renomeia/exclui/retoma; o REPL mantém a listagem em texto (#64)
       return { entries: [], openSessions: true };
     }
     case "resume": {

@@ -16,7 +16,7 @@ export const COMMANDS: readonly CommandInfo[] = [
   { name: "/provider", description: "gerencia perfis (add/edit/remove/use)" },
   { name: "/session", description: "resumo da sessão atual" },
   { name: "/details", description: "detalhes: provider, uptime, tokens, custo" },
-  { name: "/sessions", description: "lista as sessões gravadas" },
+  { name: "/sessions", description: "lista, renomeia e exclui as sessões gravadas" },
   { name: "/resume", description: "retoma uma sessão gravada" },
   { name: "/save", description: "grava a sessão em disco" },
   { name: "/export", description: "exporta a conversa em Markdown" },

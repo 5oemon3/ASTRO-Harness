@@ -34,6 +34,7 @@ describe("completions do editor (T2, #63)", () => {
       expect(command.description.length).toBeGreaterThan(0);
     }
     expect(commandDescription("/model")).toContain("modelo");
+    expect(commandDescription("/sessions")).toContain("exclui");
   });
 
   test("suggestionWindow rola mantendo o selecionado visível (#276)", () => {

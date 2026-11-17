@@ -22,7 +22,7 @@ test("lista, navega e retoma com enter (#64)", async () => {
   const resumed: string[] = [];
   const instance = render(
     <SessionPicker sessions={[summary("a"), summary("b", "feature")]} colors={colors}
-      onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} />,
+      onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("Sessões"));
@@ -40,7 +40,8 @@ test("r renomeia; enter salva; erro fica na tela; esc cancela sem fechar (#64)",
   let closed = 0;
   const instance = render(
     <SessionPicker sessions={[summary("a", "antigo")]} colors={colors} onClose={() => { closed++; }}
-      onResume={() => {}} onRename={(chosen, name) => { calls.push([chosen.id, name]); return fail ? "erro: nome inválido" : undefined; }} />,
+      onResume={() => {}} onDelete={() => undefined}
+      onRename={(chosen, name) => { calls.push([chosen.id, name]); return fail ? "erro: nome inválido" : undefined; }} />,
   );
   try {
     await waitFor(() => frame(instance).includes("Sessões"));
@@ -66,7 +67,7 @@ test("r renomeia; enter salva; erro fica na tela; esc cancela sem fechar (#64)",
 test("alt+enter não retoma; key repeat retoma uma vez (#64)", async () => {
   const resumed: string[] = [];
   const instance = render(
-    <SessionPicker sessions={[summary("a")]} colors={colors} onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} />,
+    <SessionPicker sessions={[summary("a")]} colors={colors} onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("Sessões"));
@@ -84,6 +85,7 @@ test("o rascunho descarta controles e mantém ZWJ/ZWNJ (#64)", async () => {
   const calls: Array<[string, string]> = [];
   const instance = render(
     <SessionPicker sessions={[summary("a")]} colors={colors} onClose={() => {}} onResume={() => {}}
+      onDelete={() => undefined}
       onRename={(chosen, name) => { calls.push([chosen.id, name]); return undefined; }} />,
   );
   try {
@@ -100,7 +102,7 @@ test("o rascunho descarta controles e mantém ZWJ/ZWNJ (#64)", async () => {
 
 test("ctrl+r não abre o rename; r simples abre (#64)", async () => {
   const instance = render(
-    <SessionPicker sessions={[summary("a")]} colors={colors} onClose={() => {}} onResume={() => {}} onRename={() => undefined} />,
+    <SessionPicker sessions={[summary("a")]} colors={colors} onClose={() => {}} onResume={() => {}} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("Sessões"));
@@ -115,7 +117,7 @@ test("ctrl+r não abre o rename; r simples abre (#64)", async () => {
 test("navegação multi-passo no mesmo chunk usa o estado mais novo (#64)", async () => {
   const instance = render(
     <SessionPicker sessions={[summary("a"), summary("b"), summary("c")]} colors={colors}
-      onClose={() => {}} onResume={() => {}} onRename={() => undefined} />,
+      onClose={() => {}} onResume={() => {}} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("Sessões"));
@@ -129,7 +131,7 @@ test("janela limita a lista e mantém o selecionado visível (#64)", async () =>
   const resumed: string[] = [];
   const instance = render(
     <SessionPicker sessions={sessions} colors={colors} maxRows={5}
-      onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} />,
+      onClose={() => {}} onResume={(chosen) => resumed.push(chosen.id)} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("… 25 abaixo"));
@@ -152,7 +154,7 @@ test("janela limita a lista e mantém o selecionado visível (#64)", async () =>
 test("redimensionar o terminal encolhe a janela do picker (#64)", async () => {
   const sessions = Array.from({ length: 30 }, (_, i) => summary(`s${i}`));
   const instance = render(
-    <SessionPicker sessions={sessions} colors={colors} onClose={() => {}} onResume={() => {}} onRename={() => undefined} />,
+    <SessionPicker sessions={sessions} colors={colors} onClose={() => {}} onResume={() => {}} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("Sessões"));
@@ -170,11 +172,91 @@ test("redimensionar o terminal encolhe a janela do picker (#64)", async () => {
 test("lista vazia avisa e esc fecha (#64)", async () => {
   let closed = 0;
   const instance = render(
-    <SessionPicker sessions={[]} colors={colors} onClose={() => { closed++; }} onResume={() => {}} onRename={() => undefined} />,
+    <SessionPicker sessions={[]} colors={colors} onClose={() => { closed++; }} onResume={() => {}} onRename={() => undefined} onDelete={() => undefined} />,
   );
   try {
     await waitFor(() => frame(instance).includes("nenhuma sessão salva"));
     instance.stdin.write("\u001b");
     await waitFor(() => closed === 1);
+  } finally { instance.unmount(); }
+});
+
+test("d pede confirmação; n e esc cancelam; s exclui (#366)", async () => {
+  const deleted: string[] = [];
+  let closed = 0;
+  const instance = render(
+    <SessionPicker sessions={[summary("a"), summary("b")]} colors={colors}
+      onClose={() => { closed++; }} onResume={() => {}} onRename={() => undefined}
+      onDelete={(chosen) => { deleted.push(chosen.id); return undefined; }} />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("Sessões"));
+    expect(frame(instance)).toContain("d excluir");
+
+    instance.stdin.write("d");
+    await waitFor(() => frame(instance).includes("excluir a? (s/n)"));
+    instance.stdin.write("n");
+    await waitFor(() => !frame(instance).includes("excluir a? (s/n)"));
+    expect(deleted).toEqual([]);
+    expect(closed).toBe(0);
+
+    instance.stdin.write("d");
+    await waitFor(() => frame(instance).includes("excluir a? (s/n)"));
+    instance.stdin.write("\u001b"); // cancela a confirmação, não fecha o modal
+    await waitFor(() => !frame(instance).includes("excluir a? (s/n)"));
+    expect(deleted).toEqual([]);
+    expect(closed).toBe(0);
+
+    instance.stdin.write("d");
+    await waitFor(() => frame(instance).includes("excluir a? (s/n)"));
+    instance.stdin.write("s");
+    await waitFor(() => deleted.length === 1);
+    expect(deleted).toEqual(["a"]);
+    await waitFor(() => !frame(instance).includes("excluir a? (s/n)"));
+  } finally { instance.unmount(); }
+});
+
+test("ctrl+s, alt+s, ctrl+n e alt+n não confirmam nem cancelam a exclusão (#366)", async () => {
+  const deleted: string[] = [];
+  const instance = render(
+    <SessionPicker sessions={[summary("a")]} colors={colors}
+      onClose={() => {}} onResume={() => {}} onRename={() => undefined}
+      onDelete={(chosen) => { deleted.push(chosen.id); return undefined; }} />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("Sessões"));
+    instance.stdin.write("d");
+    await waitFor(() => frame(instance).includes("excluir a? (s/n)"));
+
+    instance.stdin.write("\u0013"); // ctrl+s
+    instance.stdin.write("\u001bs"); // alt+s
+    instance.stdin.write("\u000e"); // ctrl+n
+    instance.stdin.write("\u001bn"); // alt+n
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(deleted).toEqual([]);
+    expect(frame(instance)).toContain("excluir a? (s/n)");
+
+    instance.stdin.write("y"); // y simples continua confirmando
+    await waitFor(() => deleted.length === 1);
+    expect(deleted).toEqual(["a"]);
+    await waitFor(() => !frame(instance).includes("excluir a? (s/n)"));
+  } finally { instance.unmount(); }
+});
+
+test("erro da exclusão fica na tela e mantém o modal (#366)", async () => {
+  let closed = 0;
+  const instance = render(
+    <SessionPicker sessions={[summary("a")]} colors={colors}
+      onClose={() => { closed++; }} onResume={() => {}} onRename={() => undefined}
+      onDelete={() => "não é possível excluir a sessão atual"} />,
+  );
+  try {
+    await waitFor(() => frame(instance).includes("Sessões"));
+    instance.stdin.write("d");
+    await waitFor(() => frame(instance).includes("excluir a? (s/n)"));
+    instance.stdin.write("s");
+    await waitFor(() => frame(instance).includes("não é possível excluir a sessão atual"));
+    expect(frame(instance)).not.toContain("excluir a? (s/n)");
+    expect(closed).toBe(0);
   } finally { instance.unmount(); }
 });

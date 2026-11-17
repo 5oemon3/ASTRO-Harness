@@ -15,7 +15,7 @@ import type { ModelInfo, ProviderInfo, SendTurnOptions, SessionSnapshot, TurnRes
 import type { HealthCheck, HealthReport } from "../health";
 import type { CodexLoginStart } from "../providers/codex-login";
 import type { SessionApi, SessionSummary } from "./session-api";
-import { sessionSummaryLine, toSessionRecord } from "./store";
+import { activeSessionRefusal, sessionSummaryLine, toSessionRecord } from "./store";
 import { exportSession } from "./export";
 import { initAgents } from "./init";
 import { isFatalSessionError } from "./session-errors";
@@ -187,6 +187,11 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
     pending.length === 0
       ? "nenhum anexo pendente"
       : pending.map((attachment, index) => `${index + 1}. ${attachment.name} (${attachment.sizeBytes} bytes)`).join("\n");
+  // mesmos números que o usuário viu em /sessions: o índice do delete resolve por esta lista (#366)
+  const storeListText = (): string =>
+    storeList.length === 0
+      ? "nenhuma sessão salva"
+      : storeList.map((item, index) => sessionSummaryLine(item, index)).join("\n");
   const readFresh = (prompt: string): Promise<string | null> => (io.readFresh === undefined ? io.read(prompt) : io.readFresh(prompt));
   const confirmOutside = async (absolute: string): Promise<boolean> => {
     if (opts.interactive !== true) return false;
@@ -321,11 +326,56 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
           io.write("sem persistência configurada");
           continue;
         }
+        if (command.delete !== undefined) {
+          try {
+            if (command.delete === "") {
+              io.write("uso: /sessions delete <número|id>");
+              continue;
+            }
+            // o número é o da lista exibida; a lista fresca pode ter mudado com o auto-save (#366)
+            if (storeList.length === 0) storeList = opts.sessionApi.list();
+            let chosen: SessionSummary | undefined;
+            if (/^\d+$/.test(command.delete)) {
+              chosen = storeList[Number(command.delete) - 1] ?? storeList.find((item) => item.id === command.delete);
+              if (chosen === undefined) {
+                io.write("índice fora da lista; use /sessions");
+                continue;
+              }
+            } else {
+              // id é identidade, não posição: aceita a lista fresca se a exibida ficou para trás
+              chosen = storeList.find((item) => item.id === command.delete)
+                ?? opts.sessionApi.list().find((item) => item.id === command.delete);
+              if (chosen === undefined) {
+                io.write("sessão não encontrada; use /sessions");
+                continue;
+              }
+            }
+            const refusal = activeSessionRefusal(session.snapshot(), chosen.id);
+            if (refusal !== undefined) {
+              io.write(refusal);
+              continue;
+            }
+            if (opts.interactive !== true) {
+              io.write("exclusão exige confirmação interativa; use a TUI (/sessions, d)");
+              continue;
+            }
+            const answer = await readFresh(`excluir a sessão ${chosen.id}? [s/N] `);
+            if (!isYes(answer)) {
+              io.write(`exclusão cancelada: ${chosen.id}`);
+              continue;
+            }
+            const deleted = opts.sessionApi.delete(chosen.id);
+            storeList = opts.sessionApi.list();
+            io.write(deleted ? `sessão excluída: ${chosen.id}` : `sessão não encontrada: ${chosen.id}`);
+            io.write(storeListText());
+          } catch (error) {
+            io.write(`erro: ${messageOf(error)}`);
+          }
+          continue;
+        }
         try {
           storeList = opts.sessionApi.list();
-          io.write(storeList.length === 0
-            ? "nenhuma sessão salva"
-            : storeList.map((item, index) => sessionSummaryLine(item, index)).join("\n"));
+          io.write(storeListText());
         } catch (error) {
           io.write(`erro: ${messageOf(error)}`);
         }

@@ -18,7 +18,7 @@ export type ReplCommand =
   | { kind: "details" }
   | { kind: "compact"; force?: boolean }
   | { kind: "save" }
-  | { kind: "sessions" }
+  | { kind: "sessions"; delete?: string }
   | { kind: "resume"; ref?: string }
   | { kind: "export"; path?: string }
   | { kind: "init" }
@@ -47,6 +47,7 @@ export const HELP_TEXT = [
   "  /compact force  ignora a pausa do breaker e força a compactação",
   "  /summarize      alias de /compact",
   "  /sessions       lista sessões gravadas (mais recentes primeiro)",
+  "  /sessions delete <n|id>  exclui a sessão, com confirmação",
   "  /resume <n|id>  retoma uma sessão da lista ou pelo id",
   "  /save           grava a sessão sanitizada e mostra o caminho",
   "  /export [arquivo]  exporta a conversa em Markdown (default .astro/exports/)",
@@ -209,8 +210,11 @@ export function parseCommand(line: string): ReplCommand {
         : { kind: "compact" };
     case "save":
       return { kind: "save" };
-    case "sessions":
-      return { kind: "sessions" };
+    case "sessions": {
+      const [sub, ...rest] = arg.split(/\s+/).filter((part) => part !== "");
+      if (sub?.toLowerCase() !== "delete") return { kind: "sessions" };
+      return { kind: "sessions", delete: rest.join(" ").trim() };
+    }
     case "resume":
       return { kind: "resume", ...(arg === "" ? {} : { ref: arg }) };
     case "export":
