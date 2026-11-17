@@ -96,6 +96,7 @@ describe("fiação: health e profiles (#311 B.1b)", () => {
     const report = await runHealthCheck(project(), { ASTRO_HOME: dir, KEY: "x" }, { fetchLike: okFetch });
     const vault = report.checks.find((c) => c.name === "vault");
     expect(vault).toBeDefined();
+    expect(vault!.status).toBe("warn"); // ADR-0019: plain avisa, nunca em silêncio
     expect(vault!.detail).toMatch(/plain/);
     expect(vault!.detail).not.toContain(SENTINEL);
     expect(report.status).toBe("ok"); // check vault não entra no agregado provider:
@@ -107,6 +108,8 @@ describe("fiação: health e profiles (#311 B.1b)", () => {
     const report = await runHealthCheck(project(), { ASTRO_HOME: dir, KEY: "x" }, { fetchLike: okFetch });
     const vault = report.checks.find((c) => c.name === "vault");
     expect(vault!.detail).toMatch(/sem cofre/);
+    expect(vault!.status).toBe("ok");
+    expect(report.checks.some((c) => c.status === "warn")).toBe(false);
   });
 
   test("resolveEffectiveConfig empurra o aviso de cofre plain (surge em session.warnings)", () => {

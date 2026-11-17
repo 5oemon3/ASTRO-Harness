@@ -10,7 +10,9 @@ import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type Open
 import { DEFAULT_PRIORITY } from "./providers/fallback-provider";
 import { Registry } from "./core/registry";
 import { isRedirectRefusal } from "./url-safety";
-import { vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
+import { resolveCredentialValue, type VaultReader } from "./credential-ref";
+import { isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
+import { Vault, vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
 
 // Predicates: PluginProviderConfig (kind: string) sobrepõe os literais dos
 // built-ins e desativa a discriminação automática da união.
@@ -22,7 +24,7 @@ function isCodexOAuth(p: ProviderConfig): p is CodexOAuthProviderConfig {
   return p.kind === "codex-oauth";
 }
 
-export type CheckStatus = "ok" | "down";
+export type CheckStatus = "ok" | "warn" | "down";
 
 export interface HealthCheck {
   name: string;
@@ -44,9 +46,45 @@ export interface HealthOptions {
   /** Timeout por check de provider (ms); default 5000. */
   timeoutMs?: number;
   fetchLike?: typeof fetch;
+  /** Leitor do cofre injetável em testes; default lê o `ASTRO_HOME` do env. */
+  vault?: VaultReader;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
+
+/** Credencial resolvida: o valor só existe aqui, nunca em detail/log (I-03). */
+interface ResolvedCredential {
+  value?: string;
+  source?: "vault" | "env";
+  /** Mensagem acionável que nomeia só o ref, quando não há valor. */
+  failure?: string;
+}
+
+function readCredential(
+  ref: string,
+  env: Record<string, string | undefined>,
+  vault: VaultReader,
+): ResolvedCredential {
+  try {
+    const value = resolveCredentialValue(ref, env, vault);
+    if (value === undefined || value.length === 0) {
+      if (isVaultRef(ref)) return { failure: `credencial de vault "${ref}" vazia` };
+      // Ref colada com forma de segredo não é ecoada (I-03); o load já a recusa.
+      return {
+        failure: looksLikeSecret(ref)
+          ? "defina a variável de ambiente do provider (nome suprimido: parece um segredo)"
+          : `defina ${ref} no ambiente`,
+      };
+    }
+    return { value, source: isVaultRef(ref) ? "vault" : "env" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Falha de leitura/decifra pode não citar o ref: nomeia o provider a corrigir.
+    // Ref malformada fica fora do prefixo: o conteúdo colado não é ecoado (I-03).
+    const failure = isVaultCredentialRef(ref) && !message.includes(ref) ? `credencial "${ref}": ${message}` : message;
+    return { failure };
+  }
+}
 
 function expandHome(path: string): string {
   if (path === "~") return homedir();
@@ -130,13 +168,13 @@ export async function runHealthCheck(
   checks.push({ name: "config", status: "ok", detail: `${Object.keys(config.providers).length} providers` });
 
   // Cofre de credenciais (ADR-0019, #311): só metadados; fora do agregado `provider:`.
-  // Modo plain (fora do Windows) com cofre existente → aviso explícito no detail.
+  // Modo plain (fora do Windows) vira `warn`: o aviso precisa aparecer (ADR-0019).
   try {
     const meta = vaultMeta(vaultPath(env), process.platform);
     const warn = vaultPlainWarning(meta);
     checks.push({
       name: "vault",
-      status: "ok",
+      status: warn === undefined ? "ok" : "warn",
       detail: !meta.exists
         ? "sem cofre (nenhuma credencial em vault)"
         : (warn ?? `${meta.credentials} credencial(is), ${meta.active} ativa(s), scheme "${meta.scheme}"`),
@@ -146,30 +184,42 @@ export async function runHealthCheck(
     checks.push({ name: "vault", status: "ok", detail: error instanceof Error ? error.message : String(error) });
   }
 
+  const vault = opts.vault ?? new Vault(vaultPath(env));
+  // Falha local (credencial ausente/malformada) é configurável: degrada, não derruba.
+  const localFailureNames = new Set<string>();
+
   // Checks por provider
   for (const [name, provider] of Object.entries(config.providers)) {
     if (isOpenAICompat(provider)) {
       const credentialRef = provider.credentialRef;
-      const apiKey = credentialRef === undefined ? undefined : env[credentialRef];
-      if (credentialRef !== undefined && (apiKey === undefined || apiKey.length === 0)) {
-        checks.push({
-          name: `provider:${name}`,
-          status: "down",
-          priority: provider.priority ?? DEFAULT_PRIORITY,
-          detail: `defina ${credentialRef} no ambiente`,
-        });
-        continue;
+      let apiKey: string | undefined;
+      let sourceDetail: string | undefined;
+      if (credentialRef !== undefined) {
+        const resolved = readCredential(credentialRef, env, vault);
+        if (resolved.failure !== undefined) {
+          localFailureNames.add(`provider:${name}`);
+          checks.push({
+            name: `provider:${name}`,
+            status: "down",
+            priority: provider.priority ?? DEFAULT_PRIORITY,
+            detail: resolved.failure,
+          });
+          continue;
+        }
+        apiKey = resolved.value;
+        sourceDetail = `credencial: ${resolved.source}`;
       }
       const headers: Record<string, string> = {};
       if (apiKey !== undefined) headers.authorization = `Bearer ${apiKey}`;
       for (const [h, v] of Object.entries(provider.headers ?? {})) headers[h] = v;
       const result = await checkEndpoint(provider.baseUrl, headers, timeoutMs, fetchLike);
+      const detail = result.detail ?? sourceDetail;
       checks.push({
         name: `provider:${name}`,
         status: result.ok ? "ok" : "down",
         latencyMs: result.latencyMs,
         priority: provider.priority ?? DEFAULT_PRIORITY,
-        ...(result.detail === undefined ? {} : { detail: result.detail }),
+        ...(detail === undefined ? {} : { detail }),
       });
       continue;
     }
@@ -199,15 +249,12 @@ export async function runHealthCheck(
 
   const providerChecks = checks.filter((c) => c.name.startsWith("provider:"));
   const downNames = new Set(providerChecks.filter((c) => c.status === "down").map((c) => c.name));
-  const missingCredentialNames = new Set(
-    providerChecks.filter((c) => c.status === "down" && (c.detail ?? "").startsWith("defina")).map((c) => c.name),
-  );
 
   // Agregação (F6-6): tudo ok → ok; falha mista ou só credencial ausente →
   // degraded (config local, corrigível); todos fora com falha de endpoint → down.
   let status: HealthStatus = "ok";
   if (downNames.size > 0) {
-    const anyEndpointFailure = [...downNames].some((n) => !missingCredentialNames.has(n));
+    const anyEndpointFailure = [...downNames].some((n) => !localFailureNames.has(n));
     const allDown = downNames.size === providerChecks.length;
     status = allDown && anyEndpointFailure ? "down" : "degraded";
   }
@@ -246,17 +293,24 @@ export async function testProvider(
   const fetchLike = opts.fetchLike ?? fetch;
   if (isOpenAICompat(provider)) {
     const credentialRef = provider.credentialRef;
-    const apiKey = credentialRef === undefined ? undefined : env[credentialRef];
-    if (credentialRef !== undefined && (apiKey === undefined || apiKey.length === 0)) {
-      return { name: `provider:${name}`, status: "down", priority: provider.priority ?? DEFAULT_PRIORITY, detail: `defina ${credentialRef} no ambiente` };
+    let apiKey: string | undefined;
+    let sourceDetail: string | undefined;
+    if (credentialRef !== undefined) {
+      const resolved = readCredential(credentialRef, env, opts.vault ?? new Vault(vaultPath(env)));
+      if (resolved.failure !== undefined) {
+        return { name: `provider:${name}`, status: "down", priority: provider.priority ?? DEFAULT_PRIORITY, detail: resolved.failure };
+      }
+      apiKey = resolved.value;
+      sourceDetail = `credencial: ${resolved.source}`;
     }
     const headers: Record<string, string> = {};
     if (apiKey !== undefined) headers.authorization = `Bearer ${apiKey}`;
     for (const [h, v] of Object.entries(provider.headers ?? {})) headers[h] = v;
     const result = await checkEndpoint(provider.baseUrl, headers, timeoutMs, fetchLike);
+    const detail = result.detail ?? sourceDetail;
     return {
       name: `provider:${name}`, status: result.ok ? "ok" : "down", latencyMs: result.latencyMs, priority: provider.priority ?? DEFAULT_PRIORITY,
-      ...(result.detail === undefined ? {} : { detail: result.detail }),
+      ...(detail === undefined ? {} : { detail }),
     };
   }
   if (isCodexOAuth(provider)) {

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { validateConfig } from "../src/core/config";
-import { runHealthCheck } from "../src/health";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { validateConfig, type AstroConfig } from "../src/core/config";
+import { runHealthCheck, testProvider } from "../src/health";
 
 const baseConfig = {
   providers: { mock: { kind: "openai-compat" as const, baseUrl: "http://localhost/v1", credentialRef: "TEST_KEY" } },
@@ -117,5 +120,128 @@ describe("health check (F6-6)", () => {
     });
     const report = await runHealthCheck(config, {});
     expect(report.checks.find((c) => c.name === "provider:codex")!.status).toBe("down");
+  });
+});
+
+// Sentinelas construídos em runtime para não disparar o gate de segredos.
+const VAULT_SECRET = ["sentinel", "-", "vault"].join("");
+const ENV_SECRET = ["sentinel", "-", "xyz"].join("");
+const VAULT_REF = "vault:cred-12345678-abcd";
+
+/** Leitor de cofre injetado: só devolve o id presente no mapa. */
+const readerWith = (entries: Record<string, string>) => ({
+  read: (id: string) => (id in entries ? { value: entries[id]! } : undefined),
+});
+
+/** Servidor de /models que guarda o header `authorization` recebido. */
+function authServer() {
+  let auth: string | undefined;
+  const server = Bun.serve({
+    port: 0,
+    fetch(req): Response {
+      auth = req.headers.get("authorization") ?? undefined;
+      return Response.json({ data: [] });
+    },
+  });
+  return { baseUrl: `http://127.0.0.1:${server.port}/v1`, auth: () => auth, stop: () => server.stop(true) };
+}
+
+const vaultConfig = (ref: string): AstroConfig => validateConfig({
+  ...structuredClone(baseConfig),
+  providers: { mock: { kind: "openai-compat", baseUrl: "http://localhost/v1", credentialRef: ref } },
+});
+
+describe("health e providers test leem o cofre (#311 B.2/B.3)", () => {
+  const entries = { "cred-12345678-abcd": VAULT_SECRET };
+
+  test("vault:<id> resolve no health, mostra a origem e nunca o valor", async () => {
+    const server = authServer();
+    try {
+      const config = validateConfig({
+        ...structuredClone(baseConfig),
+        providers: { mock: { kind: "openai-compat", baseUrl: server.baseUrl, credentialRef: VAULT_REF } },
+      });
+      const report = await runHealthCheck(config, { SENTINEL_KEY: ENV_SECRET }, { vault: readerWith(entries) });
+      const check = report.checks.find((c) => c.name === "provider:mock")!;
+      expect(check.status).toBe("ok");
+      expect(check.detail).toMatch(/credencial: vault/);
+      expect(server.auth()).toBe(`Bearer ${VAULT_SECRET}`);
+      expect(JSON.stringify(report)).not.toContain(VAULT_SECRET);
+      expect(JSON.stringify(report)).not.toContain(ENV_SECRET);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("entrada ausente no cofre → down citando só o ref, sem 'defina'", async () => {
+    const report = await runHealthCheck(vaultConfig(VAULT_REF), {}, { vault: readerWith({}) });
+    const check = report.checks.find((c) => c.name === "provider:mock")!;
+    expect(check.status).toBe("down");
+    expect(check.detail).toContain(VAULT_REF);
+    expect(check.detail).not.toContain("defina");
+    expect(JSON.stringify(report)).not.toContain(VAULT_SECRET);
+  });
+
+  test("ref de vault malformada → down acionável sem ecoar o conteúdo", async () => {
+    const broken = {
+      ...vaultConfig(VAULT_REF),
+      providers: { mock: { kind: "openai-compat", baseUrl: "http://localhost/v1", credentialRef: "vault:../etc" } },
+    } as unknown as AstroConfig;
+    const report = await runHealthCheck(broken, {}, { vault: readerWith(entries) });
+    const check = report.checks.find((c) => c.name === "provider:mock")!;
+    expect(check.status).toBe("down");
+    expect(check.detail).toContain("vault:<credentialId>");
+    expect(check.detail).not.toContain("../etc");
+  });
+
+  test("providers test resolve o cofre; id ausente → down citando o ref", async () => {
+    const server = authServer();
+    try {
+      const config = validateConfig({
+        ...structuredClone(baseConfig),
+        providers: { mock: { kind: "openai-compat", baseUrl: server.baseUrl, credentialRef: VAULT_REF } },
+      });
+      const ok = await testProvider(config, "mock", {}, { vault: readerWith(entries) });
+      expect(ok.status).toBe("ok");
+      expect(ok.detail).toMatch(/credencial: vault/);
+      expect(server.auth()).toBe(`Bearer ${VAULT_SECRET}`);
+      expect(JSON.stringify(ok)).not.toContain(VAULT_SECRET);
+      const missing = await testProvider(vaultConfig(VAULT_REF), "mock", {}, { vault: readerWith({}) });
+      expect(missing.status).toBe("down");
+      expect(missing.detail).toContain(VAULT_REF);
+    } finally {
+      server.stop();
+    }
+  });
+
+  test("sem vault.json nenhum: cofre real vazio → down citando o ref, sem crash", async () => {
+    const home = mkdtempSync(join(tmpdir(), "astro-health-novault-"));
+    const report = await runHealthCheck(vaultConfig(VAULT_REF), { ASTRO_HOME: home });
+    const check = report.checks.find((c) => c.name === "provider:mock")!;
+    expect(check.status).toBe("down");
+    expect(check.detail).toContain(VAULT_REF);
+    expect(report.checks.find((c) => c.name === "vault")!.detail).toMatch(/sem cofre/);
+  });
+
+  test("falha ao decifrar no cofre → down citando o ref do provider, nunca o valor", async () => {
+    const reader = {
+      read: (): { value: string } => { throw new Error("falha ao decifrar a credencial no cofre (DPAPI)"); },
+    };
+    const report = await runHealthCheck(vaultConfig(VAULT_REF), {}, { vault: reader });
+    const check = report.checks.find((c) => c.name === "provider:mock")!;
+    expect(check.status).toBe("down");
+    expect(check.detail).toContain(`credencial "${VAULT_REF}"`);
+    expect(check.detail).toContain("DPAPI");
+  });
+
+  test("ref colada com forma de segredo não é ecoada no relatório (I-03)", async () => {
+    const pasted = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    const broken = {
+      ...vaultConfig(VAULT_REF),
+      providers: { mock: { kind: "openai-compat", baseUrl: "http://localhost/v1", credentialRef: pasted } },
+    } as unknown as AstroConfig;
+    const report = await runHealthCheck(broken, {}, { vault: readerWith(entries) });
+    expect(report.checks.find((c) => c.name === "provider:mock")!.status).toBe("down");
+    expect(JSON.stringify(report)).not.toContain(pasted);
   });
 });

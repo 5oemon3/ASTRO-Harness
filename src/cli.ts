@@ -27,6 +27,7 @@ import { runRepl } from "./chat/repl";
 import { chatApprovers } from "./chat/approvers";
 import { nodeReplIO } from "./chat/node-io";
 import { runHealthCheck, runPoolHealthCheck, formatProvidersList, testProvider } from "./health";
+import { Vault, vaultPath } from "./vault";
 import { applyFixes, collectFacts, doctorJson, exitCode as doctorExitCode, renderReport, runChecks } from "./doctor";
 import { GitHubConfigRegistry, prepareConfigForPush, preparePulledConfig } from "./config-share";
 import { runSkillsCommand } from "./skills/cli";
@@ -1462,12 +1463,14 @@ async function main(argv: string[]): Promise<number> {
         console.log(formatProvidersList(config));
         return 0;
       }
+      // ASTRO_HOME vem do env: `providers health`/`test` leem `vault:<id>` (ADR-0019).
+      const vault = new Vault(vaultPath(process.env));
       if (o.action === "test") {
-        const check = await testProvider(config, o.name!, process.env);
+        const check = await testProvider(config, o.name!, process.env, { vault });
         console.log(JSON.stringify(check, null, 2));
         return check.status === "ok" ? 0 : 1;
       }
-      const report = await runHealthCheck(config, process.env);
+      const report = await runHealthCheck(config, process.env, { vault });
       console.log(JSON.stringify(report, null, 2));
       return report.status === "ok" ? 0 : 1;
     } catch (error) {

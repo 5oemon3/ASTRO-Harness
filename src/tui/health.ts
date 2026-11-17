@@ -10,7 +10,8 @@ export type HealthErrorClass = ErrorClass;
 export function classifyProviderCheck(check: HealthCheck): HealthErrorClass | undefined {
   if (check.status === "ok") return undefined;
   const detail = check.detail ?? "";
-  if (detail.startsWith("defina ") || /ENOENT|EACCES|EPERM/.test(detail)) return "auth";
+  // `credencial "vault:…"`/`credencial de vault "vault:…"`: ref do cofre é auth (ADR-0019).
+  if (detail.startsWith("defina ") || /^credencial (de vault )?"vault:/.test(detail) || /ENOENT|EACCES|EPERM/.test(detail)) return "auth";
   if (/^authorization:|bearer\s+\S/i.test(detail)) return "auth";
   const status = /HTTP (\d{3})/.exec(detail)?.[1];
   if (status !== undefined) {

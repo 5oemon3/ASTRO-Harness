@@ -9,7 +9,7 @@ import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "../compaction/
 import type { ModelRouting } from "../providers/model-routing";
 import type { WebSearchConfig, WebSearchProvider } from "../tools/web-search";
 import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "../permissions";
-import { isAuthHeader, isEnvName, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "../secrets";
+import { isAuthHeader, isEnvName, isVaultCredentialRef, looksLikeSecret } from "../secrets";
 import { headerEnvName, isValidHeaderName } from "../mcp/headers";
 import { outboundUrlProblem, urlProblem } from "../url-safety";
 import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "../tags";
@@ -485,9 +485,13 @@ function validateProvider(name: string, value: unknown): ProviderConfig {
     const credentialRef = raw.credentialRef === undefined
       ? undefined
       : expectString(raw.credentialRef, `${field}.credentialRef`);
-    // `vault:<credentialId>` é a outra fonte aceita (ADR-0019, #311)
-    if (credentialRef !== undefined && isVaultRef(credentialRef) && !isVaultCredentialRef(credentialRef)) {
-      fail(`config inválida: "${field}.credentialRef" deve ser um nome de variável de ambiente ou vault:<credentialId>`);
+    // Fontes aceitas (ADR-0019, #311, I-03): env nomeada ou `vault:<credentialId>`.
+    // Segredo tem precedência: `AKIA…` também casa `isEnvName` (mesma ordem de
+    // `webSearch.apiKeyEnv`). Mensagem nomeia o campo e nunca ecoa o valor.
+    if (credentialRef !== undefined && (looksLikeSecret(credentialRef) || (!isEnvName(credentialRef) && !isVaultCredentialRef(credentialRef)))) {
+      fail(looksLikeSecret(credentialRef)
+        ? `config inválida: "${field}.credentialRef" parece um segredo; use um nome de variável de ambiente ou vault:<credentialId>`
+        : `config inválida: "${field}.credentialRef" não é um nome de variável de ambiente nem vault:<credentialId>`);
     }
     return {
       kind,

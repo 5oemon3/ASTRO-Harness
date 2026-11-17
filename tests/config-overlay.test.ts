@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { loadEffectiveConfig } from "../src/providers/profiles";
 
 const PATHS = { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" };
-const provider = (id: string): Record<string, unknown> => ({ kind: "openai-compat", baseUrl: `https://${id}.example/v1`, credentialRef: `${id}_KEY` });
+const provider = (id: string): Record<string, unknown> => ({ kind: "openai-compat", baseUrl: `https://${id}.example/v1`, credentialRef: `${id.toUpperCase()}_KEY` });
 const model = (providerId: string, id: string, context = 8192): Record<string, unknown> => ({ provider: providerId, id, tags: [], context });
 /** Projeto base: um provider, um model e as tools mínimas. */
 const project = (over: Record<string, unknown> = {}): Record<string, unknown> => ({

@@ -42,6 +42,22 @@ describe("config", () => {
     expect((withRef("OPENAI_API_KEY").providers.openai as { credentialRef?: string }).credentialRef).toBe("OPENAI_API_KEY");
     expect((withRef("vault:cred-12345678-abcd").providers.openai as { credentialRef?: string }).credentialRef).toBe("vault:cred-12345678-abcd");
     expect(() => withRef("vault:../etc")).toThrow(/credentialRef/);
+    // fora dos dois formatos: erro que nomeia o campo e não ecoa o valor (I-03)
+    expect(() => withRef("openai key")).toThrow(/credentialRef/);
+    const secretish = ["s", "k", "-"].join("") + "live-abcdef12345";
+    let message = "";
+    try { withRef(secretish); } catch (error) { message = String(error); }
+    expect(message).toContain("credentialRef");
+    expect(message).toContain("parece um segredo");
+    expect(message).not.toContain(secretish);
+    // segredo com forma de nome de env (AWS) também é recusado sem eco (I-03)
+    const awsSentinel = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
+    let awsMessage = "";
+    try { withRef(awsSentinel); } catch (error) { awsMessage = String(error); }
+    expect(awsMessage).toContain("parece um segredo");
+    expect(awsMessage).not.toContain(awsSentinel);
+    // nome de env é maiúsculo (documentado em docs/providers.md)
+    expect(() => withRef("my_key")).toThrow(/credentialRef/);
   });
   test("tag fora do vocabulário fechado → ConfigError", () => {
     const bad = structuredClone(valid);

@@ -23,6 +23,9 @@ test("classifica o check de health na taxonomia de erro do provider", () => {
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "timeout de 5000ms" })).toBe("outage");
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "Unable to connect" })).toBe("outage");
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "ENOENT: no such file" })).toBe("auth");
+  // cofre (ADR-0019): ref citada no detail é problema de credencial, não de rede
+  expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: 'credencial de vault "vault:cred-12345678-abcd" não encontrada' })).toBe("auth");
+  expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: 'credencial "vault:cred-12345678-abcd": falha ao decifrar a credencial no cofre (DPAPI)' })).toBe("auth");
 });
 
 test("probe real distingue quota esgotada de rate limit e timeout", async () => {
