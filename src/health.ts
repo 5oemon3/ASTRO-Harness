@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type OpenAICompatProviderConfig, type ProviderConfig } from "./core/config";
 import { DEFAULT_PRIORITY } from "./providers/fallback-provider";
 import { Registry } from "./core/registry";
+import { isRedirectRefusal } from "./url-safety";
 import { vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
 
 // Predicates: PluginProviderConfig (kind: string) sobrepõe os literais dos
@@ -88,6 +89,7 @@ async function checkEndpoint(
     const response = await fetchLike(url, {
       method: "GET",
       headers,
+      redirect: "error", // 307/308 não leva o header do provider a outro host (I-03)
       signal: controller.signal,
     });
     const latencyMs = Date.now() - started;
@@ -104,6 +106,9 @@ async function checkEndpoint(
     return { ok: true, latencyMs };
   } catch (error) {
     const latencyMs = Date.now() - started;
+    if (isRedirectRefusal(error)) {
+      return { ok: false, latencyMs, detail: "redirect recusado em GET /models; configure a URL final no provider" };
+    }
     const detail = error instanceof Error ? error.message : String(error);
     return { ok: false, latencyMs, detail: detail.includes("abort") ? `timeout de ${timeoutMs}ms` : detail };
   } finally {

@@ -37,6 +37,7 @@ export async function sendTelemetry(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
+      redirect: "error", // endpoint configurado não redireciona para outro host
     });
     return response.ok;
   } catch {

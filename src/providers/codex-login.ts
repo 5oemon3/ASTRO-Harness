@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { throwIfAborted } from "../abort";
+import { isRedirectRefusal } from "../url-safety";
 import { codexAccountId } from "./codex-auth";
 import { ProviderError, type ErrorClass, type FetchLike } from "./types";
 
@@ -127,7 +128,7 @@ async function requestWithDeadline<T>(
     opts.signal.addEventListener("abort", onAbort, { once: true });
   }
   try {
-    const response = await fetchLike(url, { ...init, signal: controller.signal });
+    const response = await fetchLike(url, { ...init, redirect: "error", signal: controller.signal });
     if (!response.ok) return { response };
     const payload = await Promise.race([consume(response), aborted]);
     return { response, payload };
@@ -135,6 +136,9 @@ async function requestWithDeadline<T>(
     if (error instanceof ProviderError) throw error;
     if (opts.signal?.aborted === true) throw new ProviderError("outage", "login do Codex cancelado");
     if (timedOut) throw new ProviderError("outage", "timeout aguardando o login do Codex");
+    if (isRedirectRefusal(error)) {
+      throw new ProviderError("outage", "login do Codex recusou redirect; configure o issuer final");
+    }
     throw new ProviderError("outage", "falha de rede no login do Codex");
   } finally {
     clearTimeout(timer);

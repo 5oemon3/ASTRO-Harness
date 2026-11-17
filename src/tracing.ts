@@ -126,6 +126,7 @@ export class OtlpTracer implements TracerLike {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        redirect: "error", // collector configurado; 3xx não carrega o trace a outro host
       });
     } catch {
       // export é best-effort; tracing nunca quebra o run

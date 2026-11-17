@@ -3,6 +3,7 @@ import { applyCallToBody, type AppliedCallProfile, type CallConfig } from "../ca
 import type { CodexTokens } from "./codex-auth";
 import { readCodexAuth, refreshCodexTokens } from "./codex-auth";
 import { DEFAULT_PROVIDER_TIMEOUT_MS, networkCall, type NetworkCall } from "./network";
+import { isRedirectRefusal } from "../url-safety";
 import type {
   ChatMessage,
   CompletionRequest,
@@ -341,6 +342,7 @@ export class CodexOAuthProvider implements Provider {
           method: "POST",
           headers: this.headersFor(tokens),
           body: JSON.stringify(body),
+          redirect: "error", // 307/308 não leva o Bearer do access token a outro host (I-03)
           signal: net.signal,
         });
       } catch (error) {
@@ -373,6 +375,13 @@ export class CodexOAuthProvider implements Provider {
     status?: number,
   ): unknown {
     if (isAbortError(error, caller)) return error;
+    if (isRedirectRefusal(error)) {
+      return new ProviderError(
+        "invalid_request",
+        `${label}: redirect recusado; configure uma URL final (sem redirect) em baseUrl`,
+        status,
+      );
+    }
     if (net.timedOut()) {
       return new ProviderError("network_timeout", `${label}: sem resposta em ${this.timeoutMs}ms`, status);
     }

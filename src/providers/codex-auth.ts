@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isAbortError, throwIfAborted } from "../abort";
+import { isRedirectRefusal } from "../url-safety";
 import type { ErrorClass, FetchLike } from "./types";
 import { ProviderError } from "./types";
 
@@ -115,10 +116,14 @@ export async function refreshCodexTokens(
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
+      redirect: "error", // o refresh token nunca segue para outro host (I-03)
       signal,
     });
   } catch (error) {
     if (isAbortError(error, signal)) throw error;
+    if (isRedirectRefusal(error)) {
+      throw new ProviderError("invalid_request", "renovação das credenciais do Codex recusou redirect");
+    }
     throw new ProviderError("outage", "falha de rede ao renovar as credenciais do Codex");
   }
 

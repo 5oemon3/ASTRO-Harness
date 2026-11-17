@@ -15,6 +15,10 @@ Objetivo: guia de configuração de providers, validação manual de credenciais
 
 Kinds de plugin são aceitos com `kind` custom e factory registrada por plugin (`src/plugins.ts`, `src/core/config.ts`).
 
+## Redirects (fail-closed, #442)
+
+Nenhum fetch de provider segue redirect: completion, health, refresh e login usam `redirect: "error"`. Um 3xx vira erro classificado (`invalid_request` no completion e no refresh; `outage` no login) cuja mensagem pede a URL final, sem retry e sem reenviar `authorization` ou tokens a outro host (I-03). Não há upgrade automático de `http` para `https`: configure a URL final no `baseUrl`. Detalhe na linha SSRF de `docs/security-threat-matrix.md`.
+
 ## Sementes do catálogo e `astro models list` (#307)
 
 `PROVIDER_CATALOG` (`src/providers/catalog.ts`) alimenta o wizard (`/provider add`) e `astro models list --seeds`:

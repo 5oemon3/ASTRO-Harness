@@ -147,6 +147,20 @@ export function outboundUrlProblem(raw: string, opts: { allowPrivate?: boolean }
 }
 
 /**
+ * `fetch` com `redirect: "error"` recusou seguir um 3xx. Bun expõe
+ * `UnexpectedRedirect` na mensagem; Node/undici põe `unexpected redirect` na
+ * `cause`. Usado só para classificar o erro, nunca para decidir o destino.
+ */
+export function isRedirectRefusal(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current instanceof Error && depth < 4; depth++) {
+    if (/redirect/i.test(current.message)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
  * Valida o literal e todos os endereços resolvidos (SSRF/DNS rebinding).
  * Assíncrono porque consulta o DNS; use antes de cada request de saída, em
  * especial depois de cada redirect.

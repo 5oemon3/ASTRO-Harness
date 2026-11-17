@@ -4,6 +4,7 @@
  * segredos (só credentialRef — D-03), e o push valida antes de publicar.
  * baseUrl e fetch são injetáveis: testes rodam contra um registry mock.
  */
+import { isRedirectRefusal } from "./url-safety";
 
 /** Registry GitHub: owner/repo onde as configs vivem em configs/<nome>.json */
 export interface RegistryOptions {
@@ -107,9 +108,13 @@ export class GitHubConfigRegistry {
       response = await this.#opts.fetchLike(`${this.#opts.baseUrl}${path}`, {
         method,
         headers: this.#headers(),
+        redirect: "error", // o Bearer do GitHub nunca segue para outro host (I-03)
         ...(requestBody === undefined ? {} : { body: JSON.stringify(requestBody) }),
       });
     } catch (error) {
+      if (isRedirectRefusal(error)) {
+        throw new Error("registry recusou redirect; configure uma URL final em baseUrl");
+      }
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`falha de rede ao falar com o registry: ${detail}`);
     }
