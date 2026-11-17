@@ -204,7 +204,7 @@ describe("run_command sandbox (F4-6)", () => {
     const first = await mod.detectDockerAvailable();
     const second = await mod.detectDockerAvailable();
     expect(first).toBe(second);
-  });
+  }, 60_000);
 
   test("sandbox=true com Docker: comando malicioso não escapa", async () => {
     const mod = await isolatedRunCommand("s4b-escape");

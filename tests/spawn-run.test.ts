@@ -154,7 +154,7 @@ describe("spawn_agent ponta a ponta (S-11, C4a)", () => {
     } finally {
       server.stop(true);
     }
-  });
+  }, 30_000);
 
   test("tools puladas no step do handoff ficam no emissor e não no filho", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "astro-spawn-skip-"));

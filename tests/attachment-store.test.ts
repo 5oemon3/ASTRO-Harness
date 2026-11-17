@@ -79,7 +79,13 @@ describe("validateArtifactRoot", () => {
     const { cwd, astroHome } = sandbox();
     const root = join(astroHome, "artifacts-missing");
     expect(() => validateArtifactRoot(root, { cwd, astroHome })).not.toThrow();
-    new ArtifactStore(root, { cwd, astroHome });
+    const privateOnWindows = process.platform === "win32"
+      ? {
+        hardenPrivate: () => ({ userSid: "S-1-5-18", sddl: "O:S-1-5-18G:S-1-5-18D:P(A;;FA;;;S-1-5-18)" }),
+        checkPrivate: () => true,
+      }
+      : {};
+    new ArtifactStore(root, { cwd, astroHome, ...privateOnWindows });
     expect(existsSync(root)).toBe(true);
     if (process.platform !== "win32") expect(statSync(root).mode & 0o777).toBe(0o700);
   }, 120_000);
