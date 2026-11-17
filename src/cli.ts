@@ -1281,6 +1281,8 @@ async function main(argv: string[]): Promise<number> {
         allowMissingConfig: !o.configExplicit,
         ...allowlistOpts,
         ...chatApprovers(io, interactive),
+        // Sem TTY não há como perguntar: `ask` gera permission.pending e para o turno (I-08/I-19, #262).
+        ...(interactive ? {} : { approveTool: nonInteractiveApprover() }),
       });
       for (const warning of session.warnings) console.error(`aviso: ${warning}`);
       const { openSessionApi } = await import("./chat/session-api");

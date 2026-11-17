@@ -120,6 +120,68 @@ test("chat sem --config inválido falha claro", async () => {
   expect(await new Response(proc.stderr).text()).toContain("erro:");
 }, 20_000);
 
+/** `chat` sem TTY com mock que pede uma tool na 1ª chamada e responde texto na 2ª (#262). */
+async function chatToolTurn(opts: { prefix: string; tools: string[]; name: string; args: Record<string, unknown> }) {
+  const cwd = mkdtempSync(join(tmpdir(), opts.prefix));
+  let calls = 0;
+  const server = Bun.serve({ port: 0, async fetch() {
+    calls++;
+    return Response.json(calls === 1
+      ? { choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function", function: { name: opts.name, arguments: JSON.stringify(opts.args) } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }
+      : { choices: [{ message: { content: "pronto" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
+  } });
+  try {
+    const configPath = join(cwd, "astro.config.json");
+    writeFileSync(configPath, JSON.stringify({
+      providers: { mock: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "KEY" } },
+      models: [{ provider: "mock", id: "m1", tags: ["writing-code", "tools"], context: 8192 }],
+      agent: { model: "mock/m1", maxSteps: 4, tools: opts.tools },
+      permissions: { mode: "ask" },
+      paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
+    }));
+    const proc = Bun.spawn(["bun", "src/cli.ts", "chat", "--config", configPath, "--cwd", cwd], {
+      cwd: root, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, KEY: "k" } as Record<string, string>,
+    });
+    proc.stdin.write("escreva\n/exit\n");
+    proc.stdin.end();
+    const exit = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    await new Response(proc.stderr).text();
+    return { cwd, exit, stdout, audit: new Auditor(join(cwd, ".astro", "audit.jsonl")).readAll() };
+  } finally {
+    server.stop(true);
+  }
+}
+
+test("chat sem TTY em ask nega escrita com permission.pending e para o turno (#262)", async () => {
+  const result = await chatToolTurn({
+    prefix: "astro-chat-cli-pending-write-", tools: ["write_file"], name: "write_file",
+    args: { path: "saida.txt", content: "ok" },
+  });
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain('permissão pendente para a tool "write_file"');
+  expect(result.stdout).not.toContain("pronto"); // o turno parou antes da resposta final
+  expect(existsSync(join(result.cwd, "saida.txt"))).toBe(false);
+  const pending = result.audit.filter((e) => e.tipo === "permission.pending");
+  expect(pending).toHaveLength(1);
+  expect(pending[0]!.payload).toMatchObject({ name: "write_file", action: "edit", mode: "ask" });
+}, 20_000);
+
+test("chat sem TTY em ask nega execução com permission.pending e não roda o comando (#262)", async () => {
+  const command = `bun -e "require('node:fs').writeFileSync('saida.txt','ok')"`;
+  const result = await chatToolTurn({
+    prefix: "astro-chat-cli-pending-exec-", tools: ["run_command"], name: "run_command", args: { command },
+  });
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain('permissão pendente para a tool "run_command"');
+  expect(result.stdout).not.toContain("pronto");
+  expect(existsSync(join(result.cwd, "saida.txt"))).toBe(false);
+  const pending = result.audit.filter((e) => e.tipo === "permission.pending");
+  expect(pending).toHaveLength(1);
+  expect(pending[0]!.payload).toMatchObject({ name: "run_command", action: "shell", mode: "ask" });
+}, 20_000);
+
 test("chat aceita --artifact-root e rejeita valor vazio (#392)", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-chat-cli-root-"));
   const accepted = Bun.spawn(

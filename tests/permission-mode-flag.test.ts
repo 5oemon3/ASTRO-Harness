@@ -67,6 +67,10 @@ test("--permission-mode bypass sobrepõe permissions.mode ask (#269)", async () 
   const denied = await run("ask", []);
   expect(denied.exit).toBe(1);
   expect(existsSync(join(denied.dir, "saida.txt"))).toBe(false);
+  // O run sem TTY já para com pending (#262): o caminho do chat segue o mesmo contrato.
+  const audit = readFileSync(join(denied.dir, ".astro", "audit.jsonl"), "utf8")
+    .trim().split("\n").map((line) => JSON.parse(line) as { tipo: string });
+  expect(audit.some((event) => event.tipo === "permission.pending")).toBe(true);
 
   // Com a flag: bypass vence a config.
   const allowed = await run("ask", ["--permission-mode", "bypass"]);
