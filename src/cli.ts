@@ -27,6 +27,7 @@ import { runRepl } from "./chat/repl";
 import { chatApprovers } from "./chat/approvers";
 import { nodeReplIO } from "./chat/node-io";
 import { runHealthCheck, runPoolHealthCheck, formatProvidersList, testProvider } from "./health";
+import { applyFixes, collectFacts, doctorJson, exitCode as doctorExitCode, renderReport, runChecks } from "../scripts/doctor";
 import { GitHubConfigRegistry, prepareConfigForPush, preparePulledConfig } from "./config-share";
 import { runSkillsCommand } from "./skills/cli";
 import { runMcpCommand } from "./mcp/cli";
@@ -193,6 +194,7 @@ const USAGE = `Uso:
   astro resume <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
   astro continue <run-id> [--task "<pedido>"] [--agent <name>] [--config <path>] [--cwd <dir>]
   astro health [--config <path>]
+  astro doctor [--json] [--fix]
   astro providers <health|list|test|vault-import> [--config <path>] [--apply] [--allow-plain]
   astro handoff show <handoff_id> [--config <path>]
   astro cost --by-agent [--config <path>]
@@ -310,6 +312,11 @@ interface HealthCommand {
   configPath: string;
 }
 
+interface DoctorCommand {
+  json: boolean;
+  fix: boolean;
+}
+
 interface ProvidersCommand {
   action: "health" | "list" | "test" | "vault-import";
   name?: string;
@@ -365,6 +372,7 @@ type ParsedCommand =
   | { kind: "chat"; options: ChatCommand }
   | { kind: "tui"; options: TuiCommand }
   | { kind: "health"; options: HealthCommand }
+  | { kind: "doctor"; options: DoctorCommand }
   | { kind: "providers"; options: ProvidersCommand }
   | { kind: "pool"; options: PoolCommand }
   | { kind: "agents"; options: AgentsCommand }
@@ -482,7 +490,7 @@ function parseArgs(argv: string[]): ParsedCommand {
   }
 
   const [command, ...rest] = argv;
-  const commands = ["run", "eval", "bench", "serve", "replay", "resume", "continue", "chat", "tui", "health", "providers", "handoff", "cost", "pool", "agents", "models", "config", "skills", "mcp"];
+  const commands = ["run", "eval", "bench", "serve", "replay", "resume", "continue", "chat", "tui", "health", "doctor", "providers", "handoff", "cost", "pool", "agents", "models", "config", "skills", "mcp"];
   if (command !== undefined && !commands.includes(command)) {
     throw new UsageError(`comando desconhecido: "${command}"`);
   }
@@ -670,6 +678,18 @@ function parseArgs(argv: string[]): ParsedCommand {
       throw new UsageError(`opção desconhecida: "${arg}"`);
     }
     return { kind: "health", options: { configPath } };
+  }
+
+  // `doctor` é diagnóstico local: não aceita --config (lê o config do cwd e o $ASTRO_HOME).
+  if (command === "doctor") {
+    let json = false;
+    let fix = false;
+    for (const arg of rest) {
+      if (arg === "--json") { json = true; continue; }
+      if (arg === "--fix") { fix = true; continue; }
+      throw new UsageError(`opção desconhecida: "${arg}"`);
+    }
+    return { kind: "doctor", options: { json, fix } };
   }
 
   if (command === "pool") {
@@ -1067,6 +1087,24 @@ async function main(argv: string[]): Promise<number> {
   if (parsed.kind === "help") {
     console.log(USAGE);
     return 0;
+  }
+
+  if (parsed.kind === "doctor") {
+    const o = parsed.options;
+    // `--fix` só mexe em estado local seguro (ver applyFixes); roda antes dos checks.
+    const fixes = o.fix ? applyFixes(process.env) : undefined;
+    // Raiz do pacote (`src/..` ou `dist/..`): valida deps e dist da instalação, não do cwd.
+    const report = runChecks(collectFacts(resolve(import.meta.dir, "..")));
+    if (o.json) {
+      console.log(JSON.stringify(doctorJson(report, fixes), null, 2));
+    } else {
+      if (fixes !== undefined) {
+        for (const line of fixes.applied) console.log(`[fix] ${line}`);
+        for (const line of fixes.errors) console.error(`[fix] erro: ${line}`);
+      }
+      renderReport(report, (line) => console.log(line));
+    }
+    return fixes !== undefined && fixes.errors.length > 0 ? 1 : doctorExitCode(report);
   }
 
   if (parsed.kind === "eval") {

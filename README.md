@@ -36,6 +36,25 @@ Running agents in real projects raises three questions: *which model ran this st
 - **Provider fallback.** Priority-based chains across OpenAI-compatible providers (NVIDIA, OpenRouter, and others) and Codex OAuth.
 - **Terminal-first UX.** A non-interactive `run` command, an interactive `chat` REPL and a full-screen `tui`.
 
+## Project structure
+
+The current module boundaries are:
+
+| Path | Responsibility |
+|---|---|
+| `src/cli.ts` | Argument parsing and command routing. |
+| `src/app.ts`, `src/session.ts` | Run orchestration and the single-agent loop. |
+| `src/provider/` | Provider adapters, profiles, fallback and model routing. |
+| `src/tools/` | Built-in tools, path confinement, sandbox and web tools. |
+| `src/skills/`, `src/mcp/` | Skills and MCP capability integrations. |
+| `src/audit.ts`, `src/ledger.ts`, `src/metrics.ts`, `src/tracing.ts` | Audit, cost, metrics and tracing. |
+| `src/chat/`, `src/tui/` | REPL and full-screen terminal UI. |
+| `src/attachments/` | Image artifact store and privacy checks. |
+| `scripts/doctor.ts` | Diagnostics behind `astro doctor`. |
+| `tests/` | Test suites mirroring `src/`. |
+
+The planned `src/core` split (event bus and runtime boundaries, ADR-0020/0021/0022) is not implemented; the table above is the current contract.
+
 ## Installation
 
 **Requirements:** Node.js 18 or newer. The pinned Bun runtime ships as a platform dependency, so you do not need a global Bun installation.
@@ -127,6 +146,7 @@ All commands run as `astro <command>`. From a clone, `bun src/cli.ts <command>` 
 | `eval` | Runs the golden dataset in mock mode as a regression gate. |
 | `bench` | Reports latency, tokens per second and cost per model. |
 | `health` | Validates configuration, credentials and provider connectivity. |
+| `doctor [--json] [--fix]` | Local diagnostics without network (versions, dependencies, dist, config, credentials by name, skills, MCP, disk permissions). `--json` emits a stable `doctor/v1` payload; `--fix` creates only `$ASTRO_HOME`, refusing relative, `..` or symlink values. |
 | `cost --by-agent` | Shows cost per agent and profile, read from the ledger. |
 | `handoff show <handoff_id>` | Inspects a durable handoff and its compaction audit. |
 | `serve` | Exposes `/metrics` in Prometheus format. |
@@ -158,7 +178,13 @@ ASTRO is in **alpha**. Interfaces may still change before a stable release.
 |---|---|
 | Foundation, multi-agent core, tools, evaluation, production hardening and ecosystem (F0–F7) | Done |
 | Layer 0: durable handoffs, model pools and profiles, per-agent cost, provider fallback | In progress |
-| Skills, MCP integration, web tools, advanced agents, quality and organization (C1–C5, C7) | Planned |
+| C1 skills and C2 MCP client | Done |
+| C3 `web_search` and `web_fetch` | Done |
+| C4 agent profiles and isolated subagents | In progress: cheap/strong routing and the `task` tool shipped; the blackboard is pending |
+| C5 deterministic completion gate | Planned: the eval harness and golden dataset exist; the completion gate does not |
+| C7 `astro doctor` diagnostics | Done |
+| C7 modular `src/core` split | Blocked by ADR-0020/0021/0022 (event bus) |
+| C7 session budget and per-environment profiles | Planned |
 | REPL, TUI and sessions improvements (T1–T4) | Planned |
 
 The detailed plan lives in [`docs/roadmap.md`](docs/roadmap.md) and [`docs/roadmap-complementar.md`](docs/roadmap-complementar.md).
@@ -172,6 +198,9 @@ bun run cli -- run "..."     # run a task from source
 bun run build                # build dist/cli.js and dist/launcher.js
 bun run smoke                # build and check the launcher with Bun removed from PATH
 bun run doctor               # local environment diagnostics, no network
+bun src/cli.ts doctor        # same checks through the CLI
+bun src/cli.ts doctor --json # stable doctor/v1 payload for scripts and CI
+bun src/cli.ts doctor --fix  # create $ASTRO_HOME; never the artifact root
 bun link                     # after a build, make the global `astro` command point to this checkout
 ```
 
