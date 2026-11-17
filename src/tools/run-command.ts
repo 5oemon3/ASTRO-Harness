@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync, type Dirent } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync, type Dirent } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createLexicalHardBlockPrefilter, createPathClassifier, type PathClassifier } from "../path-class";
@@ -292,28 +292,41 @@ function collectMaskTargets(ctx: DockerSandboxContext, env: NodeJS.ProcessEnv): 
   return [...targets.values()];
 }
 
+/** Raízes temporárias das máscaras, por argv; removidas por `releaseDockerArgv`. */
+const maskRoots = new WeakMap<string[], string>();
+
+/** Remove as fontes temporárias de máscara criadas por `dockerArgv` (idempotente, best-effort). */
+export function releaseDockerArgv(argv: readonly string[]): void {
+  const root = maskRoots.get(argv as string[]);
+  if (root === undefined) return;
+  maskRoots.delete(argv as string[]);
+  try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
+}
+
 /** Fontes vazias das máscaras em `os.tmpdir()`, montadas `:ro` no mesmo caminho no container. */
-function maskMounts(ctx: DockerSandboxContext, env: NodeJS.ProcessEnv): string[] {
+function maskMounts(ctx: DockerSandboxContext, env: NodeJS.ProcessEnv): { mounts: string[]; maskRoot?: string } {
   const targets = collectMaskTargets(ctx, env);
-  if (targets.length === 0) return [];
+  if (targets.length === 0) return { mounts: [] };
   const maskRoot = mkdtempSync(join(tmpdir(), "astro-sandbox-mask-"));
+  try { chmodSync(maskRoot, 0o700); } catch { /* best-effort: 0700 no POSIX, bits ignorados no Windows */ }
   try {
-    chmodSync(maskRoot, 0o700); // 0700 no POSIX; no Windows os bits são best-effort
-  } catch {
-    // best-effort
-  }
-  const mounts: string[] = [];
-  let index = 0;
-  for (const target of targets) {
-    const source = join(maskRoot, `mask-${index++}`);
-    if (target.isDirectory) {
-      mkdirSync(source, { mode: 0o700 });
-    } else {
-      writeFileSync(source, "", { mode: 0o600 });
+    const mounts: string[] = [];
+    let index = 0;
+    for (const target of targets) {
+      const source = join(maskRoot, `mask-${index++}`);
+      if (target.isDirectory) {
+        mkdirSync(source, { mode: 0o700 });
+      } else {
+        writeFileSync(source, "", { mode: 0o600 });
+      }
+      mounts.push("--volume", `${source}:${target.target}:ro`);
     }
-    mounts.push("--volume", `${source}:${target.target}:ro`);
+    return { mounts, maskRoot };
+  } catch (error) {
+    // Falha ao montar o plano não pode deixar lixo em tmpdir (fail-closed).
+    try { rmSync(maskRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+    throw error;
   }
-  return mounts;
 }
 
 /**
@@ -323,7 +336,8 @@ function maskMounts(ctx: DockerSandboxContext, env: NodeJS.ProcessEnv): string[]
 export function dockerArgv(containerName: string, ctx: DockerSandboxContext, command: string): string[] {
   const workdir = resolve(ctx.cwd);
   const env = ctx.env ?? process.env;
-  return [
+  const { mounts, maskRoot } = maskMounts(ctx, env);
+  const argv = [
     "docker",
     "run",
     "--rm",
@@ -342,7 +356,7 @@ export function dockerArgv(containerName: string, ctx: DockerSandboxContext, com
     "HOME=/tmp",
     "--volume",
     `${workdir}:${workdir}`,
-    ...maskMounts(ctx, env),
+    ...mounts,
     "--workdir",
     workdir,
     resolveDockerImage(env),
@@ -350,13 +364,30 @@ export function dockerArgv(containerName: string, ctx: DockerSandboxContext, com
     "-c",
     command,
   ];
+  if (maskRoot !== undefined) maskRoots.set(argv, maskRoot);
+  return argv;
 }
 
-/** Executa um comando dentro do container Docker efêmero. */
+/** Executa um comando dentro do container Docker efêmero e libera as máscaras. */
 async function runInDocker(command: string, ctx: { cwd: string; signal?: AbortSignal }, timeoutMs: number): Promise<ToolResult> {
   const containerName = `astro-sb-${randomUUID().slice(0, 12)}`;
+  const argv = dockerArgv(containerName, ctx, command);
+  try {
+    return await runDockerProcess(containerName, argv, ctx, timeoutMs);
+  } finally {
+    releaseDockerArgv(argv);
+  }
+}
+
+/** Roda o argv já montado; o chamador é dono da limpeza das fontes de máscara. */
+async function runDockerProcess(
+  containerName: string,
+  argv: string[],
+  ctx: { cwd: string; signal?: AbortSignal },
+  timeoutMs: number,
+): Promise<ToolResult> {
   const proc = Bun.spawn({
-    cmd: dockerArgv(containerName, ctx, command),
+    cmd: argv,
     cwd: ctx.cwd,
     stdout: "pipe",
     stderr: "pipe",

@@ -1,5 +1,6 @@
 import { readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { redactSecrets } from "../sanitize-external";
 import { resolveWithin } from "./paths";
 import { ToolError, type Tool, type ToolResult } from "./types";
 
@@ -336,7 +337,7 @@ export const lspTool: Tool = {
         const prefix = isCallable ? "function " : "";
         const docs = await symbol.getDocumentationComment(project.checker);
         const hover = docs.length > 0 ? `${prefix}${symbol.name}: ${typeText}\n\n${docs}` : `${prefix}${symbol.name}: ${typeText}`;
-        return { output: hover };
+        return { output: redactSecrets(hover) };
       }
 
       // definition e references usam o token na posição + busca de símbolos

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runTask } from "../src/core/app";
@@ -12,6 +12,7 @@ import {
   configureRunCommand,
   dockerArgv,
   dockerInfoSupportsLinuxContainers,
+  releaseDockerArgv,
   resolveDockerImage,
   resolveSandboxSetting,
   sandboxWarning,
@@ -249,6 +250,16 @@ describe("run_command sandbox (F4-6)", () => {
 
 describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
   const argvCwd = (): string => mkdtempSync(join(tmpdir(), "astro-sb-argv-"));
+  const created: string[][] = [];
+  const rawDockerArgv = dockerArgv;
+  const argvFor = (...args: Parameters<typeof dockerArgv>): string[] => {
+    const argv = rawDockerArgv(...args);
+    created.push(argv);
+    return argv;
+  };
+  afterEach(() => {
+    while (created.length > 0) releaseDockerArgv(created.pop()!);
+  });
 
   const volumeSpecs = (argv: string[]): string[] =>
     argv.flatMap((value, i) => (value === "--volume" ? [argv[i + 1]] : []));
@@ -262,7 +273,7 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
   };
 
   test("argv contém --tmpfs /tmp e env GIT_DIR/GIT_CONFIG_NOSYSTEM/HOME", () => {
-    const argv = dockerArgv("sb-test", { cwd: argvCwd() }, "echo ok");
+    const argv = argvFor("sb-test", { cwd: argvCwd() }, "echo ok");
     const tmpfsAt = argv.indexOf("--tmpfs");
     expect(tmpfsAt).toBeGreaterThan(-1);
     expect(argv[tmpfsAt + 1]).toBe("/tmp:rw,noexec,nosuid,size=64m");
@@ -277,8 +288,8 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
     expect(resolveDockerImage({ ASTRO_DOCKER_IMAGE: "   " })).toBe("oven/bun:1.4.2");
     expect(resolveDockerImage({ ASTRO_DOCKER_IMAGE: "img@sha256:abcd" })).toBe("img@sha256:abcd");
     const cwd = argvCwd();
-    expect(dockerArgv("sb-test", { cwd }, "echo ok")).toContain("oven/bun:1.4.2");
-    const custom = dockerArgv("sb-test", { cwd, env: { ASTRO_DOCKER_IMAGE: "img@sha256:abcd" } }, "echo ok");
+    expect(argvFor("sb-test", { cwd }, "echo ok")).toContain("oven/bun:1.4.2");
+    const custom = argvFor("sb-test", { cwd, env: { ASTRO_DOCKER_IMAGE: "img@sha256:abcd" } }, "echo ok");
     expect(custom).toContain("img@sha256:abcd");
     expect(custom).not.toContain("oven/bun:1.4.2");
   });
@@ -286,7 +297,7 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
   test(".env hard-block no cwd vira máscara de arquivo vazio :ro fora do cwd", () => {
     const cwd = argvCwd();
     writeFileSync(join(cwd, ".env"), "SUPER_SECRET=1");
-    const argv = dockerArgv("sb-test", { cwd }, "echo ok");
+    const argv = argvFor("sb-test", { cwd }, "echo ok");
     const root = resolve(cwd);
     const target = join(root, ".env");
     expect(hasRoMaskFor(argv, target)).toBe(true);
@@ -305,7 +316,7 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
     mkdirSync(join(cwd, "sub"));
     writeFileSync(join(cwd, "sub", ".env"), "X=1");
     writeFileSync(join(cwd, ".env.example"), "X=");
-    const argv = dockerArgv("sb-test", { cwd }, "echo ok");
+    const argv = argvFor("sb-test", { cwd }, "echo ok");
     const root = resolve(cwd);
     expect(hasRoMaskFor(argv, join(root, "sub", ".env"))).toBe(true);
     expect(hasRoMaskFor(argv, join(root, ".env.example"))).toBe(false);
@@ -314,13 +325,13 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
   test(".git é sempre mascarado: diretório em repo e arquivo em worktree", () => {
     const repoCwd = argvCwd();
     mkdirSync(join(repoCwd, ".git"));
-    const argvRepo = dockerArgv("sb-test", { cwd: repoCwd }, "echo ok");
+    const argvRepo = argvFor("sb-test", { cwd: repoCwd }, "echo ok");
     const gitDir = join(resolve(repoCwd), ".git");
     expect(hasRoMaskFor(argvRepo, gitDir)).toBe(true);
     expect(statSync(maskSourceFor(argvRepo, gitDir)!).isDirectory()).toBe(true);
     const wtCwd = argvCwd();
     writeFileSync(join(wtCwd, ".git"), "gitdir: /elsewhere/.git");
-    const argvWt = dockerArgv("sb-test", { cwd: wtCwd }, "echo ok");
+    const argvWt = argvFor("sb-test", { cwd: wtCwd }, "echo ok");
     const gitFile = join(resolve(wtCwd), ".git");
     expect(hasRoMaskFor(argvWt, gitFile)).toBe(true);
     expect(statSync(maskSourceFor(argvWt, gitFile)!).isFile()).toBe(true);
@@ -329,7 +340,7 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
   test("ASTRO_ARTIFACT_ROOT é mascarado pelo realpath", () => {
     const cwd = argvCwd();
     const art = mkdtempSync(join(tmpdir(), "astro-art-"));
-    const argv = dockerArgv("sb-test", { cwd, env: { ASTRO_ARTIFACT_ROOT: art } }, "echo ok");
+    const argv = argvFor("sb-test", { cwd, env: { ASTRO_ARTIFACT_ROOT: art } }, "echo ok");
     const target = realpathPreservingDots(art, resolve(cwd));
     expect(hasRoMaskFor(argv, target)).toBe(true);
     expect(statSync(maskSourceFor(argv, target)!).isDirectory()).toBe(true);
@@ -340,14 +351,14 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
     const parts = Array.from({ length: 15 }, (_, i) => `n${i}`);
     mkdirSync(join(cwd, ...parts), { recursive: true });
     writeFileSync(join(cwd, ...parts, ".env"), "DEEP_SECRET=1");
-    const argv = dockerArgv("sb-test", { cwd }, "echo ok");
+    const argv = argvFor("sb-test", { cwd }, "echo ok");
     expect(hasRoMaskFor(argv, join(resolve(cwd), ...parts, ".env"))).toBe(true);
   });
 
   test("cwd inválido (arquivo): varredura falha fail-closed com ToolError", () => {
     const file = join(argvCwd(), "arq.txt");
     writeFileSync(file, "x");
-    expect(() => dockerArgv("sb-test", { cwd: file }, "echo ok")).toThrow(ToolError);
+    expect(() => argvFor("sb-test", { cwd: file }, "echo ok")).toThrow(ToolError);
   });
 
   test("cwd atrás de symlink/junction: .astro, protectedPaths e ASTRO_HOME léxicos viram máscara", () => {
@@ -360,12 +371,41 @@ describe("dockerArgv: máscaras do sandbox (ADR-0027, #391 slice 4a)", () => {
     if (process.platform === "win32") {
       expect(Bun.spawnSync(["cmd", "/c", "mklink", "/J", link, real]).exitCode).toBe(0);
     } else symlinkSync(real, link, "dir");
-    const argv = dockerArgv(
+    const argv = argvFor(
       "sb",
       { cwd: link, protectedPaths: ["protected"], env: { ASTRO_HOME: join(link, "home") } },
       "echo ok",
     );
     const root = resolve(link);
     for (const t of [".astro", "protected", "home"]) expect(hasRoMaskFor(argv, join(root, t))).toBe(true);
+  });
+});
+
+describe("sandbox: fontes de máscara não vazam em tmpdir (#391)", () => {
+  test("remove o diretório de máscara após sucesso e após falha do comando", async () => {
+    let fail = false;
+    const mock = installDockerSpawnMock(() => (fail ? { code: 1, stdout: "", stderr: "boom" } : "ok\n"));
+    try {
+      const mod = await isolatedRunCommand("s4a-mask-cleanup");
+      mod.configureRunCommand({ sandbox: true });
+      const cwd = mkdtempSync(join(tmpdir(), "astro-sb-mask-clean-"));
+      writeFileSync(join(cwd, ".env"), "X=1");
+      const suffix = `:${join(resolve(cwd), ".env")}:ro`;
+      const maskSource = (): string | undefined => {
+        const argv = mock.runCalls.at(-1) ?? [];
+        const index = argv.findIndex((value, i) => value === "--volume" && String(argv[i + 1]).endsWith(suffix));
+        return index < 0 ? undefined : argv[index + 1]!.slice(0, -suffix.length);
+      };
+      for (const shouldFail of [false, true]) {
+        fail = shouldFail;
+        const result = await mod.runCommandTool.execute({ command: "echo probe" }, ctx(cwd));
+        expect(result.isError === true).toBe(shouldFail);
+        const source = maskSource();
+        expect(source).toBeDefined();
+        expect(existsSync(source!)).toBe(false);
+      }
+    } finally {
+      mock.restore();
+    }
   });
 });

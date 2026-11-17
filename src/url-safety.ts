@@ -1,4 +1,5 @@
 /** Validação de URL de provider compartilhada por config e store (I-03). */
+import { lookup } from "node:dns/promises";
 
 const SENSITIVE_QUERY = /^(api[-_]?key|key|token|access[-_]?token|secret)$/i;
 
@@ -142,5 +143,31 @@ export function outboundUrlProblem(raw: string, opts: { allowPrivate?: boolean }
   const allowPrivate = opts.allowPrivate ?? privateUrlsAllowed();
   if (allowPrivate) return undefined;
   if (isPrivateHost(url)) return "aponta para host privado ou loopback; destino recusado";
+  return undefined;
+}
+
+/**
+ * Valida o literal e todos os endereços resolvidos (SSRF/DNS rebinding).
+ * Assíncrono porque consulta o DNS; use antes de cada request de saída, em
+ * especial depois de cada redirect.
+ */
+export async function resolvedOutboundUrlProblem(
+  raw: string,
+  opts: { allowPrivate?: boolean } = {},
+): Promise<string | undefined> {
+  const literal = outboundUrlProblem(raw, opts);
+  if (literal !== undefined) return literal;
+  const host = new URL(raw).hostname.replace(/^\[|\]$/g, "");
+  let addresses: Array<{ address: string }>;
+  try {
+    addresses = await lookup(host, { all: true });
+  } catch {
+    return "não foi possível resolver o host";
+  }
+  if (addresses.length === 0) return "host sem endereço";
+  for (const { address } of addresses) {
+    const blocked = outboundUrlProblem(`http://${address.includes(":") ? `[${address}]` : address}/`, opts);
+    if (blocked !== undefined) return blocked;
+  }
   return undefined;
 }

@@ -240,6 +240,29 @@ describe("web_fetch audit e limites (#57)", () => {
   });
 });
 
+describe("web_fetch cap não vaza bloco aberto (#57)", () => {
+  test("script maior que o cap não devolve JS cru", async () => {
+    const body = `<html><body><p>ok</p><script>const marca = "${"A".repeat(3000)}";</script></body></html>`;
+    const { tool, cwd } = setup({
+      fetchImpl: async () => new Response(body, { headers: { "content-type": "text/html" } }),
+    });
+    const result = await tool.execute({ url: "http://127.0.0.1/", maxLength: 200 }, ctx(cwd));
+    expect(result.output).toContain("ok");
+    expect(result.output).not.toContain("marca");
+    expect(result.output).not.toContain("AAAA");
+  });
+
+  test("style maior que o cap não devolve CSS cru", async () => {
+    const body = `<html><head><style>body{background:url("${"B".repeat(3000)}")}</style></head><body><p>ok</p></body></html>`;
+    const { tool, cwd } = setup({
+      fetchImpl: async () => new Response(body, { headers: { "content-type": "text/html" } }),
+    });
+    const result = await tool.execute({ url: "http://127.0.0.1/", maxLength: 200 }, ctx(cwd));
+    expect(result.output).not.toContain("background");
+    expect(result.output).not.toContain("BBBB");
+  });
+});
+
 describe("web_fetch redação do corpo (ADR-0027, I-03)", () => {
   // Segredo sintético construído em runtime (gate G6: sem literal de segredo no diff).
   const FETCH_SECRET = ["s", "k", "-"].join("") + "slice3a-fetch-synthetic-a1b2c3";

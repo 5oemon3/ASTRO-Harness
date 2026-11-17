@@ -105,6 +105,19 @@ describe("lsp tool (F4-4)", () => {
     expect(result.output.toLowerCase()).toContain("function");
   });
 
+  test("hover redige segredo no doc/type antes de devolver (I-03)", async () => {
+    const secret = ["s", "k", "-", "proj", "lspHover987654321"].join("");
+    const cwd = mkdtempSync(join(tmpdir(), "astro-lsp-redact-"));
+    writeFileSync(join(cwd, "utils.ts"), `/** token ${secret} */\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n`);
+    const result = await lspTool.execute(
+      { command: "hover", file: "utils.ts", line: 2, column: 17 },
+      ctx(cwd),
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.output).not.toContain(secret);
+    expect(result.output).toContain("[REDACTED]");
+  });
+
   test("hover em posição vazia → resultado vazio claro", async () => {
     const cwd = setupWorkspace();
     // linha 2, coluna 3: `return a + b;` — hover em espaço em branco/keyword

@@ -53,6 +53,75 @@ test("installer baixa de URL e exige force para substituir", async () => {  cons
   }
 });
 
+test("installer recusa redirect para loopback sem opt-in e não busca o destino (#256)", async () => {
+  const target = mkdtempSync(join(tmpdir(), "astro-skssrf-"));
+  const calls: string[] = [];
+  const fetchFn = async (url: string) => {
+    calls.push(url);
+    return new Response(null, { status: 302, headers: { location: "http://127.0.0.1:9/leak" } });
+  };
+  const previous = process.env.ASTRO_ALLOW_PRIVATE_URLS;
+  process.env.ASTRO_ALLOW_PRIVATE_URLS = "0";
+  try {
+    await expect(installSkill({
+      source: "http://203.0.113.10/SKILL.md",
+      root: target,
+      sourceKind: "user",
+      fetchFn,
+    })).rejects.toThrow(/privado|recusada/);
+  } finally {
+    process.env.ASTRO_ALLOW_PRIVATE_URLS = previous;
+  }
+  expect(calls).toEqual(["http://203.0.113.10/SKILL.md"]); // destino nunca foi buscado
+});
+
+test("installer recusa redirect para metadata mesmo com URL privada liberada (#256)", async () => {
+  const target = mkdtempSync(join(tmpdir(), "astro-skssrf-meta-"));
+  const calls: string[] = [];
+  const fetchFn = async (url: string) => {
+    calls.push(url);
+    return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data" } });
+  };
+  await expect(installSkill({
+    source: "http://203.0.113.10/SKILL.md",
+    root: target,
+    sourceKind: "user",
+    fetchFn,
+  })).rejects.toThrow(/metadados|link-local/);
+  expect(calls).toHaveLength(1); // só a origem inicial; o alvo não recebeu request
+});
+
+test("installer segue redirect de mesma origem quando o host é permitido (#256)", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => new URL(request.url).pathname === "/start"
+      ? new Response(null, { status: 302, headers: { location: "/SKILL.md" } })
+      : new Response(SKILL),
+  });
+  const target = mkdtempSync(join(tmpdir(), "astro-skredir-ok-"));
+  try {
+    await installSkill({
+      source: `${server.url.origin}/start`,
+      root: target,
+      sourceKind: "user",
+    });
+    expect(verifySkill(target, "commit").ok).toBe(true);
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("installer limita a cadeia de redirects a 5 hops (#256)", async () => {
+  const target = mkdtempSync(join(tmpdir(), "astro-skredir-max-"));
+  let calls = 0;
+  const fetchFn = async () => new Response(null, {
+    status: 302, headers: { location: `http://203.0.113.10/hop${++calls}` },
+  });
+  await expect(installSkill({ source: "http://203.0.113.10/SKILL.md", root: target, sourceKind: "user", fetchFn }))
+    .rejects.toThrow(/redirect/);
+  expect(calls).toBe(6); // origem + 5 redirects
+});
+
 test("installer recusa origem que sobrepõe o destino e não apaga a skill", async () => {
   const root = mkdtempSync(join(tmpdir(), "astro-skov-"));
   const dir = skillDir(root, "commit"); // instalar em root de novo = origem é o destino
@@ -140,7 +209,7 @@ test("installer aborta download acima do teto sem bufferizar o corpo inteiro", a
     },
   });
   await expect(installSkill({
-    source: "https://skills.example/commit/SKILL.md",
+    source: "http://203.0.113.10/commit/SKILL.md",
     root: target,
     sourceKind: "user",
     fetchFn: async () => new Response(body, { status: 200 }),

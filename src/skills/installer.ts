@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Auditor } from "../audit";
-import { outboundUrlProblem } from "../url-safety";
+import { resolvedOutboundUrlProblem } from "../url-safety";
 import { parseSkill } from "./loader";
 import { SKILL_MAX_BYTES, SKILL_NAME_RE, SkillError, type Skill, type SkillSource } from "./types";
 
@@ -35,7 +35,7 @@ export interface InstallSkillOptions {
   run?: string;
   /** Permite substituir instalação existente. */
   force?: boolean;
-  fetchFn?: (url: string) => Promise<Response>;
+  fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 export interface VerifyResult {
@@ -87,21 +87,36 @@ function assertNoLinks(directory: string): void {
   }
 }
 
+/** Teto de redirects da instalação remota (#256); cada hop é revalidado. */
+const MAX_REDIRECTS = 5;
+
 /** Lê a origem: URL http(s) (teto de 1MB) ou caminho local de SKILL.md/diretório. */
 async function readSource(
   source: string,
-  fetchFn: (url: string) => Promise<Response>,
+  fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
 ): Promise<{ content: string; directory?: string }> {
   if (/^https?:\/\//i.test(source)) {
-    const problem = outboundUrlProblem(source);
-    if (problem !== undefined) throw new SkillError(`skill "${source}": ${problem}`);
-    let response: Response;
-    try { response = await fetchFn(source); } catch (error) {
-      throw new SkillError(`falha ao baixar skill "${source}": ${error instanceof Error ? error.message : String(error)}`);
+    let current = source;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      // Revalida cada hop pelo literal e pelos endereços resolvidos (SSRF/DNS rebinding).
+      const problem = await resolvedOutboundUrlProblem(current);
+      if (problem !== undefined) throw new SkillError(`skill "${source}": ${problem}`);
+      let response: Response;
+      try { response = await fetchFn(current, { redirect: "manual" }); } catch (error) {
+        throw new SkillError(`falha ao baixar skill "${source}": ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (location === null) throw new SkillError(`skill "${source}": redirect sem Location`);
+        try { current = new URL(location, current).toString(); }
+        catch { throw new SkillError(`skill "${source}": redirect inválido`); }
+        continue;
+      }
+      if (!response.ok) throw new SkillError(`falha ao baixar skill "${source}": HTTP ${response.status}`);
+      const content = await readCappedBody(response, source);
+      return { content };
     }
-    if (!response.ok) throw new SkillError(`falha ao baixar skill "${source}": HTTP ${response.status}`);
-    const content = await readCappedBody(response, source);
-    return { content };
+    throw new SkillError(`skill "${source}": redirects demais (máximo ${MAX_REDIRECTS})`);
   }
 
   const absolute = resolve(source);

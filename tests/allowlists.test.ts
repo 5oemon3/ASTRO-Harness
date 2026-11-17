@@ -8,7 +8,7 @@ import { AllowlistInvalidError } from "../src/path-class";
 import { Auditor } from "../src/audit";
 import { ToolExecutor } from "../src/tools/executor";
 import { readFileTool } from "../src/tools/read-file";
-import { dockerArgv } from "../src/tools/run-command";
+import { dockerArgv, releaseDockerArgv } from "../src/tools/run-command";
 const dir = () => mkdtempSync(join(tmpdir(), "astro-allow-"));
 const flags = (allowCriticalRaw: string[], iUnderstand: boolean, allowSensitiveRaw: string[] = []) => ({ allowCriticalRaw, allowSensitiveRaw, iUnderstand });
 const ev = (entry: string, result: "applied" | "ignored", rule: "allow-critical" | "allow-sensitive"): AllowlistLoadEvent => ({ entry, result, origin: "cli", rule });
@@ -144,9 +144,18 @@ describe("sandbox: allowCritical não gera máscara para o path liberado (s5a)",
     const target = join(cwd, "api_token.txt");
     const masked = (argv: string[], t: string) =>
       argv.flatMap((v, i) => (v === "--volume" ? [argv[i + 1] as string] : [])).some((s) => s.endsWith(`:${t}:ro`));
-    expect(masked(dockerArgv("sb", { cwd }, "echo ok"), target)).toBe(true);
-    expect(masked(dockerArgv("sb", { cwd, allowCritical: [target] }, "echo ok"), target)).toBe(false);
-    expect(masked(dockerArgv("sb", { cwd, allowCritical: [target] }, "echo ok"), join(cwd, ".env"))).toBe(true);
+    const argvs = [
+      dockerArgv("sb", { cwd }, "echo ok"),
+      dockerArgv("sb", { cwd, allowCritical: [target] }, "echo ok"),
+      dockerArgv("sb", { cwd, allowCritical: [target] }, "echo ok"),
+    ];
+    try {
+      expect(masked(argvs[0]!, target)).toBe(true);
+      expect(masked(argvs[1]!, target)).toBe(false);
+      expect(masked(argvs[2]!, join(cwd, ".env"))).toBe(true);
+    } finally {
+      for (const argv of argvs) releaseDockerArgv(argv);
+    }
   });
 });
 describe("CLI: flags só em run/chat/tui, validadas antes do run", () => {

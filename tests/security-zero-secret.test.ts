@@ -6,7 +6,7 @@
  * passam quando o valor tem marca óbvia de teste; um segredo real não tem.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Auditor } from "../src/audit";
@@ -16,7 +16,7 @@ import { redactSecrets } from "../src/sanitize-external";
 const ROOT = resolve(import.meta.dir, "..");
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "coverage", ".astro", ".sdd", "logs",
-  ".worktrees-astro", ".serena", // worktrees/estado local não versionado
+  ".worktrees", ".worktrees-astro", ".serena", // worktrees/estado local não versionado
 ]);
 const TEXT_FILE = /\.(?:ts|tsx|js|mjs|cjs|json|jsonl|md|txt|log|ya?ml|toml|lock|example|cfg|ini|sh|ps1|pem|key|crt)$/i;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -173,5 +173,20 @@ describe("I-03 zero segredos", () => {
 
   test("varredura é determinística", () => {
     expect(scanRepo()).toEqual(scanRepo());
+  }, 30_000);
+
+  test("worktree local em .worktrees/ não é varrido (falso positivo local)", () => {
+    const dir = join(ROOT, ".worktrees");
+    const existed = existsSync(dir);
+    mkdirSync(dir, { recursive: true });
+    const leak = join(dir, "leak-do-not-scan.txt");
+    writeFileSync(leak, syntheticKey());
+    try {
+      const findings = scanRepo().filter((finding) => finding.file.startsWith(".worktrees/"));
+      expect(findings).toEqual([]);
+    } finally {
+      rmSync(leak, { force: true });
+      if (!existed) rmSync(dir, { recursive: true, force: true });
+    }
   }, 30_000);
 });

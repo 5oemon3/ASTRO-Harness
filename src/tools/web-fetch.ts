@@ -1,7 +1,6 @@
 /** Tool `web_fetch` (#57): baixa uma página e devolve texto sanitizado (untrusted). */
-import { lookup } from "node:dns/promises";
 import { redactSecrets } from "../sanitize-external";
-import { outboundUrlProblem, privateUrlsAllowed } from "../url-safety";
+import { privateUrlsAllowed, resolvedOutboundUrlProblem } from "../url-safety";
 import type { AuditLike, Tool, ToolContext, ToolResult } from "./types";
 
 export type WebFetchFormat = "markdown" | "text";
@@ -19,25 +18,6 @@ const MAX_LENGTH_LIMIT = 500_000;
 const MAX_REDIRECTS = 3;
 const READ_BYTES_LIMIT = 1_000_000;
 const TEXT_TYPES = /^(text\/|application\/(xhtml\+xml|xml|json))/i;
-
-/** Valida o literal e todos os endereços resolvidos (SSRF/DNS rebinding). */
-async function urlProblem(url: string, allowPrivate: boolean): Promise<string | undefined> {
-  const literal = outboundUrlProblem(url, { allowPrivate });
-  if (literal !== undefined) return literal;
-  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
-  let addresses: Array<{ address: string }>;
-  try {
-    addresses = await lookup(host, { all: true });
-  } catch {
-    return "não foi possível resolver o host";
-  }
-  if (addresses.length === 0) return "host sem endereço";
-  for (const { address } of addresses) {
-    const blocked = outboundUrlProblem(`http://${address.includes(":") ? `[${address}]` : address}/`, { allowPrivate });
-    if (blocked !== undefined) return blocked;
-  }
-  return undefined;
-}
 
 /** URL de audit sem query/hash (assinaturas e tokens não vão para o log). */
 function auditUrl(raw: string): string {
@@ -162,9 +142,30 @@ function safeLink(href: string, label: string, format: WebFetchFormat): string {
   return format === "markdown" ? `[${label}](${target})` : label;
 }
 
+/**
+ * Bloco raw cortado pelo cap (sem `</script>`/`</style>`) vai até o EOF: o
+ * resto da resposta é conteúdo do bloco, nunca texto da página. Sem isso, só
+ * remover a tag de abertura devolveria o JS/CSS cru (#57).
+ */
+function dropUnterminatedRawBlocks(html: string): string {
+  const open = /<(script|style)\b[^>]*>/gi;
+  let searchFrom = 0;
+  for (;;) {
+    open.lastIndex = searchFrom;
+    const match = open.exec(html);
+    if (match === null) return html;
+    const close = new RegExp(`</${match[1]}\\s*>`, "gi");
+    close.lastIndex = open.lastIndex;
+    const closing = close.exec(html);
+    if (closing === null) return html.slice(0, match.index);
+    searchFrom = closing.index + closing[0].length;
+  }
+}
+
 /** Remove blocos perigosos e converte a estrutura básica em markdown/texto. */
 export function htmlToText(html: string, format: WebFetchFormat): string {
   let text = html.replace(/<!doctype[^>]*>/gi, "").replace(/<!--[\s\S]*?-->/g, "");
+  text = dropUnterminatedRawBlocks(text);
   text = text.replace(BLOCKS, "").replace(SELF_CLOSING_BLOCKS, "");
   text = text.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, inner: string) => (
     format === "markdown" ? `\n${"#".repeat(Number(level))} ${stripTags(inner).trim()}\n` : `\n${stripTags(inner).trim()}\n`
@@ -239,7 +240,7 @@ export function createWebFetchTool(deps: WebFetchDeps): Tool {
       let finalUrl = current;
       try {
         for (let hop = 0; hop <= maxRedirects; hop += 1) {
-          const problem = await urlProblem(current, allowPrivate);
+          const problem = await resolvedOutboundUrlProblem(current, { allowPrivate });
           if (problem !== undefined) return failure(`web_fetch: URL recusada (${problem})`);
           const response = await fetchImpl(current, { redirect: "manual", signal: ctx.signal });
           status = response.status;
