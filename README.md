@@ -181,9 +181,9 @@ ASTRO is in **alpha**. Interfaces may still change before a stable release.
 | C1 skills and C2 MCP client | Done |
 | C3 `web_search` and `web_fetch` | Done |
 | C4 agent profiles and isolated subagents | In progress: cheap/strong routing and the `task` tool shipped; the blackboard is pending |
-| C5 deterministic completion gate | Planned: the eval harness and golden dataset exist; the completion gate does not |
+| C5 deterministic completion gate | In progress: 65-case golden dataset, bench success rate/summary, six integration flows and the 80% coverage gate shipped; the deterministic completion gate remains pending |
 | C7 `astro doctor` diagnostics | Done |
-| C7 modular `src/core` split | Blocked by ADR-0020/0021/0022 (event bus) |
+| C7 modular `src/core` and `src/providers` split | Done; the wider event-bus/runtime-boundary split is still unimplemented |
 | C7 session budget and per-environment profiles | Planned |
 | REPL, TUI and sessions improvements (T1–T4) | Planned |
 
@@ -221,6 +221,8 @@ bun run typecheck
 | [`docs/decisions.md`](docs/decisions.md) | Decisions D-01 to D-20. |
 | [`docs/adr/`](docs/adr/) | Architecture decision records. |
 | [`docs/providers.md`](docs/providers.md) | Providers, credentials and SDKs. |
+| [`docs/release.md`](docs/release.md) | Release gate, tag, publish and rollback. |
+| [`docs/eval.md`](docs/eval.md) | Golden dataset, bench metrics and CI scheduling. |
 | [`docs/roadmap.md`](docs/roadmap.md) and [`docs/roadmap-complementar.md`](docs/roadmap-complementar.md) | Completed phases and planned layers. |
 
 ## Contributing
