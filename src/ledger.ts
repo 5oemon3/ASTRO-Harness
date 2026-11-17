@@ -139,13 +139,33 @@ export interface LedgerCompactionEntry {
   seq: number;
 }
 
+/** Evento de esforço no ledger (M5, ADR-0024); sem texto de prompt (I-03). */
+export interface LedgerEffortEntry {
+  schemaVersion: number;
+  ts: string;
+  run: string;
+  agent: string;
+  kind: "effort";
+  event: "jump";
+  from: number;
+  to: number;
+  delta: number;
+  baseline: number;
+  cumulative: number;
+  allowed: boolean;
+  reason: string;
+  /** Hash do segmento; nunca o conteúdo do prompt. */
+  segment?: string;
+  seq: number;
+}
 export type LedgerAnyEntry =
   | LedgerEntry
   | LedgerStateEntry
   | LedgerHandoffEntry
   | LedgerAgentEntry
   | LedgerBudgetEntry
-  | LedgerCompactionEntry;
+  | LedgerCompactionEntry
+  | LedgerEffortEntry;
 
 /** Tipos de evento de handoff durável (ADR-0006). */
 export type HandoffEventKind = "handoff.created" | "handoff.received" | "handoff.failed" | "handoff.ack_timeout";
@@ -424,6 +444,33 @@ export class Ledger {
   /** Eventos de handoff na ordem em que foram gravados. */
   readHandoffs(): LedgerHandoffEntry[] {
     return this.readAllEntries().filter((e): e is LedgerHandoffEntry => (e.kind ?? "").startsWith("handoff."));
+  }
+
+  /** Grava a decisão de salto de esforço (M5): permitida ou negada, sem prompt (I-03). */
+  recordEffortJump(opts: {
+    run: string; agent: string; from: number; to: number; delta: number;
+    baseline: number; cumulative: number; allowed: boolean; reason: string; segment?: string;
+  }): LedgerEffortEntry {
+    const entry: LedgerEffortEntry = {
+      schemaVersion: LEDGER_SCHEMA_VERSION, ts: new Date().toISOString(),
+      run: redactSecrets(opts.run), agent: redactSecrets(opts.agent),
+      kind: "effort", event: "jump",
+      from: opts.from, to: opts.to, delta: opts.delta,
+      baseline: opts.baseline, cumulative: opts.cumulative,
+      allowed: opts.allowed, reason: redactSecrets(opts.reason),
+      ...(opts.segment === undefined ? {} : { segment: redactSecrets(opts.segment, { hexIdentifiers: true }) }),
+      seq: 0,
+    };
+    this.appendWithSeq(entry);
+    return entry;
+  }
+
+  /** Último salto de esforço do run/agent; é o lock persistido que o resume relê. */
+  lastEffortJump(run: string, agent: string): LedgerEffortEntry | undefined {
+    const targetRun = redactSecrets(run);
+    const targetAgent = redactSecrets(agent);
+    return this.readAllEntries().filter((e): e is LedgerEffortEntry =>
+      e.kind === "effort" && e.run === targetRun && e.agent === targetAgent).at(-1);
   }
 
   total(): { tokensIn: number; tokensOut: number; costUsd: number } {

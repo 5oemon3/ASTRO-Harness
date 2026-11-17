@@ -119,6 +119,11 @@ export function assertNarrowed(
   const globalMode = isPlainObject(global.permissions) ? global.permissions.mode : undefined;
   const mergedMode = isPlainObject(merged.permissions) ? merged.permissions.mode : undefined;
   assertNotWider(globalMode, mergedMode, MODE_RANK, "o modo de permissão global");
+  // Escalada de effort é política do usuário: o projeto não liga o auto nem
+  // sobe caps (nem para desligar, para não abrir caminho de widening).
+  if (isPlainObject(projectLayer?.effort)) {
+    throw new ConfigError('config inválida: o projeto não pode declarar "effort" (escalada automática é política global do usuário)');
+  }
   // Budget: teto, janela e escopo não podem crescer.
   const globalBudget = isPlainObject(global.budget) ? global.budget : {};
   const mergedBudget = isPlainObject(merged.budget) ? merged.budget : {};

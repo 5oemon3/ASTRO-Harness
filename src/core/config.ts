@@ -3,7 +3,7 @@ import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capability } from "../capabilities";
-import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type ThinkingMode } from "../call-profile";
+import { PROTECTED_FORBIDDEN_ROOTS, DEFAULT_EFFORT_ESCALATION, MAX_AUTO_JUMP, MAX_EFFORT_LEVEL, type CallConfig, type EffortEscalationConfig, type EffortLevel, type ThinkingMode } from "../call-profile";
 import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "../output-limit";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "../compaction/engine";
 import type { ModelRouting } from "../providers/model-routing";
@@ -315,6 +315,8 @@ export interface AstroConfig {
   permissions: PermissionsConfig;
   /** Segurança (ADR-0027): limiar de entropia para o tier `sensitive`. */
   security?: SecurityConfig;
+  /** Escalada automática de effort (M5, ADR-0024); ausente = off. */
+  effort?: EffortEscalationConfig;
   /** Tabela de preços global (C6): key `provider/model-id` sobrescreve `model.price` para custo. */
   pricing?: Record<string, PriceConfig>;
   /** Servidores MCP (C2, #56): key é o nome usado no namespace mcp__<server>__<tool>. */
@@ -1090,6 +1092,30 @@ function validateBudget(value: unknown): BudgetConfig {
   };
 }
 
+/** Valida a seção opcional `effort` (M5, ADR-0024): off por default e caps fechados. */
+function validateEffort(value: unknown): EffortEscalationConfig {
+  const raw = expectObject(value, "effort");
+  for (const key of Object.keys(raw)) {
+    if (!["auto", "autoJumpMax", "maxCumulativeJump"].includes(key)) {
+      fail(`config inválida: "effort.${key}" desconhecido`);
+    }
+  }
+  const auto = raw.auto === undefined ? DEFAULT_EFFORT_ESCALATION.auto : expectBoolean(raw.auto, "effort.auto");
+  const autoJumpMax = raw.autoJumpMax === undefined
+    ? DEFAULT_EFFORT_ESCALATION.autoJumpMax
+    : expectPositiveInteger(raw.autoJumpMax, "effort.autoJumpMax");
+  if (autoJumpMax > MAX_AUTO_JUMP) {
+    fail(`config inválida: "effort.autoJumpMax" deve ser um inteiro entre 1 e ${MAX_AUTO_JUMP}`);
+  }
+  const maxCumulativeJump = raw.maxCumulativeJump === undefined
+    ? DEFAULT_EFFORT_ESCALATION.maxCumulativeJump
+    : expectNonNegativeInteger(raw.maxCumulativeJump, "effort.maxCumulativeJump");
+  if (maxCumulativeJump > MAX_EFFORT_LEVEL) {
+    fail(`config inválida: "effort.maxCumulativeJump" deve ser um inteiro entre 0 e ${MAX_EFFORT_LEVEL}`);
+  }
+  return { auto, autoJumpMax, maxCumulativeJump };
+}
+
 /** Valida a seção opcional `run` (Q-01/L1, ADR-0014): maxTurns, checkpointAt, noProgressSegments e judge. */
 function validateRun(value: unknown): RunConfig {
   const raw = expectObject(value, "run");
@@ -1562,8 +1588,9 @@ export function validateConfig(raw: unknown): AstroConfig {
 
   // Segurança (ADR-0027, #391 slice 3b): ausente = sem seção `security`
   const security = root.security === undefined ? undefined : validateSecurity(root.security);
+  const effort = root.effort === undefined ? undefined : validateEffort(root.effort);
 
-  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), ...(security === undefined ? {} : { security }), attachments: validateAttachments(root.attachments), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
+  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), ...(security === undefined ? {} : { security }), ...(effort === undefined ? {} : { effort }), attachments: validateAttachments(root.attachments), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
 }
 
 /** Lê o JSON cru de um config, sem validar (o merge por camadas vem antes). */

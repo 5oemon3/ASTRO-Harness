@@ -21,7 +21,7 @@ import type { SpanHandle, TracerLike } from "../tracing";
 import { assertWithinQuota, type QuotaLimit } from "../quota";
 import { assertAgentQuota, assertProjectBudget } from "../team";
 import { acquireAgentLock, findAgentLock, releaseAgentLock } from "../agent-lock";
-import type { AppliedCallProfile, CallSelection } from "../call-profile";
+import { initialEffortJumpState, MAX_EFFORT_LEVEL, planAutoJump, type AppliedCallProfile, type CallSelection, type EffortEscalationConfig, type EffortJumpState } from "../call-profile";
 import type { ModelRouting } from "../providers/model-routing";
 import { CompactionPausedError } from "../compaction/breaker";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "../compaction/engine";
@@ -54,6 +54,53 @@ export interface EffectiveIdentity {
 /** Resolve a identidade efetiva a partir do provider/model que responderam. */
 export type IdentityResolver = (provider: string, model: string) => EffectiveIdentity | undefined;
 
+/** Lock de salto por agente (M5): estado relido do ledger do mesmo run; resume mantém caps/baseline. */
+class EffortEscalator {
+  readonly #states = new Map<string, EffortJumpState>();
+
+  constructor(private readonly ledger: Ledger, private readonly run: string, private readonly config: EffortEscalationConfig | undefined) {}
+  get on(): boolean { return this.config?.auto === true; }
+
+  level(agent: string, base: number): number {
+    return this.on ? this.#state(agent, base).current : base;
+  }
+
+  jump(agent: string, base: number, segment: string): number | undefined {
+    if (!this.on) return undefined;
+    const state = this.#state(agent, base);
+    const plan = planAutoJump(state, this.config!, segment);
+    if (plan.allowed || plan.reason !== "segment_attempted") {
+      this.ledger.recordEffortJump({
+        run: this.run, agent, from: state.current, to: plan.level,
+        delta: plan.allowed ? plan.delta : 0, baseline: plan.state.baseline,
+        cumulative: plan.state.cumulative, allowed: plan.allowed, reason: plan.reason, segment,
+      });
+    }
+    this.#states.set(agent, plan.state);
+    return plan.allowed ? plan.level : undefined;
+  }
+
+  #state(agent: string, base: number): EffortJumpState {
+    const cached = this.#states.get(agent);
+    if (cached !== undefined) return cached;
+    const last = this.ledger.lastEffortJump(this.run, agent);
+    const level = (value: unknown): value is number =>
+      typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_EFFORT_LEVEL;
+    // Ledger corrompido não derruba o run: entrada fora de 0..4 é ignorada.
+    if (last !== undefined && level(last.baseline) && level(last.to)
+      && level(last.cumulative)) {
+      const state: EffortJumpState = {
+        baseline: last.baseline, current: last.to, cumulative: last.cumulative,
+        ...(last.allowed || last.segment === undefined ? {} : { attemptedSegment: last.segment }),
+      };
+      this.#states.set(agent, state);
+      return state;
+    }
+    const initial = initialEffortJumpState(base);
+    this.#states.set(agent, initial);
+    return initial;
+  }
+}
 export interface SessionOptions {
   run: string;
   agent: string;
@@ -118,6 +165,8 @@ export interface SessionOptions {
   noProgressSegments?: number;
   /** Decisor de não-progresso (L6); ausente = para seguro com `NoProgressError` (I-19). */
   onNoProgress?: NoProgressDecider;
+  /** Escalada automática de effort (M5, ADR-0024); ausente = off. */
+  effort?: EffortEscalationConfig;
   /** Hash da tarefa (nunca o prompt cru) para o resumo do checkpoint (L5, I-03/prompt não persistido). */
   taskHash?: string;
   /**
@@ -310,6 +359,11 @@ export async function runSession(
   const knownAgents = opts.knownAgents ?? [];
   // L5/L6 (#135): guarda do loop, só quando configurada (app.ts passa config.run)
   const tracker = opts.noProgressSegments === undefined ? undefined : new ProgressTracker(opts.noProgressSegments);
+  const escalator = new EffortEscalator(opts.ledger, opts.run, opts.effort);
+  const escalationBase = opts.call?.lvl ?? 2;
+  const escalates = escalator.on && opts.model.call?.effort !== undefined;
+  let callSelection: CallSelection | undefined = opts.call === undefined ? undefined : { ...opts.call };
+  if (escalates) callSelection = { ...(callSelection ?? {}), lvl: escalator.level(opts.agent, escalationBase) };
   let checkpointWritten = false;
   const touchedFiles: string[] = [];
   let budgetWarned = false;
@@ -407,7 +461,7 @@ export async function runSession(
           messages: safePrompt(current),
           tools: opts.executor.defs(),
           ...(opts.agentProfile === undefined ? {} : { profile: opts.agentProfile }),
-          ...(opts.call === undefined ? {} : { call: opts.call }),
+          ...(callSelection === undefined ? {} : { call: callSelection }),
           ...(opts.onToken === undefined ? {} : { onToken: opts.onToken }),
         }, opts.signal),
         summarize: (input) => opts.provider.complete({
@@ -564,10 +618,19 @@ export async function runSession(
         }
       }
       // L6 (#135): segmentos iguais consecutivos → audit + pergunta; sem "continuar", para seguro
+      const stepSegment = tracker === undefined ? undefined : segmentHash(stepTouched, toolErrors);
       if (tracker !== undefined && opts.noProgressSegments !== undefined
-          && tracker.record(segmentHash(stepTouched, toolErrors))) {
+          && stepSegment !== undefined && tracker.record(stepSegment)) {
         opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "loop.no_progress",
           payload: { step, segments: opts.noProgressSegments } });
+        // M5 (#451): sobe o esforço antes de pausar; sem salto permitido, fluxo normal.
+        const jumped = escalates ? escalator.jump(opts.agent, escalationBase, stepSegment) : undefined;
+        if (jumped !== undefined) {
+          callSelection = { ...(callSelection ?? {}), lvl: jumped };
+          tracker.reset();
+          tracer?.end(stepSpan);
+          continue;
+        }
         const proceed = opts.onNoProgress === undefined
           ? false
           : await opts.onNoProgress({ run: opts.run, agent: opts.agent, step, segments: opts.noProgressSegments });
@@ -781,6 +844,8 @@ export interface MultiAgentSessionOptions {
   noProgressSegments?: number;
   /** Decisor de não-progresso (L6); ausente = para seguro com `NoProgressError` (I-19). */
   onNoProgress?: NoProgressDecider;
+  /** Escalada automática de effort (M5, ADR-0024); ausente = off. */
+  effort?: EffortEscalationConfig;
   /** Hash da tarefa (nunca o prompt cru) para o resumo do checkpoint (L5, I-03). */
   taskHash?: string;
   /** Escolha do call profile (E1–E5); ausente = defaults do modelo. */
@@ -848,6 +913,15 @@ export async function runMultiAgentSession(
   // L5/L6 (#135): checkpoint por agente ativo e guarda de não-progresso por agente.
   const checkpointedAgents = new Set<string>();
   const progressByAgent = new Map<string, ProgressTracker>();
+  const escalator = new EffortEscalator(opts.ledger, opts.run, opts.effort);
+  const callByAgent = new Map<string, CallSelection>();
+  const escalationBase = opts.call?.lvl ?? 2;
+  const callFor = (agent: string, agentModel: ModelEntry): CallSelection | undefined => {
+    if (!escalator.on || agentModel.call?.effort === undefined) return opts.call;
+    const selection = callByAgent.get(agent) ?? { ...(opts.call ?? {}), lvl: escalator.level(agent, escalationBase) };
+    callByAgent.set(agent, selection);
+    return selection;
+  };
   const touchedFiles: string[] = [];
 
   const messages: ChatMessage[] = [
@@ -967,9 +1041,19 @@ export async function runMultiAgentSession(
       tracker = new ProgressTracker(opts.noProgressSegments);
       progressByAgent.set(agent, tracker);
     }
-    if (!tracker.record(segmentHash(stepTouched, toolErrors))) return;
+    const segment = segmentHash(stepTouched, toolErrors);
+    if (!tracker.record(segment)) return;
     opts.audit.append({ run: opts.run, agent, tipo: "loop.no_progress",
       payload: { step, segments: opts.noProgressSegments } });
+    const selection = escalator.on ? callByAgent.get(agent) : undefined;
+    if (selection !== undefined) {
+      const jumped = escalator.jump(agent, escalationBase, segment);
+      if (jumped !== undefined) {
+        callByAgent.set(agent, { ...selection, lvl: jumped });
+        tracker.reset();
+        return;
+      }
+    }
     const proceed = opts.onNoProgress === undefined
       ? false
       : await opts.onNoProgress({ run: opts.run, agent, step, segments: opts.noProgressSegments });
@@ -1130,6 +1214,7 @@ export async function runMultiAgentSession(
       );
       // Wrappers atribuem swap.* ao agente que está executando (F-19/I-04)
       if (opts.activeAgent !== undefined) opts.activeAgent.name = currentAgentName;
+      const stepCall = callFor(currentAgentName, currentModel);
       const providerFor = (): Provider =>
         opts.providerFor?.(currentModel, currentAgent.profile, currentAgent.modelRouting) ?? opts.provider;
       const response = await completeWithCompaction(messages, {
@@ -1147,7 +1232,7 @@ export async function runMultiAgentSession(
           messages: safePrompt(current),
           tools: executor.defs(),
           ...(currentAgent.profile === undefined ? {} : { profile: currentAgent.profile }),
-          ...(opts.call === undefined ? {} : { call: opts.call }),
+          ...(stepCall === undefined ? {} : { call: stepCall }),
           ...(opts.onToken === undefined ? {} : { onToken: opts.onToken }),
         }, opts.signal),
         summarize: (input) => providerFor().complete({

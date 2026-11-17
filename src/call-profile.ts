@@ -207,6 +207,63 @@ export function applyCallToBody(
   return applied;
 }
 
+/** Teto da escala `lvl` implementada (E1); maior salto automático aceito (ADR-0024). */
+export const MAX_EFFORT_LEVEL = 4;
+export const MAX_AUTO_JUMP = 2;
+/** Escalada automática no sinal de não-progresso (M5, ADR-0024); `auto: false` = off. */
+export interface EffortEscalationConfig {
+  auto: boolean;
+  /** Salto máximo por decisão, 1..2; default 1. */
+  autoJumpMax: number;
+  /** Teto acumulado acima do baseline, 0..4; default 3. */
+  maxCumulativeJump: number;
+}
+export const DEFAULT_EFFORT_ESCALATION: EffortEscalationConfig = Object.freeze({
+  auto: false, autoJumpMax: 1, maxCumulativeJump: 3,
+});
+/** Estado do lock de salto de um agente, reconstruível do ledger (resume). */
+export interface EffortJumpState {
+  baseline: number;
+  current: number;
+  cumulative: number;
+  /** Segmento que já tentou salto (uma tentativa por segmento). */
+  attemptedSegment?: string;
+}
+export type EffortJumpPlan =
+  | { allowed: true; level: number; delta: number; state: EffortJumpState; reason: "up_auto" }
+  | { allowed: false; level: number; state: EffortJumpState; reason: "off" | "segment_attempted" | "ceiling" | "cumulative_cap" };
+/** Estado inicial: baseline é o nível da sessão (default 2 quando o modelo declara effort). */
+export function initialEffortJumpState(lvl: number | undefined): EffortJumpState {
+  const baseline = lvl === undefined ? 2 : normalizeLevel(lvl);
+  return { baseline, current: baseline, cumulative: 0 };
+}
+
+/**
+ * Decide o salto automático (M5, ADR-0024): até `autoJumpMax` por decisão e
+ * `maxCumulativeJump` acima do baseline, cortado também pelo teto `lvl` 4.
+ */
+export function planAutoJump(
+  state: EffortJumpState,
+  config: EffortEscalationConfig,
+  segment: string,
+): EffortJumpPlan {
+  const denied = (reason: "off" | "segment_attempted" | "ceiling" | "cumulative_cap", mark = true): EffortJumpPlan =>
+    ({ allowed: false, level: state.current, reason, state: mark ? { ...state, attemptedSegment: segment } : state });
+  if (!config.auto) return denied("off", false);
+  if (state.attemptedSegment === segment) return denied("segment_attempted", false);
+  const room = MAX_EFFORT_LEVEL - state.current;
+  const budget = config.maxCumulativeJump - state.cumulative;
+  const delta = Math.min(config.autoJumpMax, room, budget);
+  if (delta <= 0) return denied(room <= 0 ? "ceiling" : "cumulative_cap");
+  return {
+    allowed: true,
+    level: state.current + delta,
+    delta,
+    reason: "up_auto",
+    state: { baseline: state.baseline, current: state.current + delta, cumulative: state.cumulative + delta },
+  };
+}
+
 /** Plano de mudança de esforço: descer e subir 1–2 é automático; 3+ pede aprovação (E4/E5). */
 export function planEffortChange(
   from: number,

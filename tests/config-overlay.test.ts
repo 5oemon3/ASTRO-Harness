@@ -217,6 +217,20 @@ test("rejeita: o projeto eleva o teto de custo global", () => {
     project({ quota: { acme: { monthlyCostUsd: 1000 } } }))).toThrow(/amplia o budget global/);
 });
 
+test("rejeita: o projeto declara effort (política do usuário)", () => {
+  // Mesmo desligado no global, o projeto não liga o auto nem sobe caps.
+  expect(() => effective({ effort: { auto: false } },
+    project({ effort: { auto: true, autoJumpMax: 2, maxCumulativeJump: 4 } })))
+    .toThrow(/effort/);
+  expect(() => effective({ effort: { auto: true, maxCumulativeJump: 1 } },
+    project({ effort: { maxCumulativeJump: 4 } }))).toThrow(/effort/);
+  // Ausente no global, o default é off: o projeto também não liga.
+  expect(() => effective(undefined, project({ effort: { auto: true } }))).toThrow(/effort/);
+  // A camada global continua aceita; o projeto fica sem declarar effort.
+  expect(effective({ effort: { auto: true, autoJumpMax: 1, maxCumulativeJump: 2 } }, project()).config.effort)
+    .toMatchObject({ auto: true, autoJumpMax: 1, maxCumulativeJump: 2 });
+});
+
 test("rejeita: o projeto troca o domínio de quota do provider global", () => {
   // O domínio do provider é política de custo (o runtime usa
   // `quotaDomain ?? "default"`): trocar o domínio escapa do teto global, porque

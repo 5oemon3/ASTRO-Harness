@@ -973,6 +973,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
           ? {}
           : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
         ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
+        ...(config.effort === undefined ? {} : { effort: config.effort }),
         ...(opts.allowCritical === undefined && opts.allowSensitive === undefined ? {} : { allowCritical: opts.allowCritical, allowSensitive: opts.allowSensitive }),
         ...(signal === undefined ? {} : { signal }),
         ...(quotaLimits === undefined ? {} : { quotaLimits }),
@@ -1064,6 +1065,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
           ? {}
           : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
         ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
+        ...(config.effort === undefined ? {} : { effort: config.effort }),
         ...(tracer === undefined ? {} : { tracer }),
         ...(opts.onToken === undefined ? {} : { onToken: opts.onToken }),
         resolveIdentity,
@@ -1114,6 +1116,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
             ? {}
             : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
           ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
+          ...(config.effort === undefined ? {} : { effort: config.effort }),
           ...(opts.history === undefined ? {} : { history: opts.history }),
           ...(opts.attachments === undefined ? {} : { attachments: opts.attachments }),
           ...(opts.images === undefined ? {} : { images: opts.images }),
