@@ -33,7 +33,7 @@ import { ProviderScreen } from "./provider-screen";
 import { SessionPicker } from "./session-picker";
 import { ConfigScreen } from "./config-screen";
 import { loadTrustedStore, trustStatePath } from "../trust";
-import type { ProfileManager } from "../provider/profile-manager";
+import type { ProfileManager } from "../providers/profile-manager";
 import { budgetSegment, quotaSegment } from "../chat/usage";
 import { createThrottledSink, STREAM_THROTTLE_MS } from "./stream";
 import { HISTORY_LIMIT, visibleWindow } from "./history";

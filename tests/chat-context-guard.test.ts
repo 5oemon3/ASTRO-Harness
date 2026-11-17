@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 import { estimateMessagesTokens, guardContext, trimOldestTurn } from "../src/chat/context-guard";
 
 const sys: ChatMessage = { role: "system", content: "system" };

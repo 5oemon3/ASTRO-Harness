@@ -6,7 +6,7 @@ import { Auditor } from "../src/audit";
 import { ToolExecutor } from "../src/tools/executor";
 import { readFileTool } from "../src/tools/read-file";
 import { writeFileTool } from "../src/tools/write-file";
-import type { ToolCall } from "../src/provider/types";
+import type { ToolCall } from "../src/providers/types";
 import type { Tool } from "../src/tools/types";
 import { dockerSandboxModule, type DockerMock, type RunCommandModule } from "./helpers/docker-mock";
 

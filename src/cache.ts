@@ -9,7 +9,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { throwIfAborted } from "./abort";
-import type { CompletionRequest, CompletionResponse, Provider } from "./provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "./providers/types";
 import { redactSecrets } from "./sanitize-external";
 
 /** Chave determinística da request: modelo + profile + mensagens + tools + call. */

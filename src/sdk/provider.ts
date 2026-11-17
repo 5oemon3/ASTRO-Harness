@@ -20,8 +20,8 @@ import type {
   Provider,
   ToolCall,
   ToolDef,
-} from "../provider/types";
-import { ProviderError } from "../provider/types";
+} from "../providers/types";
+import { ProviderError } from "../providers/types";
 
 // Re-exports do contrato (superfície estável do SDK)
 export type {

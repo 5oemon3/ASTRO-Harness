@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { SessionSnapshot, TurnResult } from "../src/chat/agent-session";
 import type { ChatSession } from "../src/chat/repl";
 import { validateConfig } from "../src/config";
-import { ProfileManager } from "../src/provider/profile-manager";
+import { ProfileManager } from "../src/providers/profile-manager";
 import { TuiApp } from "../src/tui/app";
 
 class Session implements ChatSession {

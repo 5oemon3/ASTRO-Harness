@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateConfig, ConfigError } from "../src/config";
 import { CompletionCache, cacheKey, cachedProvider } from "../src/cache";
-import type { CompletionRequest, CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
 
 const baseConfig = {
   providers: { openai: { kind: "openai-compat" as const, baseUrl: "http://localhost", credentialRef: "OPENAI_API_KEY" } },

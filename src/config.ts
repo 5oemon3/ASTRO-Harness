@@ -6,7 +6,7 @@ import { CAPABILITY_KEYS, isKnownCapability, missingCapabilities, type Capabilit
 import { PROTECTED_FORBIDDEN_ROOTS, type CallConfig, type EffortLevel, type ThinkingMode } from "./call-profile";
 import { DEFAULT_OUTPUT_LIMIT, type OutputLimitConfig } from "./output-limit";
 import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./compaction/engine";
-import type { ModelRouting } from "./provider/model-routing";
+import type { ModelRouting } from "./providers/model-routing";
 import type { WebSearchConfig, WebSearchProvider } from "./tools/web-search";
 import { isPermissionMode, DEFAULT_PERMISSION_MODE, isAgentPermission, type AgentPermission, type PermissionMode } from "./permissions";
 import { isAuthHeader, isEnvName, isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";

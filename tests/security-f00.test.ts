@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
-import { ProviderError } from "../src/provider/types";
+import { ProviderError } from "../src/providers/types";
 import { runTask } from "../src/app";
 import { editTool } from "../src/tools/edit";
 import { readFileTool } from "../src/tools/read-file";

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodexOAuthProvider } from "../src/provider/codex-oauth";
-import { ProviderError } from "../src/provider/types";
+import { CodexOAuthProvider } from "../src/providers/codex-oauth";
+import { ProviderError } from "../src/providers/types";
 
 const jwt = (payload: object) =>
   ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "sig"].join(".");

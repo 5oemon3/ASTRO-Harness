@@ -6,11 +6,11 @@ import { validateConfig, ConfigError } from "../src/config";
 import { Auditor } from "../src/audit";
 import { Ledger } from "../src/ledger";
 import { assertWithinQuota, quotaAvailable, quotaStatus, QuotaExceededError } from "../src/quota";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { ModelEntry } from "../src/registry";
 import { runSession, type SessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor";
-import { ProviderError } from "../src/provider/types";
+import { ProviderError } from "../src/providers/types";
 
 const baseConfig = {
   providers: { openai: { kind: "openai-compat" as const, baseUrl: "http://localhost", credentialRef: "OPENAI_API_KEY" } },

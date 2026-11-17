@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "../src/config";
 import { runHealthCheck } from "../src/health";
-import { resolveEffectiveConfig } from "../src/provider/profiles";
+import { resolveEffectiveConfig } from "../src/providers/profiles";
 import { redactSecrets } from "../src/sanitize-external";
 import { Vault, type VaultBackend } from "../src/vault";
 

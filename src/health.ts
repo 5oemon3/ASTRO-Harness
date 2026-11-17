@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type OpenAICompatProviderConfig, type ProviderConfig } from "./config";
-import { DEFAULT_PRIORITY } from "./provider/fallback-provider";
+import { DEFAULT_PRIORITY } from "./providers/fallback-provider";
 import { Registry } from "./registry";
 import { vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
 

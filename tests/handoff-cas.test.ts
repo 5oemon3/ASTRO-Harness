@@ -4,7 +4,7 @@ import { Auditor } from "../src/audit"; import { Ledger } from "../src/ledger";
 import { buildHandoffArtifact, HandoffError, sanitizeHandoffArtifact, taskHash, type HandoffDraft } from "../src/handoff/types";
 import { verifyHandoffIdentity } from "../src/handoff/verifier";
 import { ackHandoff, scanHandoffs } from "../src/handoff/lifecycle";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor"; import { handoffTool } from "../src/tools/handoff";

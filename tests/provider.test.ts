@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { OpenAICompatProvider } from "../src/provider/openai-compat";
-import { ProviderError, type CompletionRequest } from "../src/provider/types";
+import { OpenAICompatProvider } from "../src/providers/openai-compat";
+import { ProviderError, type CompletionRequest } from "../src/providers/types";
 
 const ok = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

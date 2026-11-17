@@ -1,6 +1,6 @@
 /** Classificação e formatação do health de provider na TUI (#228). */
 import type { HealthCheck, HealthReport } from "../health";
-import type { ErrorClass } from "../provider/types";
+import type { ErrorClass } from "../providers/types";
 import { redactSecrets } from "../sanitize-external";
 
 /** Qualquer classe da taxonomia D-14/D-18, inclusive `hard_quota`. */

@@ -10,14 +10,14 @@ Objetivo: guia de configuração de providers, validação manual de credenciais
 
 | Kind | Providers | Credencial | Onde |
 |---|---|---|---|
-| `openai-compat` | NVIDIA NIM, OpenRouter, Ollama/LM Studio | `credentialRef` (env nomeada ou `vault:<credentialId>`; opcional para provider local) | `src/provider/openai-compat.ts` |
-| `codex-oauth` | Codex OAuth | `~/.codex/auth.json` (lido em runtime; o login da TUI grava nesse caminho) | `src/provider/codex-oauth.ts` |
+| `openai-compat` | NVIDIA NIM, OpenRouter, Ollama/LM Studio | `credentialRef` (env nomeada ou `vault:<credentialId>`; opcional para provider local) | `src/providers/openai-compat.ts` |
+| `codex-oauth` | Codex OAuth | `~/.codex/auth.json` (lido em runtime; o login da TUI grava nesse caminho) | `src/providers/codex-oauth.ts` |
 
 Kinds de plugin são aceitos com `kind` custom e factory registrada por plugin (`src/plugins.ts`, `src/config.ts`).
 
 ## Sementes do catálogo e `astro models list` (#307)
 
-`PROVIDER_CATALOG` (`src/provider/catalog.ts`) alimenta o wizard (`/provider add`) e `astro models list --seeds`:
+`PROVIDER_CATALOG` (`src/providers/catalog.ts`) alimenta o wizard (`/provider add`) e `astro models list --seeds`:
 
 | Chave | Kind | Endpoint / credencial | Modelos |
 |---|---|---|---|
@@ -50,7 +50,7 @@ CRUD: `/provider add` (catálogo ou custom), `/provider edit <nome|id>`, `/provi
 
 O cofre vive em `~/.astro/vault.json` (`ASTRO_HOME` sobrescreve): diretório 0700, arquivo 0600, escrita atômica (`src/vault.ts`). No Windows o segredo é cifrado com DPAPI via PowerShell (segredo só por variável de ambiente do processo filho, nunca na linha de comando); fora do Windows o modo é `plain` 0600, aceito explicitamente com aviso em `astro health` e no start de `chat`/`tui` (`vaultPlainWarning`, fora do agregado de providers). Validação estrita rejeita campo desconhecido e erro cita só o caminho (I-03); `vault.json` é caminho crítico em `src/permissions.ts`; `redactSecrets` cobre o par `"secret": "..."` inteiro. A classe `Vault` (uma credencial ativa por provider) guarda o valor decifrado só em memória durante o uso — listagens e health nunca o expõem. `credentialRef` aceita `vault:<credentialId>` além de env nomeada: a resolução (`src/credential-ref.ts`) lê o valor do cofre em memória, erros nomeiam só o ref e id ausente ou malformado vira `ConfigError` (I-03); o ledger/audit continuam gravando o ref, nunca o valor.
 
-Migração: `astro providers vault-import <provider>` (`src/provider/vault-import.ts`) é dry-run por default — valida que o provider tem `credentialRef` de env e que o valor existe no ambiente sem gravar nada; `--apply` cria a credencial no cofre (`label` = nome da env) e troca só a referência no `astro.config.json` (provider do projeto) ou em `~/.astro/providers.json` (perfil global), pela escrita atômica existente. Se a escrita falhar, a credencial recém-criada é removida (e a ativa anterior é restaurada). Perfil efêmero `env`, kinds que não leem o cofre e refs já migradas são recusados; no `--apply`, o modo `plain` fora do Windows exige `--allow-plain` (o dry-run já mostra o aviso). A saída mostra só refs, nunca o valor (I-03).
+Migração: `astro providers vault-import <provider>` (`src/providers/vault-import.ts`) é dry-run por default — valida que o provider tem `credentialRef` de env e que o valor existe no ambiente sem gravar nada; `--apply` cria a credencial no cofre (`label` = nome da env) e troca só a referência no `astro.config.json` (provider do projeto) ou em `~/.astro/providers.json` (perfil global), pela escrita atômica existente. Se a escrita falhar, a credencial recém-criada é removida (e a ativa anterior é restaurada). Perfil efêmero `env`, kinds que não leem o cofre e refs já migradas são recusados; no `--apply`, o modo `plain` fora do Windows exige `--allow-plain` (o dry-run já mostra o aviso). A saída mostra só refs, nunca o valor (I-03).
 
 ## Custo e preço
 
@@ -80,7 +80,7 @@ Gerenciamento: `bun src/cli.ts providers list` (prioridade e cadeia), `providers
 
 Profiles da model pool aceitam `fallback?: string[]` com nomes de outros profiles. A validação no startup rejeita profile inexistente, autorreferência e ciclo (a mensagem cita o caminho, ex.: `p1 -> p2 -> p1`); `[]` é aceita e equivale a não ter fallback.
 
-O roteador `ProfileFallbackProvider` (`src/provider/profile-fallback-provider.ts`) tenta o profile pedido e percorre `fallback` em ordem declarada (profundidade primeiro, sem repetir profile), reescrevendo `model` para o modelo de cada profile. A política é a existente (F-01/D-14): `auth`/`invalid_request` abortam, `hard_quota` (`provider_quota_exhausted` no Codex) pula e `transient_rate_limit`/`outage` caem para o próximo profile depois dos retries internos. Cada troca audita `profile.failure`/`profile.fallback`; eventos `provider.*` do C6 carregam o `profile` afetado. Pela regra A7/S-13, o destino exige conta livre: o lock do agente migra para a conta do destino (`agent.identity` + `agent.lock.moved`) e um destino ocupado é pulado (`profile.fallback_skipped`) antes do gate, sem entrar na trilha `fallbacks[]`; se nenhum destino estiver livre, o último erro sobe. A credencial do primário nunca acompanha a troca — cada profile usa o próprio `createProvider`. Após um fallback bem-sucedido, o run continua no profile que atendeu (sticky) enquanto o agente detém aquela conta; handoff/novo agente volta ao primário. A cadeia C6 de cada profile segue a mesma regra de conta (`agent.lock.moved`, `provider.fallback_skipped`) e o provider que atendeu também fica sticky pelo run.
+O roteador `ProfileFallbackProvider` (`src/providers/profile-fallback-provider.ts`) tenta o profile pedido e percorre `fallback` em ordem declarada (profundidade primeiro, sem repetir profile), reescrevendo `model` para o modelo de cada profile. A política é a existente (F-01/D-14): `auth`/`invalid_request` abortam, `hard_quota` (`provider_quota_exhausted` no Codex) pula e `transient_rate_limit`/`outage` caem para o próximo profile depois dos retries internos. Cada troca audita `profile.failure`/`profile.fallback`; eventos `provider.*` do C6 carregam o `profile` afetado. Pela regra A7/S-13, o destino exige conta livre: o lock do agente migra para a conta do destino (`agent.identity` + `agent.lock.moved`) e um destino ocupado é pulado (`profile.fallback_skipped`) antes do gate, sem entrar na trilha `fallbacks[]`; se nenhum destino estiver livre, o último erro sobe. A credencial do primário nunca acompanha a troca — cada profile usa o próprio `createProvider`. Após um fallback bem-sucedido, o run continua no profile que atendeu (sticky) enquanto o agente detém aquela conta; handoff/novo agente volta ao primário. A cadeia C6 de cada profile segue a mesma regra de conta (`agent.lock.moved`, `provider.fallback_skipped`) e o provider que atendeu também fica sticky pelo run.
 
 O `app` monta o roteador quando a config declara `modelPool`. Providers são criados sob demanda: credencial ausente em um profile não impede o fallback. A cadeia de cada profile é sempre embrulhada pelo C6 (retry da F-01 e `profile` no audit); requisição sem `profile` segue o caminho anterior (model base e C6 só com fallback de provider declarado).
 
@@ -90,7 +90,7 @@ O ledger (F-31d) grava a identidade efetiva que atendeu — `provider`, `model`,
 
 ## Roteamento barato/forte por agente (#58)
 
-`agents.<nome>.modelRouting` declara `cheapModel`/`strongModel` (`provider/id` ativos, no mesmo provider do agente — troca de conta exige aprovação). A compactação (sumarização) chama com `purpose: "cheap"`; a geração usa `strong` por default, e um lado não declarado cai no `model` do agente. O roteador (`src/provider/model-routing.ts`) resolve o provider guardado do modelo de destino — quota, cache e audit ficam no modelo que atendeu — e o ledger grava a identidade efetiva. `profile` e `modelRouting` não combinam: a pool já roteia.
+`agents.<nome>.modelRouting` declara `cheapModel`/`strongModel` (`provider/id` ativos, no mesmo provider do agente — troca de conta exige aprovação). A compactação (sumarização) chama com `purpose: "cheap"`; a geração usa `strong` por default, e um lado não declarado cai no `model` do agente. O roteador (`src/providers/model-routing.ts`) resolve o provider guardado do modelo de destino — quota, cache e audit ficam no modelo que atendeu — e o ledger grava a identidade efetiva. `profile` e `modelRouting` não combinam: a pool já roteia.
 
 ## Call profile por modelo (E1-E8, ADR-0012)
 

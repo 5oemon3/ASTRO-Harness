@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { errorPolicy, DEFAULT_LIMITS } from "../src/provider/policy";
-import type { ErrorClass } from "../src/provider/types";
+import { errorPolicy, DEFAULT_LIMITS } from "../src/providers/policy";
+import type { ErrorClass } from "../src/providers/types";
 
 describe("errorPolicy (F-01)", () => {
   test("transient_rate_limit: retry_after até o limite, depois fallback", () => {

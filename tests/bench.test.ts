@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { benchModel, filterModels, formatBenchTable, formatMarkdown, runBenchmark, selectBenchModels, summarizeBench, type BenchModelResult, type BenchModelResultLike, type BenchReport, type BenchReportLike } from "../src/eval/bench";
 import type { ModelEntry } from "../src/registry";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 
 const root = join(import.meta.dir, "..");
 const entry = join(root, "src", "cli.ts");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { OpenAICompatProvider } from "../src/provider/openai-compat";
-import type { CompletionRequest } from "../src/provider/types";
+import { OpenAICompatProvider } from "../src/providers/openai-compat";
+import type { CompletionRequest } from "../src/providers/types";
 
 function sse(chunks: string[]): Response {
   const encoder = new TextEncoder();

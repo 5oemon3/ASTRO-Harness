@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs"; import { tmpdir } from "node:os"; import 
 import { Auditor } from "../src/audit"; import { Ledger } from "../src/ledger";
 import { buildHandoffArtifact, handoffId, HandoffError, type HandoffArtifactV1, type HandoffDraft } from "../src/handoff/types";
 import { ackHandoff, scanHandoffs } from "../src/handoff/lifecycle";
-import type { CompletionRequest, CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { MaxStepsError, runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor"; import { handoffTool } from "../src/tools/handoff";

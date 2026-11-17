@@ -4,8 +4,8 @@ import {
   providerIdentityFor,
   type EffectiveConfig,
   type ProviderSource,
-} from "./provider/profiles";
-import { PROVIDER_CATALOG, type CatalogEntry } from "./provider/catalog";
+} from "./providers/profiles";
+import { PROVIDER_CATALOG, type CatalogEntry } from "./providers/catalog";
 
 export interface CatalogModel {
   ref: string;

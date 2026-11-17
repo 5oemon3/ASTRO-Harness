@@ -3,7 +3,7 @@
  * descarte do turno mais antigo acima de 100%, preservando o system prompt.
  * A estimativa é heurística (4 chars ≈ 1 token) — a mesma dos compactadores.
  */
-import type { ChatMessage } from "../provider/types";
+import type { ChatMessage } from "../providers/types";
 import { imageTokens } from "../tokens";
 
 export function estimateMessageTokens(message: ChatMessage): number {

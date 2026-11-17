@@ -1,7 +1,7 @@
 /** Wizard linear de `/provider add|edit`: prompts no REPL, sem tocar segredo. */
-import { PROVIDER_CATALOG, type CatalogEntry } from "../provider/catalog";
-import type { ProfileDraft, ProfileManager, ProfileView } from "../provider/profile-manager";
-import type { ProfileModel, ProviderProfile } from "../provider/profiles";
+import { PROVIDER_CATALOG, type CatalogEntry } from "../providers/catalog";
+import type { ProfileDraft, ProfileManager, ProfileView } from "../providers/profile-manager";
+import type { ProfileModel, ProviderProfile } from "../providers/profiles";
 
 export interface WizardIO {
   read(prompt: string): Promise<string | null>;
@@ -18,7 +18,7 @@ export interface WizardOptions {
 
 const DEFAULT_CONTEXT = 128_000;
 
-/** Mesmo padrão de `ENV_NAME` em src/provider/profiles.ts: nome de variável de ambiente. */
+/** Mesmo padrão de `ENV_NAME` em src/providers/profiles.ts: nome de variável de ambiente. */
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
 
 function messageOf(error: unknown): string {

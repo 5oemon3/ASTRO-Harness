@@ -3,7 +3,7 @@
  * `HandoffArtifactV1`. Seções Active, Blocked, Next Move, Relevant Files
  * (máx. 15) e Important Context; campos compartilhados com handoff são copiados.
  */
-import type { ChatMessage } from "../provider/types";
+import type { ChatMessage } from "../providers/types";
 
 export interface CompactionArtifactV1 {
   schemaVersion: 1;

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadProfileStore, profilesPath, saveProfileStore } from "../src/provider/profiles";
+import { loadProfileStore, profilesPath, saveProfileStore } from "../src/providers/profiles";
 
 const profile = {
   id: "openai-work",

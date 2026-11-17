@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Auditor } from "../audit";
 import { Ledger } from "../ledger";
-import type { CompletionResponse, Provider } from "../provider/types";
+import type { CompletionResponse, Provider } from "../providers/types";
 import type { ModelEntry } from "../registry";
 import { runSession } from "../session";
 import { ToolExecutor } from "../tools/executor";

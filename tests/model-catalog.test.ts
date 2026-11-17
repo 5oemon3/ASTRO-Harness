@@ -5,7 +5,7 @@ import {
   resolveEffectiveConfig,
   type EffectiveConfig,
   type ProviderStore,
-} from "../src/provider/profiles";
+} from "../src/providers/profiles";
 import { buildModelCatalog, formatModelCatalog } from "../src/model-catalog";
 
 const SENTINEL = "sentinel-xyz";

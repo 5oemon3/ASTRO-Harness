@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { buildHandoffArtifact } from "../src/handoff/types";
 import { Ledger, type LedgerAgentEntry } from "../src/ledger";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { ReplayIncompleteError, planResume, rebuildAgentTree } from "../src/resume";
 import { runMultiAgentSession, runSession, type MultiAgentSessionOptions, type SessionOptions } from "../src/session";

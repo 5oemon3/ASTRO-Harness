@@ -6,7 +6,7 @@ import { Auditor } from "../src/audit";
 import { runTask } from "../src/app";
 import { CompactionPausedError, recordCompactionFailure } from "../src/compaction/breaker";
 import { Ledger } from "../src/ledger";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { runMultiAgentSession } from "../src/session";
 import { handoffTool } from "../src/tools/handoff";

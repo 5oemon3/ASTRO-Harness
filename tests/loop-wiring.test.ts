@@ -13,7 +13,7 @@ import {
   toolCallPath,
   type CheckpointV1,
 } from "../src/loop-guard";
-import type { CompletionRequest, CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
 import type { ModelEntry } from "../src/registry";
 import { runSession, MaxStepsError, type SessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor";

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { validateProfileStore } from "../src/provider/profiles";
+import { validateProfileStore } from "../src/providers/profiles";
 
 const baseProfile = {
   id: "openai-work",

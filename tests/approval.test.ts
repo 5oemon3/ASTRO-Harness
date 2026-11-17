@@ -6,9 +6,9 @@ import { Auditor } from "../src/audit";
 import { runTask } from "../src/app";
 import { SwapDeniedError, swapDelta, type SwapRequest } from "../src/approval";
 import { Ledger } from "../src/ledger";
-import { FallbackProvider } from "../src/provider/fallback-provider";
-import { ProfileFallbackProvider } from "../src/provider/profile-fallback-provider";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import { FallbackProvider } from "../src/providers/fallback-provider";
+import { ProfileFallbackProvider } from "../src/providers/profile-fallback-provider";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import { testEnv } from "./setup";
 
 const resp = (content: string): CompletionResponse => ({ content, toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 } });

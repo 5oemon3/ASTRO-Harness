@@ -8,7 +8,7 @@ import { SwapDeniedError } from "../src/approval";
 import { scanHandoffs } from "../src/handoff/lifecycle";
 import { buildHandoffArtifact } from "../src/handoff/types";
 import { Ledger } from "../src/ledger";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor";

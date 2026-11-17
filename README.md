@@ -44,7 +44,7 @@ The current module boundaries are:
 |---|---|
 | `src/cli.ts` | Argument parsing and command routing. |
 | `src/app.ts`, `src/session.ts` | Run orchestration and the single-agent loop. |
-| `src/provider/` | Provider adapters, profiles, fallback and model routing. |
+| `src/providers/` | Provider adapters, profiles, fallback and model routing. |
 | `src/tools/` | Built-in tools, path confinement, sandbox and web tools. |
 | `src/skills/`, `src/mcp/` | Skills and MCP capability integrations. |
 | `src/audit.ts`, `src/ledger.ts`, `src/metrics.ts`, `src/tracing.ts` | Audit, cost, metrics and tracing. |

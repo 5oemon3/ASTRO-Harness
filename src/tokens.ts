@@ -4,7 +4,7 @@
  * provider registra um; senão estimativa documentada de 4 chars/token, sempre
  * marcada como `estimate` e nunca zero para texto não vazio.
  */
-import type { ChatMessage, CompletionRequest, ImagePart, ToolDef } from "./provider/types";
+import type { ChatMessage, CompletionRequest, ImagePart, ToolDef } from "./providers/types";
 
 /** De onde veio a contagem: tokenizer do provider ou estimativa 4 chars/token. */
 export type TokenSource = "measured" | "estimate";

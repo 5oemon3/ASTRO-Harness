@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession } from "../src/chat/agent-session";
-import { saveProfileStore } from "../src/provider/profiles";
+import { saveProfileStore } from "../src/providers/profiles";
 
 test("reload preserva a escolha explícita e cai no projeto se o modelo sumir", () => {
   const cwd = mkdtempSync(join(tmpdir(), "astro-reload-"));

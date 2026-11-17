@@ -7,8 +7,8 @@ import { AccountLockedError, activeLocks, type AgentLock } from "../src/agent-lo
 import { Ledger } from "../src/ledger";
 import { Registry } from "../src/registry";
 import { Auditor } from "../src/audit";
-import { FallbackProvider } from "../src/provider/fallback-provider";
-import { ProviderError, type CompletionRequest, type CompletionResponse, type Provider } from "../src/provider/types";
+import { FallbackProvider } from "../src/providers/fallback-provider";
+import { ProviderError, type CompletionRequest, type CompletionResponse, type Provider } from "../src/providers/types";
 import { runTask } from "../src/app";
 import { testEnv } from "./setup";
 

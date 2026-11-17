@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "../src/config";
 import { runProviderWizard } from "../src/chat/provider-wizard";
-import { ProfileManager } from "../src/provider/profile-manager";
-import { loadProfileStore } from "../src/provider/profiles";
+import { ProfileManager } from "../src/providers/profile-manager";
+import { loadProfileStore } from "../src/providers/profiles";
 
 function project() {
   return validateConfig({

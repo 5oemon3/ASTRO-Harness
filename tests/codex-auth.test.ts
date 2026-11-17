@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readCodexAuth, refreshCodexTokens } from "../src/provider/codex-auth";
+import { readCodexAuth, refreshCodexTokens } from "../src/providers/codex-auth";
 
 const dir = () => mkdtempSync(join(tmpdir(), "astro-codex-"));
 const jwt = (payload: object) =>

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { Ledger, LEDGER_SCHEMA_VERSION } from "../src/ledger";
-import type { CompletionRequest, CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
 import type { ModelEntry } from "../src/registry";
 import { MaxStepsError, runSession, type SessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor";

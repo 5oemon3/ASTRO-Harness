@@ -11,7 +11,7 @@ import {
   saveProfileStore,
   type ProviderProfile,
   type ProviderStore,
-} from "../src/provider/profiles";
+} from "../src/providers/profiles";
 
 function project(provider = "p", model = "m1"): AstroConfig {
   return validateConfig({

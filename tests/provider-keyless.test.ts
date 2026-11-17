@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createProvider } from "../src/app";
 import { validateConfig, type AstroConfig } from "../src/config";
 import { Ledger } from "../src/ledger";
-import { OpenAICompatProvider } from "../src/provider/openai-compat";
+import { OpenAICompatProvider } from "../src/providers/openai-compat";
 import { Registry } from "../src/registry";
 
 function configFor(provider: Record<string, unknown>): AstroConfig {

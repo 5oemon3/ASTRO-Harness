@@ -25,7 +25,7 @@ import {
 } from "../permissions";
 import { AllowlistInvalidError, classifyPath, type PathClass } from "../path-class";
 import { join, relative } from "node:path";
-import type { ToolCall, ToolDef } from "../provider/types";
+import type { ToolCall, ToolDef } from "../providers/types";
 import type { Tool, ToolContext, ToolResult } from "./types";
 
 const TIMEOUT = Symbol("timeout");

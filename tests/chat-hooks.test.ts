@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTask } from "../src/app";
 import { Auditor } from "../src/audit";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 import { Ledger } from "../src/ledger";
 import { testEnv } from "./setup";
 

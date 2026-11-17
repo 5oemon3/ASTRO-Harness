@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { PROVIDER_CATALOG, catalogEntry } from "../src/provider/catalog";
-import { validateProfileStore } from "../src/provider/profiles";
+import { PROVIDER_CATALOG, catalogEntry } from "../src/providers/catalog";
+import { validateProfileStore } from "../src/providers/profiles";
 
 const asProfile = (entry: (typeof PROVIDER_CATALOG)[number]) => ({
   id: entry.key,

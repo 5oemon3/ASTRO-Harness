@@ -7,7 +7,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelEntry } from "../registry";
-import type { CompletionRequest, CompletionResponse, Provider } from "../provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "../providers/types";
 
 /** Suite padrão de prompts: mesma para todos os modelos. */
 const PROMPTS: readonly string[] = [

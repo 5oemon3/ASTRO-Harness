@@ -5,7 +5,7 @@ import {
   MAX_HOOK_TOOL_RESULT_CHARS,
   sanitizeHookMessage,
 } from "../src/chat/hooks";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 
 const secret = ["ghp", "_", "hook", "secret", "123456"].join("");
 

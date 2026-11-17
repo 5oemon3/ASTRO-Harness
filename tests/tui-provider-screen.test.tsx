@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateConfig } from "../src/config";
 import { ProviderScreen, listActions } from "../src/tui/provider-screen";
-import { ProfileManager } from "../src/provider/profile-manager";
+import { ProfileManager } from "../src/providers/profile-manager";
 import { getThemeColors } from "../src/tui/theme";
 import { runCommand } from "../src/tui/commands";
 import type { ChatSession } from "../src/chat/repl";

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { callId, CallJournal } from "../src/call-id";
 import { Ledger } from "../src/ledger";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { ModelEntry } from "../src/registry";
 import { runSession, runMultiAgentSession, type SessionOptions, type MultiAgentSessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor";

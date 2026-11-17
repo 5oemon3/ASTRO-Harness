@@ -3,7 +3,7 @@
  * janela, parte recente, níveis de redução e artefato. O resumo é gerado por
  * um callback injetado que NUNCA expõe tools (CMP-4).
  */
-import type { ChatMessage } from "../provider/types";
+import type { ChatMessage } from "../providers/types";
 import { redactSecrets } from "../sanitize-external";
 import { countMessageTokens } from "../tokens";
 import { buildCompactionArtifact, renderCompactionArtifact, type CompactionArtifactV1 } from "./types";

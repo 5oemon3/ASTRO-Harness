@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadEffectiveConfig } from "../src/provider/profiles";
+import { loadEffectiveConfig } from "../src/providers/profiles";
 
 const PATHS = { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" };
 const provider = (id: string): Record<string, unknown> => ({ kind: "openai-compat", baseUrl: `https://${id}.example/v1`, credentialRef: `${id}_KEY` });

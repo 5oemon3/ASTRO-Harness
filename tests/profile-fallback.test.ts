@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { AccountLockedError, type AgentLock } from "../src/agent-lock";
-import { ProfileFallbackProvider, type ProfileChainEntry } from "../src/provider/profile-fallback-provider";
-import { ProviderError, type CompletionRequest, type CompletionResponse, type Provider } from "../src/provider/types";
+import { ProfileFallbackProvider, type ProfileChainEntry } from "../src/providers/profile-fallback-provider";
+import { ProviderError, type CompletionRequest, type CompletionResponse, type Provider } from "../src/providers/types";
 
 const resp = (content: string, provider?: string): CompletionResponse => ({
   content,

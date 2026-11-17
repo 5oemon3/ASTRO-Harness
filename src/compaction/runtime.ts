@@ -6,7 +6,7 @@
 import { throwIfAborted, isAbortError } from "../abort";
 import type { Auditor } from "../audit";
 import type { Ledger } from "../ledger";
-import { ProviderError, type ChatMessage, type CompletionResponse } from "../provider/types";
+import { ProviderError, type ChatMessage, type CompletionResponse } from "../providers/types";
 import {
   CompactionPausedError,
   compactionState,

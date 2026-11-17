@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { Auditor } from "../audit";
-import { loadEffectiveConfig } from "../provider/profiles";
+import { loadEffectiveConfig } from "../providers/profiles";
 import { MCPRegistry, mcpToolName } from "./registry";
 import { mcpTools } from "./tool";
 

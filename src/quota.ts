@@ -5,7 +5,7 @@
  * o gasto antes que aconteça. O retry de 429/Retry-After vive no provider.
  */
 import type { Ledger } from "./ledger";
-import { ProviderError } from "./provider/types";
+import { ProviderError } from "./providers/types";
 
 /** Limite de quota por domínio; pelo menos um campo deve existir. */
 export interface QuotaLimit {

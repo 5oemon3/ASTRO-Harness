@@ -2,8 +2,8 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { ConfigError } from "../config";
-import { ProfileManager } from "../provider/profile-manager";
-import { NoProviderError, NO_PROVIDER_MESSAGE, loadProjectConfig } from "../provider/profiles";
+import { ProfileManager } from "../providers/profile-manager";
+import { NoProviderError, NO_PROVIDER_MESSAGE, loadProjectConfig } from "../providers/profiles";
 import { redactSecrets } from "../sanitize-external";
 import { trustChoice, trustPrompt } from "../trust";
 import { Vault, vaultPath } from "../vault";

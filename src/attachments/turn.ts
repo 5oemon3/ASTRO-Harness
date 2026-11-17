@@ -1,5 +1,5 @@
 /** Preparo do turno (ADR-0026, #392): dedupe, teto, aprovação, store e auditoria — só ref/hash/bytes/tipo, nunca base64 (I-03). */
-import type { ImagePart } from "../provider/types";
+import type { ImagePart } from "../providers/types";
 import { assertTurnSize, dedupeKey, imageDimensions, AttachmentError, type AttachmentMeta, type LoadedAttachment } from "./model";
 import { toMeta } from "./render";
 import type { ArtifactOwner, ArtifactStore, StoredArtifact } from "./store";

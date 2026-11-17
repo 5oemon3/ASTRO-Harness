@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateConfig, type AstroConfig } from "../src/config";
-import { ProfileManager, type ProfileDraft } from "../src/provider/profile-manager";
-import { loadProfileStore, saveProfileStore } from "../src/provider/profiles";
+import { ProfileManager, type ProfileDraft } from "../src/providers/profile-manager";
+import { loadProfileStore, saveProfileStore } from "../src/providers/profiles";
 
 function project(): AstroConfig {
   return validateConfig({

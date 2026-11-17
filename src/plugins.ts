@@ -5,7 +5,7 @@
  * console e o ASTRO segue sem o plugin.
  */
 import { isAbsolute, resolve } from "node:path";
-import type { Provider } from "./provider/types";
+import type { Provider } from "./providers/types";
 import type { Tool } from "./tools/types";
 
 /** Fábrica de provider registrada por plugin, keyed por `kind` da config. */

@@ -3,8 +3,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CallConfig } from "../src/call-profile";
-import { CodexOAuthProvider } from "../src/provider/codex-oauth";
-import { OpenAICompatProvider } from "../src/provider/openai-compat";
+import { CodexOAuthProvider } from "../src/providers/codex-oauth";
+import { OpenAICompatProvider } from "../src/providers/openai-compat";
 
 const call: CallConfig = {
   effort: {

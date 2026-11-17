@@ -7,7 +7,7 @@
  * origem (I-03) e o resultado de tool é limitado; erro do observador nunca
  * aborta o turno.
  */
-import type { ChatMessage } from "../provider/types";
+import type { ChatMessage } from "../providers/types";
 import { redactSecrets } from "../sanitize-external";
 
 /** Evento de mensagem `user`/`assistant` gravada na sessão. */

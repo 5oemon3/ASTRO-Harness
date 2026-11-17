@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ErrorClass } from "../provider/types";
+import type { ErrorClass } from "../providers/types";
 import { redactSecrets } from "../sanitize-external";
 import { ToolError } from "../tools/types";
 

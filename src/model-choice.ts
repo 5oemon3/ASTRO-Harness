@@ -16,7 +16,7 @@ import {
   isProviderCooling,
   providerHealthRevision,
   resetProviderHealth,
-} from "./provider/health-state";
+} from "./providers/health-state";
 import { quotaAvailable, type QuotaLimit } from "./quota";
 import type { ModelEntry, Registry } from "./registry";
 import { CAPACITY_TAGS, ROLE_TAGS } from "./tags";

@@ -3,8 +3,8 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession } from "../src/chat/agent-session";
-import { readCodexAuth } from "../src/provider/codex-auth";
-import { saveCodexAuth, startCodexLogin } from "../src/provider/codex-login";
+import { readCodexAuth } from "../src/providers/codex-auth";
+import { saveCodexAuth, startCodexLogin } from "../src/providers/codex-login";
 
 const jwt = (claims: Record<string, unknown>): string =>
   `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;

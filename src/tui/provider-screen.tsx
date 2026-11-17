@@ -1,11 +1,11 @@
 /** Tela cheia de providers (TUI): lista + formulário, sem tocar segredo. */
 import { Box, Text, useInput } from "ink";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { PROVIDER_CATALOG } from "../provider/catalog";
-import type { ProfileDraft, ProfileManager, ProfileView } from "../provider/profile-manager";
-import type { ProfileModel } from "../provider/profiles";
+import { PROVIDER_CATALOG } from "../providers/catalog";
+import type { ProfileDraft, ProfileManager, ProfileView } from "../providers/profile-manager";
+import type { ProfileModel } from "../providers/profiles";
 import type { HealthCheck } from "../health";
-import type { CodexLoginStart } from "../provider/codex-login";
+import type { CodexLoginStart } from "../providers/codex-login";
 import { redactSecrets } from "../sanitize-external";
 import { isEnvName, isVaultCredentialRef, looksLikeSecret } from "../secrets";
 import { formatProviderCheck } from "./health";

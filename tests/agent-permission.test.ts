@@ -12,7 +12,7 @@ import {
   requiredPermission,
   type AgentPermission,
 } from "../src/permissions";
-import type { CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor";

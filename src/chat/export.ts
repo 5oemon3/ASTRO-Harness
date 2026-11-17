@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { ChatMessage } from "../provider/types";
+import type { ChatMessage } from "../providers/types";
 import type { SessionSnapshot } from "./agent-session";
 import { resolveWithin } from "../tools/paths";
 import { redactSecrets } from "../sanitize-external";

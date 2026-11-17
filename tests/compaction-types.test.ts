@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 import { MAX_RELEVANT_FILES, buildCompactionArtifact, renderCompactionArtifact } from "../src/compaction/types";
 
 const user = (content: string): ChatMessage => ({ role: "user", content });

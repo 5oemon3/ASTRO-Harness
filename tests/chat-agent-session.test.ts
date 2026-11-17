@@ -7,7 +7,7 @@ import { AgentSession } from "../src/chat/agent-session";
 import type { LoadedAttachment } from "../src/attachments/model";
 import { loadConfig } from "../src/config";
 import type { PermissionMode } from "../src/permissions";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 import { Ledger } from "../src/ledger";
 import { FAKE_PRIVATE_ACL, testEnv } from "./setup";
 

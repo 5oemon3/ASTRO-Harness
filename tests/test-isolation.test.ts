@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { profilesPath } from "../src/provider/profiles";
+import { profilesPath } from "../src/providers/profiles";
 
 test("a suíte usa um ASTRO_HOME temporário", () => {
   const home = process.env.ASTRO_HOME;

@@ -16,7 +16,7 @@ import {
   type CandidateDeps,
 } from "../src/model-choice";
 import { Registry } from "../src/registry";
-import { markProviderFailure, markProviderSuccess } from "../src/provider/health-state";
+import { markProviderFailure, markProviderSuccess } from "../src/providers/health-state";
 import { createListModelCandidatesTool } from "../src/tools/list-model-candidates";
 
 function config(over: Record<string, unknown> = {}): AstroConfig {

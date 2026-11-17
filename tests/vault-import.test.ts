@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadProfileStore, saveProfileStore } from "../src/provider/profiles";
-import { formatVaultImport, importVaultCredential } from "../src/provider/vault-import";
+import { loadProfileStore, saveProfileStore } from "../src/providers/profiles";
+import { formatVaultImport, importVaultCredential } from "../src/providers/vault-import";
 import { Vault, type VaultBackend } from "../src/vault";
 
 // Sentinelas construídos em runtime para não disparar o gate de segredos.

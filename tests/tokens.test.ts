@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 import {
   countMessageTokens,
   countRequestTokens,

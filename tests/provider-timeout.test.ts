@@ -3,10 +3,10 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigError, validateConfig } from "../src/config";
-import { CodexOAuthProvider } from "../src/provider/codex-oauth";
-import { OpenAICompatProvider } from "../src/provider/openai-compat";
-import { errorPolicy } from "../src/provider/policy";
-import { ProviderError } from "../src/provider/types";
+import { CodexOAuthProvider } from "../src/providers/codex-oauth";
+import { OpenAICompatProvider } from "../src/providers/openai-compat";
+import { errorPolicy } from "../src/providers/policy";
+import { ProviderError } from "../src/providers/types";
 
 const req = { model: "m", messages: [{ role: "user" as const, content: "oi" }] };
 

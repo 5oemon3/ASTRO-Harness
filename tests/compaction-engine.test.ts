@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { registerTokenizer, unregisterTokenizer } from "../src/tokens";
-import type { ChatMessage } from "../src/provider/types";
+import type { ChatMessage } from "../src/providers/types";
 import {
   RECENT_TOKENS,
   applyReduction,

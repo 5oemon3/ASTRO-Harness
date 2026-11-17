@@ -5,7 +5,7 @@ import { Auditor } from "../audit";
 import { allowlistLoadEvents } from "../allowlists";
 import { headerEnvNames } from "../mcp/headers";
 import { effectiveOutputCap } from "../output-limit";
-import { loadEffectiveConfig } from "../provider/profiles";
+import { loadEffectiveConfig } from "../providers/profiles";
 import { redactSecrets } from "../sanitize-external";
 import { ToolExecutor, type ToolApprover } from "../tools/executor";
 import { configureRunCommand, resolveSandboxSetting, runCommandTool } from "../tools/run-command";

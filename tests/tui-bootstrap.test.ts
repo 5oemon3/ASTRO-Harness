@@ -3,8 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession } from "../src/chat/agent-session";
-import { ProfileManager } from "../src/provider/profile-manager";
-import { NoProviderError, resolveEffectiveConfig } from "../src/provider/profiles";
+import { ProfileManager } from "../src/providers/profile-manager";
+import { NoProviderError, resolveEffectiveConfig } from "../src/providers/profiles";
 import { bootstrapTui, withProviderSetup } from "../src/tui/run";
 import { createShellRunner, type ShellRunner } from "../src/tui/shell";
 

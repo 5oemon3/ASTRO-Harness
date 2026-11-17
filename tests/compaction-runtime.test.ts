@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { Ledger } from "../src/ledger";
-import { ProviderError, type ChatMessage, type CompletionResponse } from "../src/provider/types";
+import { ProviderError, type ChatMessage, type CompletionResponse } from "../src/providers/types";
 import { CompactionPausedError, recordCompactionFailure } from "../src/compaction/breaker";
 import { completeWithCompaction, isContextOverflow } from "../src/compaction/runtime";
 

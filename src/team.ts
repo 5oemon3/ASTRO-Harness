@@ -6,7 +6,7 @@
  */
 import type { Ledger } from "./ledger";
 import type { AuditEvent } from "./audit";
-import { ProviderError } from "./provider/types";
+import { ProviderError } from "./providers/types";
 import { redactSecrets } from "./sanitize-external";
 
 /** Erro de orçamento/quota de time; hard_quota, com sugestão de renovação. */

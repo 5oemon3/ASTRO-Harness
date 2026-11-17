@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
 import { Auditor } from "../src/audit"; import { Ledger } from "../src/ledger";
-import type { CompletionRequest, CompletionResponse, Provider } from "../src/provider/types";
+import type { CompletionRequest, CompletionResponse, Provider } from "../src/providers/types";
 import type { AgentEntry, ModelEntry } from "../src/registry";
 import { runSession, runMultiAgentSession, type MultiAgentSessionOptions } from "../src/session";
 import { ToolExecutor } from "../src/tools/executor"; import { handoffTool } from "../src/tools/handoff";
