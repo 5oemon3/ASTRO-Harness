@@ -2,7 +2,14 @@
  * Projeção de anexos no prompt (ADR-0026, #392): texto e diretório entram no
  * `content` com cabeçalho delimitado; imagem não entra (vai em `images[]`).
  */
-import type { AttachmentMeta, LoadedAttachment } from "./model";
+import type { Attachment, AttachmentMeta, LoadedAttachment } from "./model";
+
+/** Rótulo do tamanho: imagem usa bytes decodificados (ADR-0026); demais usam o payload. */
+export function attachmentSizeLabel(attachment: Pick<Attachment, "kind" | "sizeBytes">): string {
+  return attachment.kind === "image"
+    ? `${attachment.sizeBytes} bytes decodificados`
+    : `${attachment.sizeBytes} bytes`;
+}
 
 /** Cabeçalho do bloco de um anexo de texto/diretório. */
 export function attachmentHeader(attachment: LoadedAttachment): string {

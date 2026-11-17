@@ -50,7 +50,7 @@ describe("exportar sessão em Markdown (T2, #63)", () => {
         { kind: "text", name: "notas.txt", sizeBytes: 12, mediaType: "text/plain", range: { start: 1, end: 2 } },
       ] },
     ] }));
-    expect(markdown).toContain("- image a.png (70 bytes, image/png) - ref session-abc/def");
+    expect(markdown).toContain("- image a.png (70 bytes decodificados, image/png) - ref session-abc/def");
     expect(markdown).toContain("- text notas.txt (12 bytes, text/plain) - linhas 1-2");
     expect(markdown).not.toContain(png);
     expect(markdown).not.toContain("deadbeefdeadbeef");

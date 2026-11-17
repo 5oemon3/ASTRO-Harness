@@ -221,8 +221,8 @@ describe("imagem no turno do REPL (ADR-0026, #392)", () => {
       await runRepl(session, io, { cwd, interactive: true });
       const out = io.outputs.join("\n");
       expect(out).toContain("não redigíveis");
-      expect(out).toContain("erro: envio de imagem não aprovado");
-      expect(io.outputs).toContain("1. a.png (70 bytes)"); // pendente mantido após a recusa
+      expect(out).toContain("erro: anexos do turno não aprovados pelo usuário");
+      expect(io.outputs).toContain("1. a.png (4 bytes decodificados)"); // pendente mantido; 1x1 RGBA
       expect(bodies).toHaveLength(0);
       const root = join(home, "attachments");
       expect(existsSync(root)).toBe(false);

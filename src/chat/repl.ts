@@ -4,7 +4,7 @@ import { runProviderWizard } from "./provider-wizard";
 import { configLines, type ConfigSummary } from "./config-summary";
 import { DEFAULT_PERMISSION_MODE, PERMISSION_MODES, resolveAstroHome, type PermissionMode } from "../permissions";
 import { loadAttachment, loadPastedText } from "../attachments/load";
-import { materializePrompt } from "../attachments/render";
+import { attachmentSizeLabel, materializePrompt } from "../attachments/render";
 import { readClipboardText } from "../attachments/clipboard";
 import { isYes } from "./approvers";
 import { dedupeKey, type AttachmentMeta, type LoadedAttachment } from "../attachments/model";
@@ -186,7 +186,7 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
   const listPending = (): string =>
     pending.length === 0
       ? "nenhum anexo pendente"
-      : pending.map((attachment, index) => `${index + 1}. ${attachment.name} (${attachment.sizeBytes} bytes)`).join("\n");
+      : pending.map((attachment, index) => `${index + 1}. ${attachment.name} (${attachmentSizeLabel(attachment)})`).join("\n");
   // mesmos números que o usuário viu em /sessions: o índice do delete resolve por esta lista (#366)
   const storeListText = (): string =>
     storeList.length === 0

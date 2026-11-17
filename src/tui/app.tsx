@@ -10,7 +10,7 @@ import { isFatalSessionError } from "../chat/session-errors";
 import { DEFAULT_PERMISSION_MODE, resolveAstroHome } from "../permissions";
 import { isYes } from "../chat/approvers";
 import { loadAttachment, loadPastedText } from "../attachments/load";
-import { materializePrompt } from "../attachments/render";
+import { attachmentSizeLabel, materializePrompt } from "../attachments/render";
 import { readClipboardText } from "../attachments/clipboard";
 import { dedupeKey, type LoadedAttachment } from "../attachments/model";
 import { formatApprovalPrompt, type AttachmentApprover } from "../attachments/turn";
@@ -267,7 +267,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
     pendingAttachments.current.length === 0
       ? "nenhum anexo pendente"
       : pendingAttachments.current
-          .map((attachment, index) => `${index + 1}. ${attachment.name} (${attachment.sizeBytes} bytes)`)
+          .map((attachment, index) => `${index + 1}. ${attachment.name} (${attachmentSizeLabel(attachment)})`)
           .join("\n");
 
   /** Aprovação do lote de imagens na linha da TUI; sem a ponte de aprovação, nega (fail closed). */

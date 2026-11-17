@@ -1120,13 +1120,17 @@ function validateAttachments(value: unknown): AttachmentsConfig {
   for (const key of Object.keys(directoryRaw)) {
     if (key !== "showHidden") fail(`config inválida: "attachments.directory.${key}" desconhecido`);
   }
+  const autoResize =
+    imageRaw.autoResize === undefined
+      ? DEFAULT_ATTACHMENTS.image.autoResize
+      : expectBoolean(imageRaw.autoResize, "attachments.image.autoResize");
+  // Sem dependência de runtime e sem decodificador de imagem, resize não existe:
+  // aceitar `true` em silêncio prometeria um comportamento que não acontece.
+  if (autoResize) {
+    fail('config inválida: "attachments.image.autoResize" não é suportado nesta versão (use false); redimensionamento exige implementação própria e ADR');
+  }
   return {
-    image: {
-      autoResize:
-        imageRaw.autoResize === undefined
-          ? DEFAULT_ATTACHMENTS.image.autoResize
-          : expectBoolean(imageRaw.autoResize, "attachments.image.autoResize"),
-    },
+    image: { autoResize },
     directory: {
       showHidden:
         directoryRaw.showHidden === undefined

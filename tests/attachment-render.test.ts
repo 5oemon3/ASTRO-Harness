@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LoadedAttachment } from "../src/attachments/model";
-import { materializePrompt, toMeta } from "../src/attachments/render";
+import { attachmentSizeLabel, materializePrompt, toMeta } from "../src/attachments/render";
 
 const text = (overrides: Partial<LoadedAttachment> = {}): LoadedAttachment => ({
   kind: "text",
@@ -32,6 +32,14 @@ describe("materializePrompt", () => {
       { kind: "image", path: "i.png", name: "i.png", sizeBytes: 10, mediaType: "image/png", data: "AAAA" },
     ]);
     expect(out).toBe("x\n\n[anexo: dir/]\na\t1");
+  });
+});
+
+describe("attachmentSizeLabel", () => {
+  test("imagem usa bytes decodificados; texto e diretório usam bytes do payload", () => {
+    expect(attachmentSizeLabel({ kind: "image", sizeBytes: 4 })).toBe("4 bytes decodificados");
+    expect(attachmentSizeLabel({ kind: "text", sizeBytes: 12 })).toBe("12 bytes");
+    expect(attachmentSizeLabel({ kind: "directory", sizeBytes: 42 })).toBe("42 bytes");
   });
 });
 

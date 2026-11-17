@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AttachmentError, assertImageLimits, imageDimensions } from "../src/attachments/model";
+import { AttachmentError, assertImageLimits, decodedImageBytes, imageDimensions } from "../src/attachments/model";
 
 const u8 = (...parts: number[]) => Uint8Array.from(parts);
 
@@ -60,23 +60,31 @@ describe("imageDimensions", () => {
 });
 
 describe("assertImageLimits", () => {
+  test("bytes decodificados são 4 por pixel (RGBA), não o tamanho comprimido", () => {
+    expect(decodedImageBytes({ width: 100, height: 100 })).toBe(40_000);
+  });
+
+  test("devolve os bytes decodificados calculados internamente", () => {
+    expect(assertImageLimits(png(100, 100), "image/png")).toBe(40_000);
+  });
+
   test("aceita dentro dos limites", () => {
-    expect(() => assertImageLimits(png(100, 100), "image/png", 1024)).not.toThrow();
+    expect(() => assertImageLimits(png(100, 100), "image/png")).not.toThrow();
   });
 
   test("rejeita acima de 25 MPx", () => {
-    expect(() => assertImageLimits(png(5000, 5001), "image/png", 1024)).toThrow(AttachmentError);
+    expect(() => assertImageLimits(png(5000, 5001), "image/png")).toThrow(AttachmentError);
   });
 
   test("rejeita lado maior que 8192", () => {
-    expect(() => assertImageLimits(png(9000, 1), "image/png", 1024)).toThrow(AttachmentError);
+    expect(() => assertImageLimits(png(9000, 1), "image/png")).toThrow(AttachmentError);
   });
 
   test("rejeita decodificado acima de 20 MiB", () => {
-    expect(() => assertImageLimits(png(1, 1), "image/png", 20 * 1024 * 1024 + 1)).toThrow(AttachmentError);
+    expect(() => assertImageLimits(png(2500, 2100), "image/png")).toThrow(AttachmentError);
   });
 
   test("dimensões ilegíveis falham fechado", () => {
-    expect(() => assertImageLimits(u8(0x89, 0x50), "image/png", 1)).toThrow(AttachmentError);
+    expect(() => assertImageLimits(u8(0x89, 0x50), "image/png")).toThrow(AttachmentError);
   });
 });

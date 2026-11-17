@@ -50,8 +50,13 @@ describe("parseRange", () => {
     expect(parseRange("10", 100)).toEqual({ start: 10, end: 10 });
   });
 
+  test("fim além do EOF clampa", () => {
+    expect(parseRange("1:999", 3)).toEqual({ start: 1, end: 3 });
+    expect(parseRange("2:999", 3)).toEqual({ start: 2, end: 3 });
+  });
+
   test("inválido lança attachment_range_invalid", () => {
-    for (const spec of ["0:5", "5:3", "1:101", "a:b", ":"]) {
+    for (const spec of ["0:5", "5:3", "101:102", "a:b", ":"]) {
       expect(() => parseRange(spec, 100)).toThrow(AttachmentError);
       try {
         parseRange(spec, 100);

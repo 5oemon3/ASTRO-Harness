@@ -106,14 +106,14 @@ test("imagem na TUI pede aprovação, recusa falha o turno e mantém o anexo (#3
 
     instance.stdin.write("n");
     instance.stdin.write("\r");
-    await waitFor(() => frame(instance).includes("erro: envio de imagem não aprovado"));
+    await waitFor(() => frame(instance).includes("erro: anexos do turno não aprovados"));
     expect(session.sent).toHaveLength(0);
 
     // o anexo recusado continua pendente: b.txt entra como segundo item
     instance.stdin.write("/attach b.txt");
     instance.stdin.write("\r");
     await waitFor(() => frame(instance).includes("2. b.txt"));
-    expect(frame(instance)).toContain("1. a.png");
+    expect(frame(instance)).toContain("1. a.png (4 bytes decodificados)");
   } finally {
     instance.unmount();
   }

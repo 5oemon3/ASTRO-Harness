@@ -23,18 +23,24 @@ describe("config attachments", () => {
   test("sobrescreve", () => {
     const attachments = cfg({
       attachments: {
-        image: { autoResize: true },
+        image: { autoResize: false },
         directory: { showHidden: true },
         artifactTtlDays: 3,
         artifactMaxBytes: 2048,
       },
     }).attachments;
     expect(attachments).toEqual({
-      image: { autoResize: true },
+      image: { autoResize: false },
       directory: { showHidden: true },
       artifactTtlDays: 3,
       artifactMaxBytes: 2048,
     });
+  });
+
+  test("autoResize true é rejeitado como não suportado", () => {
+    expect(() => cfg({ attachments: { image: { autoResize: true } } })).toThrow(
+      /"attachments\.image\.autoResize".*não.*suportad/i,
+    );
   });
 
   test("chave desconhecida falha", () => {

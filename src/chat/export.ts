@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ChatMessage } from "../providers/types";
 import type { SessionSnapshot } from "./agent-session";
 import { resolveWithin } from "../tools/paths";
+import { attachmentSizeLabel } from "../attachments/render";
 import { redactSecrets } from "../sanitize-external";
 
 const SYSTEM = new Set(["system"]);
@@ -31,7 +32,7 @@ function attachmentLines(message: ChatMessage): string[] {
   for (const attachment of message.attachments) {
     const range = attachment.range === undefined ? "" : ` - linhas ${attachment.range.start}-${attachment.range.end}`;
     const ref = attachment.ref === undefined ? "" : ` - ref ${safeLabel(attachment.ref)}`;
-    lines.push(`- ${safeLabel(attachment.kind)} ${safeLabel(attachment.name)} (${attachment.sizeBytes} bytes, ${safeLabel(attachment.mediaType)})${range}${ref}`);
+    lines.push(`- ${safeLabel(attachment.kind)} ${safeLabel(attachment.name)} (${attachmentSizeLabel(attachment)}, ${safeLabel(attachment.mediaType)})${range}${ref}`);
   }
   lines.push("");
   return lines;

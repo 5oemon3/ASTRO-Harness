@@ -4,8 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_TURN_BYTES, type LoadedAttachment } from "../src/attachments/model";
+import { loadPastedText } from "../src/attachments/load";
 import { ArtifactStore } from "../src/attachments/store";
-import { formatApprovalPrompt, prepareTurnAttachments } from "../src/attachments/turn";
+import { formatApprovalPrompt, prepareTurnAttachments, type AttachmentApprovalItem } from "../src/attachments/turn";
 
 /** PNG 1x1 real (70 bytes): assinatura + IHDR com width=1 e height=1. */
 const pngData =
@@ -53,7 +54,7 @@ describe("prepareTurnAttachments (ADR-0026, #392)", () => {
     await expect(prepareTurnAttachments({ attachments: [image("a.png", pngData)], owner, store }))
       .rejects.toMatchObject({ code: "attachment_image_denied" });
     await expect(prepareTurnAttachments({ attachments: [image("a.png", pngData)], owner, store, approver: () => false }))
-      .rejects.toMatchObject({ code: "attachment_image_denied" });
+      .rejects.toThrow(/anexos do turno não aprovados pelo usuário/);
     expect(store.usageBytes()).toBe(0);
   });
   test("imagem aprovada sem store falha e não grava", async () => {
@@ -75,15 +76,46 @@ describe("prepareTurnAttachments (ADR-0026, #392)", () => {
     expect(events[0]?.tipo).toBe("attachment.approved");
     expect(JSON.stringify(events[0])).not.toContain(pngData);
   });
+  test("aprovação lista todos os anexos do turno, não só imagens", async () => {
+    let seen: readonly AttachmentApprovalItem[] = [];
+    let prompt = "";
+    const pasted = loadPastedText("colado");
+    const ranged: LoadedAttachment = { ...textOf(12), range: { start: 2, end: 3 } };
+    await prepareTurnAttachments({
+      attachments: [textOf(5), image("a.png", pngData), pasted, ranged],
+      owner,
+      store,
+      approver: (items) => {
+        seen = items;
+        prompt = formatApprovalPrompt(items);
+        return true;
+      },
+    });
+    expect(seen.map((item) => item.kind)).toEqual(["text", "image", "text", "text"]);
+    expect(seen[0]).toMatchObject({ name: "t.txt", kind: "text", sizeBytes: 5 });
+    expect(seen[2]).toMatchObject({ name: "clipboard", kind: "text", mediaType: "text/plain" });
+    expect(seen[3]).toMatchObject({ name: "t.txt", kind: "text", range: { start: 2, end: 3 } });
+    expect(prompt.split("\n")).toHaveLength(5);
+    expect(prompt).toContain("t.txt - texto - 5 bytes");
+    expect(prompt).toContain("a.png - imagem não redigível - 70 bytes decodificados");
+    expect(prompt).toContain("t.txt - texto - linhas 2-3 - 12 bytes");
+    expect(prompt).toContain("clipboard - texto - 6 bytes");
+  });
   test("formatApprovalPrompt mostra path, sanitiza controle e mantém nome sem path", () => {
     const text = formatApprovalPrompt([
-      { name: "a.png", path: "/x/um/a.png", mediaType: "image/png", sizeBytes: 70, pixels: { width: 1, height: 1 } },
-      { name: "só-nome.png", mediaType: "image/png", sizeBytes: 70 },
-      { name: "mal\nicioso\u001b[31m.png", mediaType: "image/png", sizeBytes: 70 },
+      { kind: "image", name: "a.png", path: "/x/um/a.png", mediaType: "image/png", sizeBytes: 70, pixels: { width: 1, height: 1 } },
+      { kind: "image", name: "só-nome.png", mediaType: "image/png", sizeBytes: 70 },
+      { kind: "text", name: "t.txt", path: "/x/t.txt", mediaType: "text/plain", sizeBytes: 12, range: { start: 2, end: 3 } },
+      { kind: "text", name: "clipboard", mediaType: "text/plain", sizeBytes: 7 },
+      { kind: "directory", name: "dir", path: "/x/dir", mediaType: "inode/directory", sizeBytes: 42 },
+      { kind: "image", name: "mal\nicioso\u001b[31m.png", mediaType: "image/png", sizeBytes: 70 },
     ]);
-    expect(text).toContain("1. /x/um/a.png - 70 bytes - 1x1 (0.0 MPx)");
-    expect(text).toContain("2. só-nome.png - 70 bytes - dimensão desconhecida");
-    expect(text.split("\n")).toHaveLength(4); // título + 3 itens: `\n` no nome não forja linha
+    expect(text).toContain("1. /x/um/a.png - imagem não redigível - 70 bytes decodificados - 1x1 (0.0 MPx)");
+    expect(text).toContain("2. só-nome.png - imagem não redigível - 70 bytes decodificados - dimensão desconhecida");
+    expect(text).toContain("3. /x/t.txt - texto - linhas 2-3 - 12 bytes");
+    expect(text).toContain("4. clipboard - texto - 7 bytes");
+    expect(text).toContain("5. /x/dir - diretório - 42 bytes");
+    expect(text.split("\n")).toHaveLength(7); // título + 6 itens: `\n` no nome não forja linha
     expect(text).not.toContain("\u001b");
   });
 });

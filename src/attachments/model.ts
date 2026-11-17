@@ -113,7 +113,7 @@ export function detectKind(header: Uint8Array): DetectedKind | null {
   }
 }
 
-/** Converte `a:b`/`a` em faixa 1-based; fora dos limites lança `attachment_range_invalid`. */
+/** Converte `a:b`/`a` em faixa 1-based; `end` além do EOF clampa (ADR-0026). */
 export function parseRange(spec: string, totalLines: number): AttachmentRange {
   const match = /^(\d+)(?::(\d+))?$/.exec(spec.trim());
   if (!match) {
@@ -121,13 +121,13 @@ export function parseRange(spec: string, totalLines: number): AttachmentRange {
   }
   const start = Number(match[1]);
   const end = match[2] === undefined ? start : Number(match[2]);
-  if (start < 1 || end < start || end > totalLines) {
+  if (start < 1 || end < start || start > totalLines) {
     throw new AttachmentError(
       "attachment_range_invalid",
       `faixa fora do arquivo: "${spec}" (o arquivo tem ${totalLines} linha(s))`,
     );
   }
-  return { start, end };
+  return { start, end: Math.min(end, totalLines) };
 }
 
 /** Chave de dedupe: texto/diretório por path+range, imagem/clipboard por hash. */
@@ -222,14 +222,13 @@ function webpDimensions(header: Uint8Array): { width: number; height: number } |
   return null;
 }
 
-/** Valida MPx, lado maior e bytes decodificados antes de qualquer decodificação. */
-export function assertImageLimits(header: Uint8Array, mediaType: string, decodedBytes: number): void {
-  if (decodedBytes > MAX_IMAGE_BYTES) {
-    throw new AttachmentError(
-      "attachment_image_invalid",
-      `imagem excede ${MAX_IMAGE_BYTES} bytes decodificados (${decodedBytes})`,
-    );
-  }
+/** Bytes decodificados estimados: 4 por pixel (RGBA), o formato comum aos tipos suportados. */
+export function decodedImageBytes(dimensions: { width: number; height: number }): number {
+  return dimensions.width * dimensions.height * 4;
+}
+
+/** Valida MPx, lado maior e bytes decodificados antes de qualquer decodificação; devolve os bytes decodificados. */
+export function assertImageLimits(header: Uint8Array, mediaType: string): number {
   const dimensions = imageDimensions(header, mediaType);
   if (dimensions === null || dimensions.width <= 0 || dimensions.height <= 0) {
     throw new AttachmentError("attachment_image_invalid", `header de imagem ilegível (${mediaType})`);
@@ -246,6 +245,14 @@ export function assertImageLimits(header: Uint8Array, mediaType: string, decoded
       `imagem excede ${MAX_IMAGE_SIDE} px no lado maior (${dimensions.width}x${dimensions.height})`,
     );
   }
+  const decodedBytes = decodedImageBytes(dimensions);
+  if (decodedBytes > MAX_IMAGE_BYTES) {
+    throw new AttachmentError(
+      "attachment_image_invalid",
+      `imagem excede ${MAX_IMAGE_BYTES} bytes decodificados (${decodedBytes})`,
+    );
+  }
+  return decodedBytes;
 }
 
 /** Garante o teto de 20 MiB por anexo. */
