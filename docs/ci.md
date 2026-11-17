@@ -10,7 +10,7 @@ Resumo: jobs que rodam em todo PR, pré-requisitos de runner e equivalente local
 
 | Job | Runner | O que faz | Equivalente local |
 |---|---|---|---|
-| `test` | ubuntu-latest + windows-latest | `bun install --frozen-lockfile`, `bun run typecheck`, `bun test` | os mesmos comandos |
+| `test` | ubuntu-latest + windows-latest | `bun install --frozen-lockfile`, `bun run typecheck`, `bun test --timeout 20000` | os mesmos comandos |
 | `eval` | ubuntu-latest | `bun src/cli.ts eval --threshold 0.85 --report eval-report.json` (mock) | idem |
 | `coverage` | ubuntu-latest | `bun test --coverage --coverage-reporter=lcov` + `scripts/coverage-gate.ts` (total de linhas e funções ≥ 80%) | `bun run test:coverage` |
 | `bench-mock` | ubuntu-latest + windows-latest × filtro `nvidia`/`openrouter` | `bun test tests/bench.test.ts -t "filtro do CI matrix restringe o bench com mocks: <filtro>"` com providers mock; não é required | idem |
