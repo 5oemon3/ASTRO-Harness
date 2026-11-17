@@ -9,6 +9,7 @@ import { Auditor } from "../audit";
 import { budgetStatus, type BudgetDecider, type BudgetStatus } from "../budget";
 import type { ToolApprover } from "../tools/executor";
 import type { TrustAsk } from "../trust";
+import { canonicalFolder, TrustedFolders, trustStatePath } from "../trust";
 import { updateConfigPermissionsMode } from "../core/config";
 import type { AstroConfig } from "../core/config";
 import { SANDBOX_DISABLED_WARNING } from "../tools/run-command";
@@ -363,6 +364,24 @@ export class AgentSession {
     updateConfigPermissionsMode(this.#configPath, mode);
     this.#config = { ...this.#config, permissions: { mode } };
     return this.setPermissionMode(mode);
+  }
+
+  /**
+   * Revoga uma pasta confiável (#267): remove do store global (`$ASTRO_HOME`) e
+   * audita `trust.revoked`; `false` quando a pasta não estava na lista (no-op).
+   * O próximo open do cwd revogado volta a perguntar no TTY.
+   */
+  revokeTrustedFolder(dir: string): boolean {
+    if (this.#closed || this.#fatal) throw new Error("sessão de chat encerrada");
+    const folders = new TrustedFolders(trustStatePath(this.#env));
+    const removed = folders.revoke(dir);
+    if (removed) this.#append("trust.revoked", { folder: canonicalFolder(dir) });
+    return removed;
+  }
+
+  /** Pastas confiáveis no mesmo store (`$ASTRO_HOME` da sessão) usado pela revogação (#267). */
+  trustedFolders(): string[] {
+    return new TrustedFolders(trustStatePath(this.#env)).list();
   }
 
   /** Status do budget para `/usage` (#63): `undefined` sem budget na config; senão deriva do ledger. */

@@ -131,34 +131,40 @@ function withinFolder(folder: string, target: string): boolean {
   if (rel === "") return true;
   return !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
 }
+/** Mesma normalização do `withinFolder`: comparação de caminho é case-insensitive no win32. */
+function sameFolder(a: string, b: string): boolean {
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
 export class TrustedFolders {
   readonly #storePath: string;
-  #store: TrustedStore;
   constructor(path?: string) {
     this.#storePath = path ?? trustStatePath();
-    this.#store = loadTrustedStore(path);
+  }
+  /** Sem cache: outra instância/processo pode ter gravado desde a construção (#267). */
+  #load(): TrustedStore {
+    return loadTrustedStore(this.#storePath);
   }
   list(): string[] {
-    return [...this.#store.folders];
+    return [...this.#load().folders];
   }
   /** A pasta é confiável se ela própria ou uma ancestral dela está na lista. */
   isTrusted(dir: string): boolean {
     const target = canonicalFolder(dir);
-    return this.#store.folders.some((folder) => withinFolder(folder, target));
+    return this.#load().folders.some((folder) => withinFolder(folder, target));
   }
   trust(dir: string): void {
     const folder = canonicalFolder(dir);
-    if (this.#store.folders.includes(folder)) return;
-    this.#store = { version: 1, folders: [...this.#store.folders, folder] };
-    saveTrustedStore(this.#store, this.#storePath);
+    const current = this.#load();
+    if (current.folders.some((entry) => sameFolder(entry, folder))) return;
+    saveTrustedStore({ version: 1, folders: [...current.folders, folder] }, this.#storePath);
   }
   /** Remove a pasta exata da lista; retorna false se ela não estava lá. */
   revoke(dir: string): boolean {
     const folder = canonicalFolder(dir);
-    const next = this.#store.folders.filter((entry) => entry !== folder);
-    if (next.length === this.#store.folders.length) return false;
-    this.#store = { version: 1, folders: next };
-    saveTrustedStore(this.#store, this.#storePath);
+    const current = this.#load();
+    const next = current.folders.filter((entry) => !sameFolder(entry, folder));
+    if (next.length === current.folders.length) return false;
+    saveTrustedStore({ version: 1, folders: next }, this.#storePath);
     return true;
   }
 }

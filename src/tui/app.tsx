@@ -738,7 +738,8 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
     }
     let trusted: readonly string[] = [];
     try {
-      trusted = loadTrustedStore(trustStatePath()).folders;
+      // mesma fonte que a revogação usa (env da sessão), não o process.env da UI (#267)
+      trusted = session.trustedFolders?.() ?? loadTrustedStore(trustStatePath()).folders;
     } catch {
       trusted = []; // store de trust inválido não impede ver a config
     }
@@ -752,6 +753,12 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
           if (session.savePermissionMode === undefined) throw new Error("esta sessão não aceita trocar o modo");
           session.savePermissionMode(mode); // persiste na config + troca em runtime (#273)
           setEntries((current) => [...current, { kind: "info", text: `modo: ${mode} (salvo na config)` }]);
+        }}
+        onRevokeTrust={(dir) => {
+          if (session.revokeTrustedFolder === undefined) throw new Error("esta sessão não aceita revogar trust");
+          const removed = session.revokeTrustedFolder(dir); // remove do store global + audita (#267)
+          if (removed) setEntries((current) => [...current, { kind: "info", text: `trust revogado: ${dir}` }]);
+          return removed;
         }}
       />
     );

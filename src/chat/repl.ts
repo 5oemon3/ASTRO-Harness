@@ -53,6 +53,10 @@ export interface ChatSession {
   configSummary?(): ConfigSummary;
   /** Persiste `permissions.mode` no arquivo de config e aplica na sessão (#273). */
   savePermissionMode?(mode: PermissionMode): PermissionMode;
+  /** Revoga uma pasta confiável do store global (#267); `false` se não estava na lista. */
+  revokeTrustedFolder?(dir: string): boolean;
+  /** Pastas confiáveis do mesmo store usado pela revogação (#267); ausente usa o fallback da UI. */
+  trustedFolders?(): string[];
   /** Status do budget derivado do ledger (`/usage`, #63); ausente sem budget na config. */
   budgetStatus?(): BudgetStatus | undefined;
   /** Status da quota do domínio ativo (#64, F6-3); ausente sem limite declarado. */
@@ -481,7 +485,7 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
         } else {
           let trusted: readonly string[] = [];
           try {
-            trusted = loadTrustedStore(trustStatePath()).folders;
+            trusted = session.trustedFolders?.() ?? loadTrustedStore(trustStatePath()).folders;
           } catch (error) {
             io.write(`erro: ${messageOf(error)}`); // store de trust inválido não derruba o /config
           }

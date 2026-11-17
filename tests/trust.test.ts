@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import {
   canonicalFolder,
   ensureTrustedCwd,
@@ -117,6 +117,44 @@ describe("TrustedFolders (#267)", () => {
     expect(folders.revoke(dir)).toBe(true);
     expect(new TrustedFolders(path).isTrusted(dir)).toBe(false);
   });
+  test("revoke canonicaliza separador final e não remove ancestral por subpasta (#267)", () => {
+    const { dir, path } = tmpStore();
+    const folders = new TrustedFolders(path);
+    folders.trust(dir);
+    // subpasta herda a confiança, mas revogar a subpasta não pode derrubar a ancestral
+    expect(folders.revoke(join(dir, "sub"))).toBe(false);
+    expect(folders.list()).toEqual([realpathSync(resolve(dir))]);
+    expect(folders.revoke(`${dir}${sep}`)).toBe(true);
+    expect(folders.list()).toEqual([]);
+  });
+  test("duas instâncias: trust não ressuscita pasta revogada por outra (#267)", () => {
+    const { dir, path } = tmpStore();
+    const second = mkdtempSync(join(tmpdir(), "astro-trust-second-"));
+    const first = new TrustedFolders(path);
+    first.trust(dir);
+    const stale = new TrustedFolders(path); // snapshot [dir] no modelo antigo
+    expect(first.revoke(dir)).toBe(true);
+    stale.trust(second);
+    expect(loadTrustedStore(path).folders).toEqual([canonicalFolder(second)]);
+  });
+  test("revoke usa a mesma normalização de caixa do isTrusted no win32 (#267)", () => {
+    if (process.platform !== "win32") return;
+    const { path } = tmpStore();
+    const dir = mkdtempSync(join(tmpdir(), "astro-trust-case-"));
+    saveTrustedStore({ version: 1, folders: [canonicalFolder(dir).toUpperCase()] }, path);
+    const folders = new TrustedFolders(path);
+    expect(folders.isTrusted(dir)).toBe(true);
+    expect(folders.revoke(dir)).toBe(true);
+    expect(loadTrustedStore(path).folders).toEqual([]);
+  });
+  test("store corrompido falha citando só o caminho e não é reescrito (#267, I-03)", () => {
+    const { path } = tmpStore();
+    writeFileSync(path, `{"version":1,"folders":["${FAKE_SECRET}"]`);
+    const corrupt = errOf(() => new TrustedFolders(path).list());
+    expect(corrupt.message).toContain(path);
+    expect(corrupt.message).not.toContain(FAKE_SECRET);
+    expect(readFileSync(path, "utf8")).toContain(FAKE_SECRET); // intacto: nada foi gravado
+  });
 });
 describe("ensureTrustedCwd (#267, I-11)", () => {
   test("primeiro open pergunta; aprovar persiste + audita allow", async () => {
@@ -148,6 +186,40 @@ describe("ensureTrustedCwd (#267, I-11)", () => {
     });
     expect(trusted).toBe(true);
     expect(asked).toBe(0);
+  });
+  test("revogar o cwd faz o próximo open perguntar de novo (#267)", async () => {
+    const { dir, path } = tmpStore();
+    const folders = new TrustedFolders(path);
+    folders.trust(dir);
+    expect(await ensureTrustedCwd(dir, { path })).toBe(true); // confiável: nem chega a perguntar
+    expect(folders.revoke(dir)).toBe(true);
+    const asked: string[] = [];
+    const trusted = await ensureTrustedCwd(dir, {
+      path,
+      ask: async (cwd) => {
+        asked.push(cwd);
+        return trustChoice("s");
+      },
+    });
+    expect(trusted).toBe(true);
+    expect(asked).toEqual([canonicalFolder(dir)]);
+    expect(new TrustedFolders(path).isTrusted(dir)).toBe(true); // aprovação da pergunta persistiu
+  });
+  test("pasta revogada enquanto o prompt está aberto não volta com a resposta sim (#267)", async () => {
+    const { dir, path } = tmpStore();
+    const other = mkdtempSync(join(tmpdir(), "astro-trust-prompt-"));
+    new TrustedFolders(path).trust(dir);
+    const trusted = await ensureTrustedCwd(other, {
+      path,
+      ask: async () => {
+        new TrustedFolders(path).revoke(dir); // TUI revoga X enquanto a pergunta está aberta
+        return trustChoice("s");
+      },
+    });
+    expect(trusted).toBe(true);
+    const folders = loadTrustedStore(path).folders;
+    expect(folders).toContain(canonicalFolder(other));
+    expect(folders).not.toContain(canonicalFolder(dir)); // a resposta não restaura o snapshot antigo
   });
   test("negar joga TrustDeniedError (trust_denied), audita deny e não persiste", async () => {
     const { dir, path } = tmpStore();

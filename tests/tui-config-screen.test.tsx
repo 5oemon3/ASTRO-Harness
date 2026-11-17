@@ -151,3 +151,88 @@ test("esc no main fecha; esc no seletor volta; ctrl+c fecha; falha de save mostr
     instance.unmount();
   }
 });
+
+test("r revoga a pasta selecionada com confirmação, persiste e atualiza a lista (#267)", async () => {
+  const revoked: string[] = [];
+  const instance = render(
+    <ConfigScreen
+      colors={colors}
+      summary={summary}
+      trustedFolders={["/tmp/a", "/tmp/b"]}
+      onClose={() => undefined}
+      onSaveMode={() => undefined}
+      onRevokeTrust={(dir) => {
+        revoked.push(dir);
+        return true;
+      }}
+    />,
+  );
+  try {
+    await waitFor(() => instance.lastFrame()?.includes("Configuração") === true);
+    instance.stdin.write("r");
+    await waitFor(() => instance.lastFrame()?.includes("pasta confiável a revogar") === true);
+    expect(instance.lastFrame()).toContain("/tmp/a");
+    expect(revoked).toEqual([]); // abrir a lista não revoga nada
+    instance.stdin.write("\u001b[B"); // a -> b
+    await waitFor(() => instance.lastFrame()?.includes("→ /tmp/b") === true);
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes('revogar trust de "/tmp/b"') === true);
+    expect(revoked).toEqual([]); // confirmação explícita antes de gravar
+    instance.stdin.write("c");
+    await waitFor(() => revoked.length === 1);
+    expect(revoked).toEqual(["/tmp/b"]);
+    await waitFor(() => instance.lastFrame()?.includes("trust revogado: /tmp/b") === true);
+    const frame = instance.lastFrame() ?? "";
+    expect(frame).toContain("  /tmp/a");
+    expect(frame).not.toContain("  /tmp/b"); // sumiu da lista de pastas confiáveis
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("x cancela a revogação e r sem pastas só avisa (#267)", async () => {
+  const revoked: string[] = [];
+  const first = render(
+    <ConfigScreen
+      colors={colors}
+      summary={summary}
+      trustedFolders={["/tmp/a"]}
+      onClose={() => undefined}
+      onSaveMode={() => undefined}
+      onRevokeTrust={(dir) => {
+        revoked.push(dir);
+        return true;
+      }}
+    />,
+  );
+  try {
+    await waitFor(() => first.lastFrame()?.includes("Configuração") === true);
+    first.stdin.write("r");
+    await waitFor(() => first.lastFrame()?.includes("pasta confiável a revogar") === true);
+    first.stdin.write("\r"); // pede confirmação
+    await waitFor(() => first.lastFrame()?.includes('revogar trust de "/tmp/a"') === true);
+    first.stdin.write("x"); // cancela
+    await waitFor(() => first.lastFrame()?.includes("pastas confiáveis:") === true);
+    expect(revoked).toEqual([]);
+  } finally {
+    first.unmount();
+  }
+  const empty = render(
+    <ConfigScreen
+      colors={colors}
+      summary={summary}
+      trustedFolders={[]}
+      onClose={() => undefined}
+      onSaveMode={() => undefined}
+      onRevokeTrust={() => true}
+    />,
+  );
+  try {
+    await waitFor(() => empty.lastFrame()?.includes("Configuração") === true);
+    empty.stdin.write("r");
+    await waitFor(() => empty.lastFrame()?.includes("nenhuma pasta confiável para revogar") === true);
+    expect(empty.lastFrame()).toContain("pastas confiáveis: nenhuma");
+  } finally {
+    empty.unmount();
+  }
+});

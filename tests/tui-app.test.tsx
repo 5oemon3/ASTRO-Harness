@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { TuiApp } from "../src/tui/app";
 import { SessionStore, type SessionRecord } from "../src/chat/store";
 import { SessionApi } from "../src/chat/session-api";
@@ -12,6 +12,7 @@ import type { ConfigSummary } from "../src/chat/config-summary";
 import { BudgetExceededError, type BudgetStatus } from "../src/budget";
 import type { QuotaStatus } from "../src/quota";
 import type { PermissionMode } from "../src/permissions";
+import { canonicalFolder, TrustedFolders } from "../src/trust";
 import { createApprovalBridge } from "../src/tui/approvals";
 
 class FakeSession implements ChatSession {
@@ -711,6 +712,81 @@ test("/config abre a tela de configuração e trocar o modo atualiza o footer (#
     instance.stdin.write("\u001b"); // esc fecha a tela
     await waitFor(() => (instance.lastFrame() ?? "").includes("Configuração") === false);
     await waitFor(() => frameHas(instance, "modo: allow-edits")); // footer reflete o modo novo
+  } finally {
+    instance.unmount();
+  }
+});
+
+class TrustScreenSession extends FakeSession {
+  constructor(readonly store: TrustedFolders) {
+    super();
+  }
+  permissionMode(): PermissionMode {
+    return "ask";
+  }
+  configSummary(): ConfigSummary {
+    return {
+      configPath: "/tmp/astro.config.json",
+      maxTurns: "12",
+      permissionMode: "ask",
+      costs: [],
+      budget: "sem budget",
+    };
+  }
+  trustedFolders(): string[] {
+    return this.store.list();
+  }
+  revokeTrustedFolder(dir: string): boolean {
+    return this.store.revoke(dir);
+  }
+}
+
+test("/config revoga trust com store real, preserva o resto do state e esc não grava (#267)", async () => {
+  const home = mkdtempSync(join(tmpdir(), "astro-tui-trust-"));
+  const path = join(home, "state.json");
+  const first = canonicalFolder(mkdtempSync(join(tmpdir(), "astro-trust-first-")));
+  const second = canonicalFolder(mkdtempSync(join(tmpdir(), "astro-trust-second-")));
+  writeFileSync(path, JSON.stringify({
+    version: 1,
+    trust: { folders: [first, second] },
+    migrations: { providers: true, trust: true },
+  }));
+  const session = new TrustScreenSession(new TrustedFolders(path));
+  const instance = render(<TuiApp session={session} cwd={first} />);
+  try {
+    await waitFor(() => frameHas(instance, "modo: ask"));
+    instance.stdin.write("/config");
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes("Configuração") === true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("r");
+    await waitFor(() => instance.lastFrame()?.includes("pasta confiável a revogar") === true);
+    instance.stdin.write("\r"); // pede confirmação da primeira
+    await waitFor(() => instance.lastFrame()?.includes("revogar trust de") === true);
+    instance.stdin.write("c");
+    await waitFor(() => !new TrustedFolders(path).list().includes(first));
+    const state = JSON.parse(readFileSync(path, "utf8")) as {
+      trust: { folders: string[] };
+      migrations: { providers: boolean; trust: boolean };
+    };
+    expect(state.trust.folders).toEqual([second]);
+    expect(state.migrations).toEqual({ providers: true, trust: true });
+    instance.stdin.write("\u001b"); // fecha a config: a linha de info aparece no histórico
+    await waitFor(() => (instance.lastFrame() ?? "").includes("Configuração") === false);
+    await waitFor(() => frameHas(instance, "trust revogado:"));
+    expect(frameHas(instance, basename(first))).toBe(true);
+    // reabre e cancela a revogação da pasta restante: nada é gravado
+    instance.stdin.write("/config");
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes("Configuração") === true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    instance.stdin.write("r");
+    await waitFor(() => instance.lastFrame()?.includes("pasta confiável a revogar") === true);
+    instance.stdin.write("\r");
+    await waitFor(() => instance.lastFrame()?.includes("revogar trust de") === true);
+    instance.stdin.write("\u001b"); // cancela a confirmação sem revogar
+    await waitFor(() => instance.lastFrame()?.includes("pastas confiáveis:") === true);
+    expect(new TrustedFolders(path).list()).toEqual([second]);
   } finally {
     instance.unmount();
   }

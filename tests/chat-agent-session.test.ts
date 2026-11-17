@@ -9,6 +9,7 @@ import { loadConfig } from "../src/core/config";
 import type { PermissionMode } from "../src/permissions";
 import type { ChatMessage } from "../src/providers/types";
 import { Ledger } from "../src/ledger";
+import { canonicalFolder, TrustedFolders, trustStatePath } from "../src/trust";
 import { FAKE_PRIVATE_ACL, testEnv } from "./setup";
 
 interface Body { model?: string; messages?: ChatMessage[] }
@@ -509,6 +510,30 @@ describe("AgentSession configSummary / savePermissionMode (#273)", () => {
     } finally {
       if (saved === undefined) delete process.env.ASTRO_PERMISSION_MODE;
       else process.env.ASTRO_PERMISSION_MODE = saved;
+      stop();
+    }
+  });
+});
+
+describe("AgentSession.revokeTrustedFolder (#267)", () => {
+  test("remove do store, audita trust.revoked e é no-op quando ausente", () => {
+    const { cwd, session, stop } = setup();
+    const home = mkdtempSync(join(tmpdir(), "astro-trust-session-"));
+    const folder = mkdtempSync(join(tmpdir(), "astro-trust-folder-"));
+    try {
+      const chat = session({ env: testEnv({ KEY: "k", ASTRO_HOME: home }) });
+      const store = new TrustedFolders(trustStatePath({ ASTRO_HOME: home } as NodeJS.ProcessEnv));
+      store.trust(folder);
+      expect(chat.revokeTrustedFolder(folder)).toBe(true);
+      expect(new TrustedFolders(trustStatePath({ ASTRO_HOME: home } as NodeJS.ProcessEnv)).isTrusted(folder)).toBe(false);
+      expect(chat.revokeTrustedFolder(folder)).toBe(false); // ausente: no-op, sem audit duplicado
+      const events = new Auditor(join(cwd, ".astro", "audit.jsonl")).readAll()
+        .filter((event) => event.tipo === "trust.revoked");
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toEqual({ folder: canonicalFolder(folder) });
+      chat.close();
+      expect(() => chat.revokeTrustedFolder(folder)).toThrow(/encerrada/);
+    } finally {
       stop();
     }
   });
