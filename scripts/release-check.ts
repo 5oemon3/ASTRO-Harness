@@ -202,7 +202,7 @@ export function stepEnv(source: NodeJS.ProcessEnv = process.env): Record<string,
   return env;
 }
 
-function quoteDisplay(value: string): string {
+export function quoteDisplay(value: string): string {
   return /\s/.test(value) ? `"${value}"` : value;
 }
 

@@ -11,6 +11,7 @@ import {
   installedAstroBin,
   parseArgs,
   prepareTempDir,
+  quoteDisplay,
   removeTempDir,
   resolveStepBinary,
   runPlannedStep,
@@ -73,10 +74,10 @@ test("plano padrão roda qualidade, build, smoke, pack, instalação, identidade
     "bun test",
     "bun run build",
     "bun run smoke",
-    `npm pack --pack-destination ${plan.tempDir}`,
-    `npm install --no-save --no-audit --no-fund ${plan.tarball}`,
+    `npm pack --pack-destination ${quoteDisplay(plan.tempDir)}`,
+    `npm install --no-save --no-audit --no-fund ${quoteDisplay(plan.tarball)}`,
     `verificar identidade de ${EXPECTED_PACKAGE}`,
-    `${installedAstroBin(plan.tempDir)} --help`,
+    `${quoteDisplay(installedAstroBin(plan.tempDir))} --help`,
   ]);
   expect(plan.tarball).toBe(
     join(plan.tempDir, "umtioai-astro-harness-0.1.0-alpha.3.tgz"),
@@ -86,6 +87,18 @@ test("plano padrão roda qualidade, build, smoke, pack, instalação, identidade
   expect(plan.steps.find((step) => step.id === "help")?.cwd).toBe(plan.tempDir);
   expect(plan.steps.find((step) => step.id === "help")?.bin).toBe(installedAstroBin(plan.tempDir));
   expect(plan.steps.some((step) => /publish/.test(`${step.bin} ${step.args.join(" ")}`))).toBe(false);
+}, 5000);
+
+test("display de caminho com espaço é citado (#444)", () => {
+  const spaced = join(tempRoot, `${tempDirPrefix("@umtioai/astro-harness")}with space`);
+  const plan = createPlan({ ...base, tempDir: spaced });
+  const displays = plan.steps.map((step) => step.display);
+
+  expect(displays[4]).toBe(`npm pack --pack-destination "${spaced}"`);
+  expect(displays[5]).toBe(`npm install --no-save --no-audit --no-fund "${plan.tarball}"`);
+  expect(displays[7]).toBe(`"${installedAstroBin(spaced)}" --help`);
+  expect(quoteDisplay("sem-espaco")).toBe("sem-espaco");
+  expect(quoteDisplay(spaced)).toBe(`"${spaced}"`);
 }, 5000);
 
 test("--skip-tests remove typecheck e bun test do plano", () => {
