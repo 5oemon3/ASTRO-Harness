@@ -18,6 +18,8 @@ Resumo: jobs que rodam em todo PR, pré-requisitos de runner e equivalente local
 
 A matriz `test` roda nos dois SOs de propósito: há regressões específicas de win32 (paths, quirk de stdout do Bun) e de Linux (POSIX, Docker).
 
+O gate de cobertura também imprime um relatório por slice (C1–C4 + `unmapped`); ele é informativo e só os totais decidem o exit code. Mapa e como adicionar slice: cabeçalho de `scripts/coverage-gate.ts`.
+
 O bench noturno/ manual fica em `.github/workflows/bench.yml`; métricas, filtro e opt-in em `docs/eval.md`.
 
 ## Pré-requisitos e comportamento condicional
