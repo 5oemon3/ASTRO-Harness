@@ -201,7 +201,14 @@ export function resolvePermissionMode(explicit: unknown, configured: unknown): P
  */
 export const CRITICAL_PATH_SEGMENTS: readonly string[] = [".astro", ".git"];
 export const CRITICAL_PATH_NAMES: readonly string[] = [".env", "astro.config.json", "auth.json", "vault.json"];
-export const CRITICAL_PATH_PATTERN = /(^|[._-])(secret|secrets|token|tokens|key|keys|password|passwd|credential|credentials)([._-]|$)/i;
+/**
+ * Termos sensíveis em nome de arquivo: `secret`/`token`/`apikey`/`password`/
+ * `credential` contam mesmo embutidos (`mysecret.txt`, `apikey.txt`), mas só
+ * terminam em fronteira de não-letra para não bloquear `tokenizer.ts`;
+ * `key`/`keys` exigem separador para não bloquear `keyboard.ts`/`monkey.ts`.
+ */
+export const CRITICAL_PATH_PATTERN =
+  /(secret|secrets|token|tokens|apikey|apikeys|api[_-]keys?|password|passwd|credential|credentials)(?![A-Za-z])|(^|[._-])(key|keys)([._-]|$)/i;
 
 /** Caminho que casa com `CRITICAL_PATHS` (leitura crítica e escrita crítica). */
 export function isCriticalPath(path: string): boolean {

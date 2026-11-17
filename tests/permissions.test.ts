@@ -458,6 +458,17 @@ describe("caminhos críticos (#263)", () => {
     }
   });
 
+  test("nome que contém termo sensível é crítico; palavra comum não (#263)", () => {
+    const criticos = ["mysecret.txt", "apikey.txt", "api_key.txt", "my-token.txt", "my-token", "credentials.json"];
+    for (const path of criticos) {
+      expect({ path, critical: isCriticalPath(path) }).toEqual({ path, critical: true });
+    }
+    const comuns = ["keyboard.ts", "monkey.ts", "tokenizer.ts", "src/keyboard.ts", "turkey.txt"];
+    for (const path of comuns) {
+      expect({ path, critical: isCriticalPath(path) }).toEqual({ path, critical: false });
+    }
+  });
+
   test("gate classifica escrita em caminho crítico", () => {
     const call = (name: string, input: unknown) => ({ name, input });
     expect(actionClassOf(writeFileTool, call("write_file", { path: ".env", content: "x" }))).toBe("critical_write");

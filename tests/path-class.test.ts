@@ -68,6 +68,15 @@ test("hard-block configurável: CRITICAL_PATH_PATTERN fora do tier imutável", (
   expect(cls(join(cwd, "aws_secret_access_key"))).toBe("hard-block");
 });
 
+test("hard-block configurável: termo contido no nome, sem bloquear palavra comum (#263)", () => {
+  for (const item of ["mysecret.txt", "apikey.txt", "my-token.txt", "credentials.json", "id_rsa"]) {
+    expect(cls(join(cwd, item))).toBe("hard-block");
+  }
+  for (const item of ["keyboard.ts", "monkey.ts", "tokenizer.ts"]) {
+    expect(cls(join(cwd, item))).toBe("normal");
+  }
+});
+
 test("sensitive: .example/.sample/.template/.dist e .env.example", () => {
   for (const name of [".env.example", "config.sample", "app.template", "settings.dist", "README.example"]) {
     expect(cls(join(cwd, name))).toBe("sensitive");
