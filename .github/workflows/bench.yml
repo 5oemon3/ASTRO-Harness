@@ -1,23 +1,29 @@
 name: bench
 
-# Benchmark manual (F5-4): consome quota de providers reais; nunca roda em PR.
+# Benchmark real (F5-4): consome quota de providers; nunca roda em PR.
+# Manual: workflow_dispatch. Nightly opcional: schedule + repositório
+# variable BENCH_NIGHTLY=true; o filtro nightly vem de BENCH_MODELS.
 on:
   workflow_dispatch:
     inputs:
       models:
-        description: "Filtro de modelos (substring, vírgula separa)"
+        description: "Filtro de provider/modelo (provider exato ou substring de provider/model, vírgula separa)"
         required: false
         default: ""
       runs:
         description: "Repetições da suite"
         required: false
         default: "1"
+  schedule:
+    - cron: "0 3 * * *"
 
 permissions:
   contents: read
 
 jobs:
   bench:
+    # O schedule existe, mas só gasta quota com opt-in explícito do repositório.
+    if: github.event_name == 'workflow_dispatch' || vars.BENCH_NIGHTLY == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -30,10 +36,30 @@ jobs:
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: bun src/cli.ts bench --runs ${{ github.event.inputs.runs }} ${{ github.event.inputs.models != '' && format('--models {0}', github.event.inputs.models) || '' }}
+          BENCH_RUNS: ${{ github.event.inputs.runs || '1' }}
+          DISPATCH_MODELS: ${{ github.event.inputs.models }}
+          NIGHTLY_MODELS: ${{ vars.BENCH_MODELS }}
+        run: |
+          models="$DISPATCH_MODELS"
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            models="$NIGHTLY_MODELS"
+            # Vazio, só espaços ou só vírgulas seleciona todos no CLI; no
+            # nightly isso gastaria quota real em todos os modelos.
+            if [ -z "$(printf '%s' "$models" | tr -d '[:space:],')" ]; then
+              echo "::error::defina BENCH_MODELS com ao menos um provider/modelo; valor vazio, só com espaços ou só com vírgulas rodaria todos os modelos"
+              exit 1
+            fi
+          fi
+          args=(--runs "$BENCH_RUNS")
+          if [ -n "$models" ]; then args+=(--models "$models"); fi
+          # O CLI recusa filtro sem termo alfanumérico ou que selecione todos.
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then args+=(--require-filter); fi
+          bun src/cli.ts bench "${args[@]}"
       - name: Upload bench reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bench-reports
-          path: eval/bench-*.json
+          path: |
+            eval/bench-*.json
+            eval/bench-*.md

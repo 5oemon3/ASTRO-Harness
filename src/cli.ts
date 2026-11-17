@@ -18,7 +18,7 @@ import { formatAgentsList } from "./agent-manager";
 import { buildModelCatalog, formatModelCatalog, formatSeedList } from "./model-catalog";
 import { PROVIDER_CATALOG } from "./provider/catalog";
 import { evalFailsThreshold, runEval, writeBaseline, type EvalReport } from "./eval/harness";
-import { runBenchmark, type BenchReport } from "./eval/bench";
+import { formatBenchTable, runBenchmark, selectBenchModels } from "./eval/bench";
 import { Metrics, startMetricsServer } from "./metrics";
 import { formatBudgetEstimate } from "./budget";
 import { replayRun } from "./replay";
@@ -186,7 +186,7 @@ function resolveContinueAgent(cwd: string, run: string): string {
 const USAGE = `Uso:
   astro run "<pedido>" [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>]
   astro eval [--threshold <0..1>] [--golden <dir>] [--report <path>] [--baseline <path>] [--write-baseline]
-  astro bench [--config <path>] [--models <filtro>] [--runs <n>] [--out <dir>]
+  astro bench [--config <path>] [--models <filtro>] [--runs <n>] [--out <dir>] [--require-filter]
   astro serve [--port <n>]
   astro replay <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
   astro chat [--config <path>] [--cwd <dir>] [--provider <name>] [--permission-mode <modo>] [--artifact-root <dir>]
@@ -226,9 +226,10 @@ Eval:
   --write-baseline     grava baseline a partir desta execução
 
 Bench:
-  --models <filtro>    filtra modelos por substring (vírgula separa vários)
+  --models <filtro>    termo sem "/" casa o provider exato; com "/" é substring de provider/model; vírgula separa
   --runs <n>           repetições da suite (default: 1)
-  --out <dir>          diretório dos relatórios (default: eval)`;
+  --out <dir>          diretório dos relatórios (default: eval)
+  --require-filter     falha se o filtro não tiver termo alfanumérico ou selecionar todos os modelos`;
 
 class UsageError extends Error {
   constructor(message: string) {
@@ -261,6 +262,7 @@ interface BenchCommand {
   models?: string;
   runs: number;
   outDir: string;
+  requireFilter: boolean;
 }
 
 interface ServeCommand {
@@ -874,8 +876,13 @@ function parseArgs(argv: string[]): ParsedCommand {
     let models: string | undefined;
     let runs = 1;
     let outDir = "eval";
+    let requireFilter = false;
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i] as string;
+      if (arg === "--require-filter") {
+        requireFilter = true;
+        continue;
+      }
       if (arg === "--config" || arg === "--models" || arg === "--runs" || arg === "--out") {
         const value = rest.at(i + 1);
         if (value === undefined || value.startsWith("-")) {
@@ -896,7 +903,7 @@ function parseArgs(argv: string[]): ParsedCommand {
     }
     return {
       kind: "bench",
-      options: { configPath, ...(models === undefined ? {} : { models }), runs, outDir },
+      options: { configPath, ...(models === undefined ? {} : { models }), runs, outDir, requireFilter },
     };
   }
 
@@ -1033,16 +1040,6 @@ function formatEval(report: EvalReport): string {
   return lines.join("\n");
 }
 
-/** Tabela compacta de bench no stdout. */
-function formatBenchTable(report: BenchReport): string {
-  const lines = report.results.map(
-    (r) =>
-      `${r.model} · p50 ${r.latencyMs.p50}ms · ${r.tokensPerSec} tok/s · custo/1k out ` +
-      `${r.costPer1kOutUsd === null ? "n/d" : `US$ ${r.costPer1kOutUsd.toFixed(4)}`}`,
-  );
-  return [`bench: ${report.results.length} modelos · ${report.prompts} prompts`, ...lines].join("\n");
-}
-
 async function main(argv: string[]): Promise<number> {
   // `--no-global-config` vale para qualquer comando: sai do argv e vira o env.
   // A flag nunca é o valor de outra opção: todo parser recusa valor que começa
@@ -1143,15 +1140,13 @@ async function main(argv: string[]): Promise<number> {
     const config = loadEffectiveConfig(resolve(o.configPath)).config;
     const registry = new Registry(config);
     const all = registry.list();
-    const models = o.models === undefined
-      ? all
-      : all.filter((m) => o.models!.split(",").some((f) => `${m.provider}/${m.id}`.includes(f.trim())));
-    if (models.length === 0) {
-      console.error("erro: nenhum modelo ativo corresponde ao filtro");
+    const selection = selectBenchModels(all, o.models, { requireFilter: o.requireFilter });
+    if (!selection.ok) {
+      console.error(`erro: ${selection.error}`);
       return 1;
     }
     const report = await runBenchmark({
-      models,
+      models: selection.models,
       runs: o.runs,
       outDir: resolve(o.outDir),
       providerFor: (m) => createProvider(config, m, process.env).provider,
