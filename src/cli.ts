@@ -195,7 +195,7 @@ const USAGE = `Uso:
   astro resume <run-id> --task "<pedido>" [--config <path>] [--cwd <dir>]
   astro continue <run-id> [--task "<pedido>"] [--agent <name>] [--config <path>] [--cwd <dir>]
   astro health [--config <path>]
-  astro doctor [--json] [--fix] [--online]
+  astro doctor [--json] [--fix] [--online] [--artifact-root <path>]
   astro providers <health|list|test|vault-import> [--config <path>] [--apply] [--allow-plain]
   astro handoff show <handoff_id> [--config <path>]
   astro cost --by-agent [--config <path>]
@@ -319,6 +319,8 @@ interface DoctorCommand {
   json: boolean;
   fix: boolean;
   online: boolean;
+  /** `--artifact-root`: mesma precedência flag > env do chat/tui (ADR-0026). */
+  artifactRoot?: string;
 }
 
 interface ProvidersCommand {
@@ -689,13 +691,24 @@ function parseArgs(argv: string[]): ParsedCommand {
     let json = false;
     let fix = false;
     let online = false;
-    for (const arg of rest) {
+    let artifactRoot: string | undefined;
+    for (let i = 0; i < rest.length; i++) {
+      const arg = rest[i] as string;
       if (arg === "--json") { json = true; continue; }
       if (arg === "--fix") { fix = true; continue; }
       if (arg === "--online") { online = true; continue; }
+      if (arg === "--artifact-root") {
+        const value = rest.at(i + 1);
+        if (value === undefined || value.startsWith("-") || value.trim() === "") {
+          throw new UsageError(`falta o valor de ${arg}`);
+        }
+        i++;
+        artifactRoot = value;
+        continue;
+      }
       throw new UsageError(`opção desconhecida: "${arg}"`);
     }
-    return { kind: "doctor", options: { json, fix, online } };
+    return { kind: "doctor", options: { json, fix, online, ...(artifactRoot === undefined ? {} : { artifactRoot }) } };
   }
 
   if (command === "pool") {
@@ -1095,7 +1108,10 @@ async function main(argv: string[]): Promise<number> {
     // `--fix` só mexe em estado local seguro (ver applyFixes); roda antes dos checks.
     const fixes = o.fix ? applyFixes(process.env) : undefined;
     // Raiz do pacote (`src/..` ou `dist/..`): valida deps e dist da instalação, não do cwd.
-    const report = await runDoctor(resolve(import.meta.dir, ".."), { online: o.online });
+    const report = await runDoctor(resolve(import.meta.dir, ".."), {
+      online: o.online,
+      ...(o.artifactRoot === undefined ? {} : { artifactRoot: o.artifactRoot }),
+    });
     if (o.json) {
       console.log(JSON.stringify(doctorJson(report, fixes), null, 2));
     } else {

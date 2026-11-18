@@ -721,10 +721,11 @@ function collectAttachmentFacts(
   env: NodeJS.ProcessEnv,
   checkPrivate?: (path: string) => boolean,
   probeWritable?: (path: string) => boolean,
+  artifactRoot?: string,
 ): DoctorFacts["attachments"] {
   const config = readAttachmentConfig(env);
   const astroHome = resolveAstroHome(env);
-  const root = resolveArtifactRoot({ env, astroHome });
+  const root = resolveArtifactRoot({ ...(artifactRoot === undefined ? {} : { flag: artifactRoot }), env, astroHome });
   const base = { root, ttlDays: config.ttlDays, maxBytes: config.maxBytes };
   try {
     validateArtifactRoot(root, {
@@ -768,6 +769,8 @@ export function collectFacts(
     env?: NodeJS.ProcessEnv;
     checkPrivate?: (path: string) => boolean;
     probeWritable?: (path: string) => boolean;
+    /** `--artifact-root`: resolve a raiz efetiva com a mesma precedência do chat/tui (ADR-0026). */
+    artifactRoot?: string;
     /** Raiz de skills do usuário; default é a do runtime (`~/.astro/skills`). */
     userSkillsRoot?: string;
   } = {},
@@ -781,7 +784,7 @@ export function collectFacts(
     artifacts: ARTIFACTS.map((path) => ({ path, exists: existsSync(join(root, path)) })),
     config: readConfig(env),
     astroHome: readAstroHome(env),
-    attachments: collectAttachmentFacts(env, options.checkPrivate, options.probeWritable),
+    attachments: collectAttachmentFacts(env, options.checkPrivate, options.probeWritable, options.artifactRoot),
     skills: collectSkillFacts(options.userSkillsRoot ?? join(homedir(), ".astro", "skills")),
     disk: collectDiskFacts(env),
     env,
@@ -850,9 +853,12 @@ export async function collectOnlineChecks(
 /** Relatório do CLI: checks offline e, só com `online: true`, o health F6-6. */
 export async function runDoctor(
   root: string,
-  options: { online?: boolean; env?: NodeJS.ProcessEnv } & OnlineOptions = {},
+  options: { online?: boolean; env?: NodeJS.ProcessEnv; artifactRoot?: string } & OnlineOptions = {},
 ): Promise<DoctorReport> {
-  const report = runChecks(collectFacts(root, options.env === undefined ? {} : { env: options.env }));
+  const report = runChecks(collectFacts(root, {
+    ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.artifactRoot === undefined ? {} : { artifactRoot: options.artifactRoot }),
+  }));
   if (options.online !== true) return report;
   report.checks.push(...await collectOnlineChecks(options.env ?? process.env, options));
   return report;

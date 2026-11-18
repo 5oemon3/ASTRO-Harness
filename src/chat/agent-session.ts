@@ -26,6 +26,7 @@ import { effectiveOutputCap } from "../output-limit";
 import { Registry, type ModelEntry } from "../core/registry";
 import { Ledger } from "../ledger";
 import { isPermissionMode, resolveAstroHome, resolvePermissionMode, type PermissionMode } from "../permissions";
+import { canonicalize } from "../tools/paths";
 import { readAgentsMd } from "../spawn";
 import { forceCompaction, recordCompactionSuccess } from "../compaction/breaker";
 import { assertWithinQuota, quotaStatus, type QuotaStatus } from "../quota";
@@ -348,6 +349,19 @@ export class AgentSession {
   /** Resumo da config carregada para `/config` (#273); o modo é o ativo da sessão. */
   configSummary(): ConfigSummary {
     return configSummaryOf(this.#config, this.#configPath, this.#permissionMode);
+  }
+
+  /** `attachments.directory.showHidden` da config efetiva, lido por `/attach <dir>` (#392). */
+  attachmentsShowHidden(): boolean {
+    return this.#config.attachments.directory.showHidden;
+  }
+
+  /** Ledger e audit canônicos: estado do harness que nunca entra como anexo (I-11, #392). */
+  attachmentProtectedPaths(): readonly string[] {
+    return [
+      canonicalize(resolvePath(this.#cwd, this.#config.paths.ledger)),
+      canonicalize(resolvePath(this.#cwd, this.#config.paths.audit)),
+    ];
   }
 
   /**
@@ -736,12 +750,16 @@ export class AgentSession {
         ...(metas === undefined ? {} : { attachments: metas }),
         ...(images === undefined ? {} : { images }) }], this.contextLimit());
       const history = guard.messages.slice(0, -1); // o último é o prompt deste turno
-      if (images !== undefined) {
+      // Pré-check de anexo antes de qualquer request (ADR-0026/D-22): tokens do turno
+      // inteiro + reserva de saída. `originalTokens` (antes do descarte) impede que o
+      // anexo caiba só porque o guard descartou histórico em silêncio; o guardContext
+      // não é backstop.
+      if (metas !== undefined && metas.length > 0) {
         const window = this.contextLimit();
         const reserve = effectiveOutputCap(this.#config.outputLimit, window);
-        if (guard.tokens + reserve > window) {
+        if (guard.originalTokens + reserve > window) {
           throw new AttachmentError("attachment_turn_too_large",
-            `imagem excede a janela de contexto do modelo: ~${guard.tokens} tokens + ${reserve} de saída > ${window}`);
+            `anexos excedem a janela de contexto do modelo: ~${guard.originalTokens} tokens + ${reserve} de saída > ${window}`);
         }
       }
       this.#append("chat.prompt", { taskHash: shortTaskHash(prompt) });

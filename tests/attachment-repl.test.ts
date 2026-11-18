@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession, type SendTurnOptions, type TurnResult } from "../src/chat/agent-session";
 import { runRepl, type ChatSession, type ReplIO } from "../src/chat/repl";
+import { loadAttachment } from "../src/attachments/load";
 import type { AttachmentMeta, LoadedAttachment } from "../src/attachments/model";
+import { canonicalize } from "../src/tools/paths";
 import { FAKE_PRIVATE_ACL } from "./setup";
 
 class ScriptedIO implements ReplIO {
@@ -134,10 +136,13 @@ describe("/attach e /paste no REPL (ADR-0026, #392)", () => {
 
 /** PNG 1x1 real (70 bytes), o mesmo fixture do teste de turno. */
 const pngData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+/** Texto comum de ~20 MiB; hex longo seria redigido e encolheria o anexo. */
+const BIG_CHUNK = "lorem ipsum dolor sit amet\n";
+const BIG_TEXT = BIG_CHUNK.repeat(Math.floor((20 * 1024 * 1024) / BIG_CHUNK.length));
 interface CapturedBody { messages?: Array<{ role?: string; content?: unknown }> }
 
 /** Sessão real + servidor local que captura o corpo: exercita o wire até o provider. */
-function e2eSetup(context = 8192) {
+function e2eSetup(context = 8192, extraConfig: Record<string, unknown> = {}) {
   const base = sandbox();
   const cwd = join(base, "work"), home = join(base, "home");
   mkdirSync(cwd, { recursive: true });
@@ -150,6 +155,7 @@ function e2eSetup(context = 8192) {
   } });
   const configPath = join(cwd, "astro.config.json");
   writeFileSync(configPath, JSON.stringify({
+    ...extraConfig,
     providers: { p: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "KEY" } },
     models: [{ provider: "p", id: "m1", tags: ["writing-code"], context, capabilities: { vision: true } }],
     agent: { model: "p/m1", maxSteps: 1, tools: [] },
@@ -229,6 +235,139 @@ describe("imagem no turno do REPL (ADR-0026, #392)", () => {
       expect(readFileSync(join(cwd, ".astro", "audit.jsonl"), "utf8")).not.toContain("attachment.approved");
     } finally {
       stop();
+    }
+  });
+});
+
+describe("turno acima da janela no REPL (ADR-0026, #392)", () => {
+  test("20 MiB de texto estoura a janela e falha antes do request, sem compactar", async () => {
+    const { cwd, bodies, session, stop } = e2eSetup(131072);
+    writeFileSync(join(cwd, "big.txt"), BIG_TEXT);
+    const io = new ScriptedIO(["/attach big.txt", "resuma", "/exit"]);
+    try {
+      await runRepl(session, io, { cwd });
+      expect(bodies).toHaveLength(0);
+      expect(io.outputs.join("\n")).toContain("janela de contexto");
+      expect(session.snapshot().messages.map((message) => message.role)).toEqual(["system"]);
+      const audit = join(cwd, ".astro", "audit.jsonl");
+      expect(existsSync(audit) ? readFileSync(audit, "utf8") : "").not.toContain("chat.compact");
+    } finally {
+      stop();
+    }
+  }, 30_000);
+
+  test("falha tipada attachment_turn_too_large, não trunca histórico e não envia", async () => {
+    const { cwd, home, bodies, session, stop } = e2eSetup(131072);
+    writeFileSync(join(cwd, "big.txt"), BIG_TEXT);
+    try {
+      // Histórico que o guard descartaria para caber; ele precisa sobreviver à rejeição.
+      session.resume({
+        id: "prev", startedAt: "2026-11-08T12:00:00.000Z", model: "p/m1",
+        messages: [{ role: "user", content: "antigo" }, { role: "assistant", content: "ok" }],
+        turns: 1, tokensIn: 1, tokensOut: 1, costUsd: 0,
+      });
+      const big = await loadAttachment({ path: "big.txt", cwd, astroHome: home });
+      let thrown: unknown;
+      try {
+        // Mesma forma do REPL: o conteúdo já está no prompt e os metas acompanham o turno.
+        await session.send(BIG_TEXT, undefined, undefined, undefined, { attachments: [big] });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({ name: "AttachmentError", code: "attachment_turn_too_large" });
+      expect(bodies).toHaveLength(0);
+      const messages = session.snapshot().messages;
+      expect(messages.map((message) => message.role)).toEqual(["system", "user", "assistant"]);
+      expect(messages[1]?.content).toBe("antigo");
+    } finally {
+      stop();
+    }
+  }, 30_000);
+});
+
+describe("@path é só menção (ADR-0026, #392)", () => {
+  test("prompt com @path não lê o arquivo nem envia attachments", async () => {
+    const cwd = sandbox();
+    writeFileSync(join(cwd, "a.txt"), "conteudo-do-arquivo\n");
+    const session = new CaptureSession();
+    const io = new ScriptedIO(["veja @a.txt e @nao-existe.txt", "/exit"]);
+    await runRepl(session, io, { cwd });
+    expect(session.sent).toHaveLength(1);
+    expect(session.sent[0]?.prompt).toBe("veja @a.txt e @nao-existe.txt");
+    expect(session.sent[0]?.attachments).toBeUndefined();
+    const out = io.outputs.join("\n");
+    expect(out).not.toContain("conteudo-do-arquivo");
+    expect(out).not.toContain("erro");
+  });
+});
+
+describe("protectedPaths da config no /attach (ADR-0026, #392)", () => {
+  test("ledger e audit resolvidos entram no hard-block", async () => {
+    const base = sandbox();
+    const cwd = join(base, "work"), home = join(base, "home");
+    mkdirSync(join(cwd, "state"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(cwd, "state", "ledger.jsonl"), "{}\n");
+    const configPath = join(cwd, "astro.config.json");
+    writeFileSync(configPath, JSON.stringify({
+      providers: { p: { kind: "openai-compat", baseUrl: "http://127.0.0.1:1/v1", credentialRef: "KEY" } },
+      models: [{ provider: "p", id: "m1", tags: ["writing-code"], context: 8192 }],
+      agent: { model: "p/m1", maxSteps: 1, tools: [] },
+      paths: { ledger: "state/ledger.jsonl", audit: "state/audit.jsonl" },
+    }));
+    const session = new AgentSession({ configPath, cwd, env: { ASTRO_HOME: home, KEY: "k" } });
+    const io = new ScriptedIO(["/attach state/ledger.jsonl", "/exit"]);
+    try {
+      await runRepl(session, io, { cwd });
+      expect(io.outputs.join("\n")).toContain("bloqueado");
+      expect(io.outputs.join("\n")).not.toContain("anexo adicionado");
+    } finally {
+      session.close();
+    }
+  });
+
+  test("attachmentProtectedPaths devolve caminhos canônicos", () => {
+    const base = sandbox();
+    const cwd = join(base, "work"), home = join(base, "home");
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(home, { recursive: true });
+    const state = join(cwd, "real-state");
+    mkdirSync(state);
+    symlinkSync(state, join(cwd, "state-link"), process.platform === "win32" ? "junction" : "dir");
+    const configPath = join(cwd, "astro.config.json");
+    writeFileSync(configPath, JSON.stringify({
+      providers: { p: { kind: "openai-compat", baseUrl: "http://127.0.0.1:1/v1", credentialRef: "KEY" } },
+      models: [{ provider: "p", id: "m1", tags: ["writing-code"], context: 8192 }],
+      agent: { model: "p/m1", maxSteps: 1, tools: [] },
+      paths: { ledger: "state-link/ledger.jsonl", audit: "state-link/audit.jsonl" },
+    }));
+    const session = new AgentSession({ configPath, cwd, env: { ASTRO_HOME: home, KEY: "k" } });
+    try {
+      const real = canonicalize(state);
+      expect(session.attachmentProtectedPaths()).toEqual([
+        join(real, "ledger.jsonl"),
+        join(real, "audit.jsonl"),
+      ]);
+    } finally {
+      session.close();
+    }
+  });
+});
+
+describe("showHidden da config no /attach (ADR-0026, #392)", () => {
+  test("config true lista ocultos; false os esconde", async () => {
+    for (const showHidden of [true, false]) {
+      const { cwd, bodies, session, stop } = e2eSetup(8192, { attachments: { directory: { showHidden } } });
+      mkdirSync(join(cwd, "d"));
+      writeFileSync(join(cwd, "d", "visivel.txt"), "x");
+      writeFileSync(join(cwd, "d", ".oculto"), "x");
+      try {
+        await runRepl(session, new ScriptedIO(["/attach d", "liste", "/exit"]), { cwd });
+        expect(bodies).toHaveLength(1);
+        expect(JSON.stringify(bodies[0]).includes(".oculto")).toBe(showHidden);
+      } finally {
+        stop();
+      }
     }
   });
 });

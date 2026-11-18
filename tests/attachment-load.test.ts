@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAttachment, loadPastedText } from "../src/attachments/load";
 import { MAX_ATTACHMENT_BYTES } from "../src/attachments/model";
+import { canonicalize } from "../src/tools/paths";
 
 const roots: string[] = [];
 
@@ -22,6 +23,18 @@ afterEach(() => {
 });
 
 const base = (cwd: string, astroHome: string) => ({ cwd, astroHome });
+
+/** Marcadores PEM exatos, montados em runtime: o literal completo não entra no repo (I-03). */
+const PEM_BEGIN = ["-----BEGIN", "PRIVATE KEY-----"].join(" ");
+const PEM_END = ["-----END", "PRIVATE KEY-----"].join(" ");
+const PEM_BODY = [
+  "MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun",
+  "VTLw5Zs5DDnbqZ6rJ1QxJw9pQ0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l0l",
+  "Q2h1Y2sxMjM0NTY3ODkwYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo",
+];
+/** Marcador com label longo (acima de qualquer bound antigo): detecção por faixa é por prefixo. */
+const PEM_LONG_LABEL = ["-----BEGIN", `${"A".repeat(40)} PRIVATE KEY BLOCK-----`].join(" ");
+const PEM_LONG_END = ["-----END", `${"A".repeat(40)} PRIVATE KEY BLOCK-----`].join(" ");
 
 /** Header PNG mínimo com IHDR: suficiente para magic bytes e dimensões (não é PNG completo). */
 function pngHeader(width: number, height: number): Buffer {
@@ -67,12 +80,246 @@ describe("loadAttachment", () => {
     expect(attachment.range).toEqual({ start: 1, end: 3 });
   });
 
+  test("range de arquivo pequeno é aplicado antes da redação (numeração preservada)", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "chave.txt"), [
+      PEM_BEGIN,
+      PEM_BODY[0]!,
+      "linha-interna-3",
+      PEM_END,
+      "alvo-5",
+      "alvo-6",
+      "alvo-7",
+    ].join("\n"));
+    const attachment = await loadAttachment({ ...base(cwd, astroHome), path: "chave.txt", range: "5:6" });
+    expect(attachment.data).toBe("alvo-5\nalvo-6");
+    expect(attachment.range).toEqual({ start: 5, end: 6 });
+    expect(attachment.data).not.toContain("PRIVATE KEY");
+  });
+
+  test("range no interior de um PEM não vaza o corpo da chave", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "notas.txt"), [
+      PEM_BEGIN,
+      PEM_BODY[0]!,
+      PEM_BODY[1]!,
+      "Q2h1Y2stdGVyY2VpcmEtZGUtbGlu",
+      PEM_BODY[2]!,
+      PEM_END,
+      "alvo-7",
+    ].join("\n"));
+    const interior = await loadAttachment({ ...base(cwd, astroHome), path: "notas.txt", range: "2:5" });
+    expect(interior.data).toBe("[REDACTED]\n[REDACTED]\n[REDACTED]\n[REDACTED]");
+    expect(interior.range).toEqual({ start: 2, end: 5 });
+    expect(interior.data).not.toContain("MIIEow");
+
+    // Faixa que atravessa o END: as linhas do span seguem numeradas e redigidas.
+    const throughEnd = await loadAttachment({ ...base(cwd, astroHome), path: "notas.txt", range: "5:7" });
+    expect(throughEnd.data).toBe("[REDACTED]\n[REDACTED]\nalvo-7");
+    expect(throughEnd.range).toEqual({ start: 5, end: 7 });
+  });
+
+  test("range no interior de um PEM no caminho de streaming não vaza", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "grande-notas.txt"), [
+      PEM_BEGIN,
+      PEM_BODY[0]!,
+      PEM_BODY[1]!,
+      PEM_END,
+      "resto ".repeat(200),
+    ].join("\n"));
+    const attachment = await loadAttachment({
+      ...base(cwd, astroHome),
+      path: "grande-notas.txt",
+      range: "2:3",
+      maxBytes: 512,
+    });
+    expect(attachment.data).toBe("[REDACTED]\n[REDACTED]");
+    expect(attachment.range).toEqual({ start: 2, end: 3 });
+    expect(attachment.data).not.toContain("MIIEow");
+  });
+
+  test("última linha sem newline no caminho de streaming entra na faixa", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "sem-nl.txt"), "um\ndois\ntres");
+    const attachment = await loadAttachment({
+      ...base(cwd, astroHome),
+      path: "sem-nl.txt",
+      range: "3:3",
+      maxBytes: 8,
+    });
+    expect(attachment.data).toBe("tres");
+    expect(attachment.range).toEqual({ start: 3, end: 3 });
+  });
+
+  test("marcador no meio da linha não escapa (offset 60 e 70)", async () => {
+    for (const offset of [60, 70]) {
+      const { cwd, astroHome } = sandbox();
+      writeFileSync(join(cwd, "meio.txt"), [
+        `${"x".repeat(offset)}${PEM_BEGIN}`,
+        PEM_BODY[0]!,
+        PEM_BODY[1]!,
+        PEM_END,
+        "z".repeat(5_000),
+      ].join("\n"));
+      const attachment = await loadAttachment({
+        ...base(cwd, astroHome),
+        path: "meio.txt",
+        range: "2:3",
+        maxBytes: 4_096,
+      });
+      expect(attachment.data).toBe("[REDACTED]\n[REDACTED]");
+      expect(attachment.data).not.toContain("MIIEow");
+    }
+  });
+
+  test("bloco PEM em uma linha só fecha o span e preserva a linha seguinte", async () => {
+    const { cwd, astroHome } = sandbox();
+    const oneLine = `${PEM_BEGIN} ${PEM_BODY[0]} ${PEM_BODY[1]} ${PEM_END}`;
+    expect(oneLine.length).toBeGreaterThan(64);
+    writeFileSync(join(cwd, "uma-linha.txt"), [oneLine, "alvo-2", "z".repeat(5_000)].join("\n"));
+    const attachment = await loadAttachment({
+      ...base(cwd, astroHome),
+      path: "uma-linha.txt",
+      range: "1:2",
+      maxBytes: 4_096,
+    });
+    expect(attachment.data).toBe("[REDACTED]\nalvo-2");
+  });
+
+  test("linha maior que o teto mas com forma redigida cabível não estoura", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "linha-grande.txt"),
+      `${"x".repeat(1_500)}${PEM_BEGIN} ${PEM_BODY[0]} ${PEM_END}\n`);
+    const attachment = await loadAttachment({
+      ...base(cwd, astroHome),
+      path: "linha-grande.txt",
+      range: "1:1",
+      maxBytes: 1_000,
+    });
+    expect(attachment.data).toBe("[REDACTED]");
+    expect(attachment.range).toEqual({ start: 1, end: 1 });
+  });
+
+  test("marcador com label no limite não escapa em nenhuma posição da fronteira", async () => {
+    for (const pre of [47, 48, 49, 55, 59, 63, 64]) {
+      const { cwd, astroHome } = sandbox();
+      writeFileSync(join(cwd, "fronteira-label.txt"), [
+        `${"x".repeat(65_536 - pre)}${PEM_LONG_LABEL}`,
+        PEM_BODY[0]!,
+        PEM_BODY[1]!,
+        PEM_LONG_END,
+        "z".repeat(5_000),
+      ].join("\n"));
+      const attachment = await loadAttachment({
+        ...base(cwd, astroHome),
+        path: "fronteira-label.txt",
+        range: "2:3",
+        maxBytes: 70_000,
+      });
+      expect(attachment.data).toBe("[REDACTED]\n[REDACTED]");
+      expect(attachment.data).not.toContain("MIIEow");
+    }
+  });
+
+  test("label acima do bound antigo redige no range e no texto inteiro", async () => {
+    for (const size of [33, 70]) {
+      const { cwd, astroHome } = sandbox();
+      const begin = ["-----BEGIN", `${"A".repeat(size)} PRIVATE KEY-----`].join(" ");
+      const end = ["-----END", `${"A".repeat(size)} PRIVATE KEY-----`].join(" ");
+      writeFileSync(join(cwd, "label-longo.txt"), [
+        begin,
+        PEM_BODY[0]!,
+        PEM_BODY[1]!,
+        end,
+        "alvo-5",
+      ].join("\n"));
+      const whole = await loadAttachment({ ...base(cwd, astroHome), path: "label-longo.txt" });
+      expect(whole.data).not.toContain("MIIEow");
+      expect(whole.data).toContain("[REDACTED]");
+      const ranged = await loadAttachment({
+        ...base(cwd, astroHome),
+        path: "label-longo.txt",
+        range: "2:3",
+        maxBytes: 128,
+      });
+      expect(ranged.data).toBe("[REDACTED]\n[REDACTED]");
+      expect(ranged.data).not.toContain("MIIEow");
+    }
+  });
+
+  test("BEGIN sem END no caminho de streaming redige até o EOF", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "sem-end.txt"), [PEM_BEGIN, PEM_BODY[0]!, "final-sem-end"].join("\n"));
+    const attachment = await loadAttachment({
+      ...base(cwd, astroHome),
+      path: "sem-end.txt",
+      range: "2:3",
+      maxBytes: 40,
+    });
+    expect(attachment.data).toBe("[REDACTED]\n[REDACTED]");
+    expect(attachment.data).not.toContain("MIIEow");
+  });
+
+  test("marcador PEM cortado pela fronteira do chunk não vaza o corpo", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(cwd, "fronteira.txt"), [
+      "a".repeat(65_532), // linha 1 termina 3 bytes antes do chunk de 64 KiB
+      PEM_BEGIN, // linha 2: só "---" cabe no primeiro chunk
+      PEM_BODY[0]!, // linha 3
+      PEM_BODY[1]!, // linha 4
+      PEM_END,
+      "z".repeat(5_000),
+    ].join("\n"));
+    const attachment = await loadAttachment({
+      ...base(cwd, astroHome),
+      path: "fronteira.txt",
+      range: "3:4",
+      maxBytes: 70_000,
+    });
+    expect(attachment.data).toBe("[REDACTED]\n[REDACTED]");
+    expect(attachment.range).toEqual({ start: 3, end: 4 });
+    expect(attachment.data).not.toContain("MIIEow");
+  });
+
   test("hard-block em .env sem override", async () => {
     const { cwd, astroHome } = sandbox();
     writeFileSync(join(cwd, ".env"), "KEY=1");
     await expect(loadAttachment({ ...base(cwd, astroHome), path: ".env" })).rejects.toMatchObject({
       code: "attachment_hard_blocked",
     });
+  });
+
+  test("hard-block em vault, .astro do cwd e .git/config mesmo com confirmação", async () => {
+    const { cwd, astroHome } = sandbox();
+    writeFileSync(join(astroHome, "vault.json"), "{}");
+    mkdirSync(join(cwd, ".astro"));
+    writeFileSync(join(cwd, ".astro", "state.json"), "{}");
+    mkdirSync(join(cwd, ".git"));
+    writeFileSync(join(cwd, ".git", "config"), "[core]\n");
+    for (const path of [join(astroHome, "vault.json"), ".astro/state.json", ".git/config"]) {
+      await expect(
+        loadAttachment({ ...base(cwd, astroHome), path, confirmOutsideCwd: () => true }),
+      ).rejects.toMatchObject({ code: "attachment_hard_blocked" });
+    }
+  });
+
+  test("symlink no cwd que escapa entrega o realpath externo à confirmação", async () => {
+    const { cwd, astroHome } = sandbox();
+    const outside = join(cwd, "..", "fora");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "x.txt"), "x");
+    symlinkSync(outside, join(cwd, "link"), process.platform === "win32" ? "junction" : "dir");
+    const seen: string[] = [];
+    await expect(loadAttachment({
+      ...base(cwd, astroHome),
+      path: "link/x.txt",
+      confirmOutsideCwd: (absolute) => {
+        seen.push(absolute);
+        return false;
+      },
+    })).rejects.toMatchObject({ code: "attachment_outside_denied" });
+    expect(seen).toEqual([canonicalize(join(outside, "x.txt"))]);
   });
 
   test("fora do cwd pede confirmação; negado para", async () => {

@@ -20,6 +20,15 @@ test("redactSecrets cobre JWT e bloco PEM de chave privada", () => {
   expect(redacted).toContain("[REDACTED]");
 });
 
+test("redactSecrets cobre bloco PGP de chave privada", () => {
+  const header = ["-----BEGIN", "PGP PRIVATE KEY BLOCK-----"].join(" ");
+  const footer = ["-----END", "PGP PRIVATE KEY BLOCK-----"].join(" ");
+  const body = "segredo-pgp-nao-pode-vazar";
+  const redacted = redactSecrets([header, body, footer].join("\n"));
+  expect(redacted).not.toContain(body);
+  expect(redacted).toContain("[REDACTED]");
+});
+
 test("redactSecrets redige hex longo só com contexto de credencial", () => {
   const hex = "0123456789abcdef0123456789abcdef01234567";
   expect(redactSecrets(`api_key: ${hex}`)).not.toContain(hex);

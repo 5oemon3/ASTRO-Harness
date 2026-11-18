@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SendTurnOptions, SessionSnapshot, TurnResult } from "../src/chat/agent-session";
@@ -16,6 +16,7 @@ const pngData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8B
 class FakeSession implements ChatSession {
   model = "p/m1";
   sent: Array<{ prompt: string; metas?: AttachmentMeta[] }> = [];
+  attachmentsShowHidden?: () => boolean;
   async send(prompt: string, _signal?: AbortSignal, _onToken?: (text: string) => void, _attachments?: AttachmentMeta[], turn?: SendTurnOptions): Promise<TurnResult> {
     // Exercita o preparo real do turno para que a aprovação da TUI seja de fato chamada.
     const prepared = await prepareTurnAttachments({
@@ -137,6 +138,28 @@ test("/attach repetido na TUI é recusado e materializa um bloco só (#392)", as
     await waitFor(() => session.sent.length === 1);
     expect(session.sent[0]?.prompt).toBe("resuma\n\n[anexo: a.txt]\num\ndois\n");
     expect(session.sent[0]?.metas).toHaveLength(1);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("showHidden da sessão controla a listagem de diretório na TUI (#392)", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "astro-att-tui-hidden-"));
+  mkdirSync(join(cwd, "d"));
+  writeFileSync(join(cwd, "d", "visivel.txt"), "x");
+  writeFileSync(join(cwd, "d", ".oculto"), "x");
+  const session = new FakeSession();
+  session.attachmentsShowHidden = () => true;
+  const instance = render(<TuiApp session={session} cwd={cwd} />);
+  try {
+    instance.stdin.write("/attach d");
+    instance.stdin.write("\r");
+    await waitFor(() => frame(instance).includes("anexo adicionado"));
+    instance.stdin.write("liste");
+    instance.stdin.write("\r");
+    await waitFor(() => session.sent.length === 1);
+    expect(session.sent[0]?.prompt).toContain(".oculto");
+    expect(session.sent[0]?.prompt).toContain("visivel.txt");
   } finally {
     instance.unmount();
   }

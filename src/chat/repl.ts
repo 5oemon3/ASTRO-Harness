@@ -51,6 +51,10 @@ export interface ChatSession {
   setPermissionMode?(mode: PermissionMode): PermissionMode;
   /** Resumo da config para `/config` (#273); ausente o REPL/TUI avisam. */
   configSummary?(): ConfigSummary;
+  /** `attachments.directory.showHidden` da config efetiva para `/attach <dir>` (#392); ausente = false. */
+  attachmentsShowHidden?(): boolean;
+  /** Caminhos de estado (ledger/audit) para o hard-block de `/attach` (#392); ausente = nenhum. */
+  attachmentProtectedPaths?(): readonly string[];
   /** Persiste `permissions.mode` no arquivo de config e aplica na sessão (#273). */
   savePermissionMode?(mode: PermissionMode): PermissionMode;
   /** Revoga uma pasta confiável do store global (#267); `false` se não estava na lista. */
@@ -517,6 +521,8 @@ export async function runRepl(session: ChatSession, io: ReplIO, opts: ReplOption
             ...(command.range === undefined ? {} : { range: command.range }),
             cwd,
             astroHome,
+            showHidden: session.attachmentsShowHidden?.() === true,
+            ...(session.attachmentProtectedPaths === undefined ? {} : { protectedPaths: session.attachmentProtectedPaths() }),
             confirmOutsideCwd: confirmOutside,
           });
           const existing = pending.find((item) => dedupeKey(item) === dedupeKey(attachment));

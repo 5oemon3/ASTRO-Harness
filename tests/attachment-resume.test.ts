@@ -39,7 +39,7 @@ function setup() {
   }));
   const context = { cwd, astroHome, checkPrivate: () => true, hardenPrivate: () => FAKE_PRIVATE_ACL };
   return {
-    root, cwd, astroHome, context, bodies,
+    root, cwd, astroHome, context, bodies, configPath,
     session: () => new AgentSession({
       configPath, cwd, env: { ...testEnv({ KEY: "k" }), ASTRO_HOME: astroHome }, systemPrompt: "sys",
       artifactRoot: root, artifactCheckPrivate: () => true, artifactHardenPrivate: () => FAKE_PRIVATE_ACL,
@@ -356,6 +356,31 @@ describe("attachment resume (ADR-0026, #392)", () => {
       const reader = new ArtifactStore(root, context);
       expect(() => reader.read(old.ref)).toThrow(/attachment_image_invalid|ausente/i);
       expect(() => reader.read(current.ref)).not.toThrow();
+    } finally {
+      chat.close();
+      stop();
+    }
+  });
+
+  test("resume revalida a raiz de artefato e falha tipado sem alterar a sessão", () => {
+    const { cwd, root, astroHome, configPath, stop } = setup();
+    const chat = new AgentSession({
+      configPath, cwd, env: { ...testEnv({ KEY: "k" }), ASTRO_HOME: astroHome }, systemPrompt: "sys",
+      artifactRoot: root, artifactCheckPrivate: () => false, artifactHardenPrivate: () => FAKE_PRIVATE_ACL,
+    });
+    const meta: AttachmentMeta = {
+      kind: "image", name: "a.png", sizeBytes: 4, mediaType: "image/png",
+      ref: "session-abc/deadbeef", hash: "a".repeat(64),
+    };
+    try {
+      let thrown: unknown;
+      try {
+        chat.resume(snapshot("s2", meta));
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({ name: "AttachmentError", code: "attachment_root_invalid" });
+      expect(chat.messages.map((message) => message.role)).toEqual(["system"]);
     } finally {
       chat.close();
       stop();

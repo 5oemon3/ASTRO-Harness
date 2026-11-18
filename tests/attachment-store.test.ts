@@ -70,6 +70,18 @@ describe("validateArtifactRoot", () => {
     expect(() => validateArtifactRoot(astroHome, context(cwd, astroHome))).toThrow();
   });
 
+  test("rejeita raiz que é worktree git", () => {
+    const { root, cwd, astroHome } = sandbox();
+    mkdirSync(join(root, ".git"));
+    expect(() => validateArtifactRoot(root, context(cwd, astroHome))).toThrow(/attachment_root_invalid|worktree/i);
+  });
+
+  test("cwd igual ao ASTRO_HOME com raiz default é rejeitado", () => {
+    const { astroHome } = sandbox();
+    const root = resolveArtifactRoot({ env: {}, astroHome });
+    expect(() => validateArtifactRoot(root, context(astroHome, astroHome))).toThrow(/attachment_root_invalid|fora do cwd/i);
+  });
+
   test("rejeita quando a checagem de privacidade falha", () => {
     const { root, cwd, astroHome } = sandbox();
     expect(() => validateArtifactRoot(root, { ...context(cwd, astroHome), checkPrivate: () => false })).toThrow(/privad/i);

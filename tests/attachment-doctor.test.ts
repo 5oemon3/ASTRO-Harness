@@ -118,6 +118,29 @@ describe("doctor de anexos (#392)", () => {
     expect(readdirSync(root).filter((name) => name.startsWith(".doctor-"))).toEqual([]);
   });
 
+  test("artifactRoot relativo é rejeitado como não absoluto", () => {
+    const { astroHome, root } = sandbox();
+    const facts = collectFacts(process.cwd(), {
+      env: envFor(astroHome, root), checkPrivate: () => true, artifactRoot: join("rel", "artifacts"),
+    });
+    expect(facts.attachments.root).toBe(join("rel", "artifacts"));
+    expect(facts.attachments.invalidReason).toContain("absoluta");
+    const check = runChecks(facts).checks.find((item) => item.label === "anexos");
+    expect(check?.level).toBe("fail");
+  });
+
+  test("artifactRoot válido vence a env válida", () => {
+    const { base, astroHome, root } = sandbox();
+    const override = join(base, "override");
+    mkdirSync(override, { recursive: true, mode: 0o700 });
+    const facts = collectFacts(process.cwd(), {
+      env: envFor(astroHome, root), checkPrivate: () => true, probeWritable: () => true, artifactRoot: override,
+    });
+    expect(facts.attachments.root).toBe(override);
+    expect(facts.attachments.invalidReason).toBeUndefined();
+    expect(runChecks(facts).checks.find((item) => item.label === "anexos")?.level).toBe("ok");
+  });
+
   test("lê TTL e teto da config global efetiva", () => {
     const { astroHome, root } = sandbox();
     writeFileSync(join(astroHome, "config.json"), JSON.stringify({
