@@ -104,6 +104,8 @@ export interface RunOptions {
   images?: ImagePart[];
   /** Reusa um run-id (sessão de chat): mesmo run no ledger/audit por vários turnos. */
   runId?: string;
+  /** Estado compartilhado pela sessão (#476): aviso de preço ausente uma vez por modelo, entre turnos. */
+  warnedNoPrice?: Set<string>;
   /** Modelo do turno (`provider/id`); ausente usa `agent.model`. */
   model?: string;
   /** Não emite run.started/run.completed (a sessão de chat emite por sessão). */
@@ -590,7 +592,10 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   // Métricas Prometheus (F6-1) + webhook de auditoria (F7-5): callbacks compostos
   const collector = opts.metrics !== undefined ? new MetricsCollector(opts.metrics) : undefined;
   const webhookUrl = config.team?.auditWebhook;
-  const ledger = new Ledger(ledgerPath, ...(collector ? [{ onRecord: collector.onLedgerRecord }] : []));
+  const ledger = new Ledger(ledgerPath, {
+    ...(collector === undefined ? {} : { onRecord: collector.onLedgerRecord }),
+    ...(opts.warnedNoPrice === undefined ? {} : { warnedNoPrice: opts.warnedNoPrice }),
+  });
   const onEvent =
     collector === undefined && webhookUrl === undefined
       ? undefined
@@ -910,7 +915,12 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   }
 
   // Baseline antes de qualquer conexão MCP: ledger ilegível não pode deixar filho vivo.
-  const baseline = ledger.total();
+  // Guarda o último `seq` do arquivo, não um total: o custo do run vem só das
+  // entradas que ele gravou, então uma linha histórica sem preço não contamina (#476).
+  const baselineSeq = ledger.lastSeq();
+  // Runs deste processo (raiz + filhos `run.task.*`): custo de outro processo no
+  // mesmo arquivo não é atribuído a este run (#476).
+  const runIds = new Set<string>([redactSecrets(run)]);
 
   // MCP (C2, #56): descoberta no início; falha individual não derruba a sessão.
   const mcpServers = config.mcpServers ?? {};
@@ -1009,6 +1019,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       });
       // Run própria para o filho: não sobrescreve o estado do run pai no ledger.
       const childRun = `${run}.task.${randomUUID()}`;
+      runIds.add(redactSecrets(childRun));
       const targetIdentity = providerIdentity(config, targetModel.provider);
       const childProvider = sameAccount
         ? providerFor(targetModel, target.profile, target.modelRouting)
@@ -1295,13 +1306,16 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
     mcpRegistry?.close(); // sem processo/cliente órfão ao fim do run
   }
 
-  const total = ledger.total();
-  const tokensIn = total.tokensIn - baseline.tokensIn;
-  const tokensOut = total.tokensOut - baseline.tokensOut;
-  // #476: total com preço desconhecido é n/d, nunca diferença parcial como número completo
-  const costUsd = baseModel.price === undefined || total.costUsd === null || baseline.costUsd === null
+  // #476: custo do run sai só das entradas deste processo. Preço desconhecido em
+  // uma delas vira n/d; FREE sem preço curado grava 0 e o run reporta 0.
+  const runEntries = ledger.readAll().filter(
+    (entry) => typeof entry.seq === "number" && entry.seq > baselineSeq && runIds.has(entry.run),
+  );
+  const tokensIn = runEntries.reduce((sum, entry) => sum + entry.tokensIn, 0);
+  const tokensOut = runEntries.reduce((sum, entry) => sum + entry.tokensOut, 0);
+  const costUsd = runEntries.some((entry) => typeof entry.costUsd !== "number")
     ? null
-    : total.costUsd - baseline.costUsd;
+    : runEntries.reduce((sum, entry) => sum + (entry.costUsd ?? 0), 0);
 
   if (opts.suppressRunEvents !== true) audit.append({
     run,

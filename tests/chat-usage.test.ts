@@ -77,13 +77,13 @@ function quota(over: Partial<QuotaStatus> = {}): QuotaStatus {
 
 describe("quotaSegment (#64)", () => {
   test("mostra tokens do dia, custo do mês ou os dois", () => {
-    expect(quotaSegment(quota({ dailyTokens: { used: 90, limit: 100, ratio: 0.9 } })))
+    expect(quotaSegment(quota({ dailyTokens: { used: 90, limit: 100, ratio: 0.9, known: true } })))
       .toBe("quota d: 90% dos tokens do dia (90/100)");
-    expect(quotaSegment(quota({ monthlyCostUsd: { used: 4.5, limit: 5, ratio: 0.9 } })))
+    expect(quotaSegment(quota({ monthlyCostUsd: { used: 4.5, limit: 5, ratio: 0.9, known: true } })))
       .toBe("quota d: 90% do custo do mês (US$ 4.50/US$ 5.00)");
     expect(quotaSegment(quota({
-      dailyTokens: { used: 90, limit: 100, ratio: 0.9 },
-      monthlyCostUsd: { used: 4.5, limit: 5, ratio: 0.9 },
+      dailyTokens: { used: 90, limit: 100, ratio: 0.9, known: true },
+      monthlyCostUsd: { used: 4.5, limit: 5, ratio: 0.9, known: true },
     }))).toBe("quota d: 90% dos tokens do dia (90/100) · 90% do custo do mês (US$ 4.50/US$ 5.00)");
   });
 });

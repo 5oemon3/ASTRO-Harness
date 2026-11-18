@@ -197,6 +197,8 @@ export class AgentSession {
   #tokensOut = 0;
   #costUsd = 0;
   #costKnown = true;
+  /** Modelos sem preço já avisados nesta sessão, entre turnos (#476). */
+  #warnedNoPrice = new Set<string>();
   #closed = false;
   #fatal = false;
   #busy = false;
@@ -223,7 +225,9 @@ export class AgentSession {
     this.#providerFlag = opts.provider;
     this.#registry = new Registry(this.#config);
     this.#auditPath = resolvePath(this.#cwd, this.#config.paths.audit);
-    this.#ledger = new Ledger(resolvePath(this.#cwd, this.#config.paths.ledger));
+    this.#ledger = new Ledger(resolvePath(this.#cwd, this.#config.paths.ledger), {
+      warnedNoPrice: this.#warnedNoPrice,
+    });
     const baseSystemPrompt = opts.systemPrompt ?? this.#config.agent.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     // CMP-8: AGENTS.md entra no system do chat/TUI e sobrevive à compactação.
     const projectInstructions = readAgentsMd(this.#cwd);
@@ -774,6 +778,7 @@ export class AgentSession {
           ...(signal === undefined ? {} : { signal }),
           runId: this.id,
           model: this.#modelRef,
+          warnedNoPrice: this.#warnedNoPrice,
           permissionMode: this.#permissionMode, // /mode em runtime (#271) vale no próximo turno
           suppressRunEvents: true,
           ...(this.#allowMissing ? { allowMissingConfig: true } : {}),

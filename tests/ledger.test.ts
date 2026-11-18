@@ -594,3 +594,14 @@ describe("#476 preço ausente: n/d no status e aviso uma vez por modelo por sess
     expect(l.byAgent().default.costUsd).toBeNull();
   });
 });
+
+test("#476 aviso de preço ausente é uma vez por sessão, mesmo com outro Ledger", () => {
+  const warned = new Set<string>();
+  const warns: string[] = [];
+  const path = join(dir(), "ledger.jsonl");
+  const first = new Ledger(path, { warn: (m) => warns.push(m), warnedNoPrice: warned });
+  const second = new Ledger(path, { warn: (m) => warns.push(m), warnedNoPrice: warned });
+  first.record(structuredClone(entry), undefined);
+  second.record(structuredClone(entry), undefined);
+  expect(warns.filter((m) => m.includes("sem preço curado")).length).toBe(1);
+});

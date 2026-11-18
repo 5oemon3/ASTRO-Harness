@@ -241,10 +241,16 @@ export class Ledger {
   /** Profundidade do lock desta instância (reentrância do append na seção crítica). */
   private lockDepth = 0;
 
-  constructor(path: string, opts?: { warn?: (msg: string) => void; onRecord?: (entry: LedgerEntry) => void }) {
+  constructor(path: string, opts?: {
+    warn?: (msg: string) => void;
+    onRecord?: (entry: LedgerEntry) => void;
+    /** Estado compartilhado por vários `Ledger` da mesma sessão (#476): aviso uma vez por modelo. */
+    warnedNoPrice?: Set<string>;
+  }) {
     this.path = path;
     this.warn = opts?.warn ?? ((msg) => console.warn(msg));
     this.onRecord = opts?.onRecord;
+    if (opts?.warnedNoPrice !== undefined) this.warnedNoPrice = opts.warnedNoPrice;
     mkdirSync(dirname(path), { recursive: true });
   }
 
@@ -282,7 +288,7 @@ export class Ledger {
       throw new Error(`nível de esforço inválido no ledger: ${String(e.lvl)} (esperado inteiro 0..4)`);
     }
     if (costUsd === null) {
-      const key = `${e.provider}/${e.model}`;
+      const key = redactSecrets(`${e.provider}/${e.model}`);
       if (!this.warnedNoPrice.has(key)) {
         this.warnedNoPrice.add(key);
         this.warn(`sem preço curado para o modelo "${key}"; custo não calculado`);
@@ -331,6 +337,15 @@ export class Ledger {
     };
     this.appendWithSeq(entry);
     return entry;
+  }
+
+  /** Último `seq` gravado (0 sem entradas com seq); delimita o que um run novo acrescentou (#476). */
+  lastSeq(): number {
+    let max = 0;
+    for (const entry of this.readAllEntries()) {
+      if (typeof entry.seq === "number" && entry.seq > max) max = entry.seq;
+    }
+    return max;
   }
 
   /** Entradas de uso (inclui legado sem kind); ignora estado e handoff. */

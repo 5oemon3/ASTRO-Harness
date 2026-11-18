@@ -988,7 +988,7 @@ class WarningQuotaSession extends FakeSession {
   quotaStatus(): QuotaStatus {
     return {
       quotaDomain: "d", warnAt: 0.8, warning: this.warned, exhausted: false,
-      dailyTokens: { used: this.warned ? 90 : 10, limit: 100, ratio: this.warned ? 0.9 : 0.1 },
+      dailyTokens: { used: this.warned ? 90 : 10, limit: 100, ratio: this.warned ? 0.9 : 0.1, known: true },
     };
   }
   async send(prompt: string): Promise<TurnResult> {

@@ -48,9 +48,14 @@ export function quotaSegment(status: QuotaStatus): string {
     parts.push(`${pct(status.dailyTokens.ratio)} dos tokens do dia (${status.dailyTokens.used}/${status.dailyTokens.limit})`);
   }
   if (status.monthlyCostUsd !== undefined) {
-    const used = status.monthlyCostUsd.used.toFixed(2);
-    const limit = status.monthlyCostUsd.limit.toFixed(2);
-    parts.push(`${pct(status.monthlyCostUsd.ratio)} do custo do mês (US$ ${used}/US$ ${limit})`);
+    if (!status.monthlyCostUsd.known) {
+      // #476: soma parcial não é total; mostra n/d com o limite
+      parts.push(`n/d do custo do mês (limite US$ ${status.monthlyCostUsd.limit.toFixed(2)})`);
+    } else {
+      const used = status.monthlyCostUsd.used.toFixed(2);
+      const limit = status.monthlyCostUsd.limit.toFixed(2);
+      parts.push(`${pct(status.monthlyCostUsd.ratio)} do custo do mês (US$ ${used}/US$ ${limit})`);
+    }
   }
   return `quota ${status.quotaDomain}: ${parts.join(" · ")}`;
 }

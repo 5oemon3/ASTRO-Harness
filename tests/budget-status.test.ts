@@ -179,3 +179,13 @@ describe("aviso de budget no run (F-05, #132 parte 2)", () => {
     }
   });
 });
+
+test("#476 linha legada sem costUsd também é preço desconhecido no budget (não zero)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "astro-budget-legacy-"));
+  const path = join(dir, "ledger.jsonl");
+  writeFileSync(path, `${JSON.stringify({ run: "old", agent: "a", provider: "p", model: "antigo", quotaDomain: "d", tokensIn: 5_000_000, tokensOut: 1_000_000, ts: new Date().toISOString() })}\n`, "utf8");
+  const ledger = new Ledger(path, { warn: () => {} });
+  const status = budgetStatus({ scope: "month", limitUsd: null, hardCeilingUsd: 0.5, warnAt: 0.8, onExceed: "stop" }, ledger);
+  expect(status.spentUsd).toBeNull();
+  expect(status.ceilingHit).toBe(false);
+});

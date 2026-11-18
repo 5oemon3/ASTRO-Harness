@@ -363,3 +363,13 @@ function capture(fn: () => void): TeamQuotaError {
     throw error;
   }
 }
+test("#476 orçamento com preço desconhecido não apresenta soma parcial como completa", () => {
+  const dir = mkdtempSync(join(tmpdir(), "astro-team-476-"));
+  const ledger = new Ledger(join(dir, "ledger.jsonl"), { warn: () => {} });
+  const usage = { run: "r", agent: "a", provider: "p", model: "m", credentialRef: "K", quotaDomain: "d" };
+  ledger.record({ ...usage, tokensIn: 1, tokensOut: 0 }, { inputPerM: 12_000_000, outputPerM: 0, fonte: "t", verificado: true });
+  ledger.record({ ...usage, model: "sem-preco", tokensIn: 1, tokensOut: 0 }, undefined);
+  const err = capture(() => assertProjectBudget(ledger, 10));
+  expect(err.message).toContain("pelo menos");
+  expect(err.message).not.toContain("atingido: US$ 12.0000");
+});

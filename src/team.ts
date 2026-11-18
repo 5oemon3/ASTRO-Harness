@@ -43,12 +43,17 @@ export function assertProjectBudget(
 ): void {
   const month = now.toISOString().slice(0, 7);
   let monthCost = 0;
+  let costKnown = true;
   for (const entry of ledger.readAll()) {
-    if (monthOf(entry.ts) === month) monthCost += entry.costUsd ?? 0;
+    if (monthOf(entry.ts) !== month) continue;
+    // #476: entrada sem preço não é zero; a soma conhecida vira piso
+    if (typeof entry.costUsd === "number") monthCost += entry.costUsd;
+    else costKnown = false;
   }
   if (monthCost >= projectBudgetUsd) {
+    const spent = costKnown ? `US$ ${monthCost.toFixed(4)}` : `pelo menos US$ ${monthCost.toFixed(4)}`;
     throw new TeamQuotaError(
-      `orçamento mensal do projeto atingido: US$ ${monthCost.toFixed(4)} de ` +
+      `orçamento mensal do projeto atingido: ${spent} de ` +
         `US$ ${projectBudgetUsd}; renove o orçamento no registry ` +
         `(astro config pull) ou aumente team.projectBudgetUsd`,
     );
@@ -69,10 +74,15 @@ export function assertAgentQuota(
   const month = today.slice(0, 7);
   let todayTokens = 0;
   let monthCost = 0;
+  let costKnown = true;
   for (const entry of ledger.readAll()) {
     if (entry.agent !== safeAgent) continue;
     if (dayOf(entry.ts) === today) todayTokens += entry.tokensIn + entry.tokensOut;
-    if (monthOf(entry.ts) === month) monthCost += entry.costUsd ?? 0;
+    if (monthOf(entry.ts) === month) {
+      // #476: entrada sem preço não é zero; a soma conhecida vira piso
+      if (typeof entry.costUsd === "number") monthCost += entry.costUsd;
+      else costKnown = false;
+    }
   }
 
   const reasons: string[] = [];
@@ -80,8 +90,9 @@ export function assertAgentQuota(
     reasons.push(`tokens de hoje (${todayTokens}) atingiram a quota do agent (${quota.dailyTokens})`);
   }
   if (quota.monthlyCostUsd !== undefined && monthCost >= quota.monthlyCostUsd) {
+    const spent = costKnown ? `US$ ${monthCost.toFixed(4)}` : `pelo menos US$ ${monthCost.toFixed(4)}`;
     reasons.push(
-      `custo do mês (US$ ${monthCost.toFixed(4)}) atingiu a quota do agent (US$ ${quota.monthlyCostUsd})`,
+      `custo do mês (${spent}) atingiu a quota do agent (US$ ${quota.monthlyCostUsd})`,
     );
   }
   if (reasons.length > 0) {

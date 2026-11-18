@@ -85,7 +85,7 @@ export function effectiveBudget(budget: BudgetConfig, ledger: Ledger, run: strin
 /** Calcula o status do budget a partir do ledger (fonte única de custo). */
 export function budgetStatus(budget: BudgetConfig, ledger: Ledger, now: Date = new Date()): BudgetStatus {
   const entries = ledger.readAll().filter((entry) => inScope(entry.ts, budget.scope, now));
-  const actualUsd = entries.some((entry) => entry.costUsd === null)
+  const actualUsd = entries.some((entry) => typeof entry.costUsd !== "number")
     ? null
     : entries.reduce((total, entry) => total + (entry.costUsd ?? 0), 0);
   // Reserva órfã conta como custo real (B9): crash entre reserve e release, na janela do escopo.

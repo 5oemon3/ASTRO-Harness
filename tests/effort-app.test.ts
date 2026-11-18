@@ -110,6 +110,9 @@ describe("escalada em runTask (#451)", () => {
         calls.filter((call) => call.system === system).map((call) => call.effort);
       expect(effortOf("parent-agent")).toEqual(["medium", "medium", "high", "high"]);
       expect(effortOf("child-agent")).toEqual(["medium", "medium", "high"]);
+      // #476: o custo do pai inclui o run do filho (`run.task.*`), nunca outro run
+      expect(report.tokensIn).toBe(70);
+      expect(report.costUsd).toBeCloseTo(0.000105, 10);
 
       const ledger = new Ledger(join(cwd, ".astro", "ledger.jsonl"));
       const jumps = ledger.readAllEntries().filter((entry) => entry.kind === "effort");

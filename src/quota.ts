@@ -21,6 +21,8 @@ export interface QuotaDimensionStatus {
   used: number;
   limit: number;
   ratio: number;
+  /** `false` quando o custo soma entradas sem preço: `used` é piso, não total (#476). */
+  known: boolean;
 }
 
 /** Status derivado do ledger para um quotaDomain (F6-3); sem limite não há status. */
@@ -45,13 +47,15 @@ export class QuotaExceededError extends ProviderError {
 interface Usage {
   todayTokens: number;
   monthCostUsd: number;
+  /** `false` quando alguma entrada do mês não tem preço conhecido (#476). */
+  monthCostKnown: boolean;
 }
 
 /** Soma uso do domínio: tokens de hoje e custo do mês corrente. */
 function usageFor(ledger: Ledger, quotaDomain: string, now: Date): Usage {
   const today = now.toISOString().slice(0, 10);
   const month = today.slice(0, 7);
-  const usage: Usage = { todayTokens: 0, monthCostUsd: 0 };
+  const usage: Usage = { todayTokens: 0, monthCostUsd: 0, monthCostKnown: true };
 
   for (const entry of ledger.readAll()) {
     if (entry.quotaDomain !== quotaDomain) continue;
@@ -59,15 +63,17 @@ function usageFor(ledger: Ledger, quotaDomain: string, now: Date): Usage {
       usage.todayTokens += entry.tokensIn + entry.tokensOut;
     }
     if (entry.ts.slice(0, 7) === month) {
-      usage.monthCostUsd += entry.costUsd ?? 0;
+      // entrada sem preço é desconhecida, não zero: o total vira piso (#476)
+      if (typeof entry.costUsd === "number") usage.monthCostUsd += entry.costUsd;
+      else usage.monthCostKnown = false;
     }
   }
   return usage;
 }
 
 /** Uso de uma dimensão; limite zero conta como esgotado (razão 1). */
-function dimension(used: number, limit: number): QuotaDimensionStatus {
-  return { used, limit, ratio: limit > 0 ? used / limit : 1 };
+function dimension(used: number, limit: number, known = true): QuotaDimensionStatus {
+  return { used, limit, ratio: limit > 0 ? used / limit : 1, known };
 }
 
 /**
@@ -84,7 +90,9 @@ export function quotaStatus(
   if (limit === undefined) return undefined;
   const usage = usageFor(ledger, quotaDomain, now);
   const dailyTokens = limit.dailyTokens === undefined ? undefined : dimension(usage.todayTokens, limit.dailyTokens);
-  const monthlyCostUsd = limit.monthlyCostUsd === undefined ? undefined : dimension(usage.monthCostUsd, limit.monthlyCostUsd);
+  const monthlyCostUsd = limit.monthlyCostUsd === undefined
+    ? undefined
+    : dimension(usage.monthCostUsd, limit.monthlyCostUsd, usage.monthCostKnown);
   const ratios = [dailyTokens?.ratio, monthlyCostUsd?.ratio]
     .filter((ratio): ratio is number => ratio !== undefined);
   const exhausted = ratios.some((ratio) => ratio >= 1);
@@ -134,8 +142,11 @@ export function assertWithinQuota(
     );
   }
   if (limit.monthlyCostUsd !== undefined && usage.monthCostUsd >= limit.monthlyCostUsd) {
+    const spent = usage.monthCostKnown
+      ? `US$ ${usage.monthCostUsd.toFixed(4)}`
+      : `pelo menos US$ ${usage.monthCostUsd.toFixed(4)}`;
     reasons.push(
-      `custo do mês (US$ ${usage.monthCostUsd.toFixed(4)}) atingiu o limite mensal (US$ ${limit.monthlyCostUsd})`,
+      `custo do mês (${spent}) atingiu o limite mensal (US$ ${limit.monthlyCostUsd})`,
     );
   }
 
