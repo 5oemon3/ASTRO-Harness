@@ -101,3 +101,47 @@ test("agent com profile: startup resolve o modelo da pool (F-29)", async () => {
     server.stop(true);
   }
 });
+
+/** Config com provider mock que nunca responde final (sempre pede tool call). */
+async function limitMessage(over: Record<string, unknown>): Promise<string> {
+  let call = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch: async () => {
+      call++;
+      return Response.json({ choices: [{ message: { content: "", tool_calls: [{ id: `c${call}`, type: "function",
+        function: { name: "write_file", arguments: JSON.stringify({ path: "a.txt", content: "x" }) } }] } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 } });
+    },
+  });
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "astro-app-limit-"));
+    const configPath = join(dir, "astro.config.json");
+    writeFileSync(configPath, JSON.stringify({
+      providers: { mock: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "TEST_KEY" } },
+      models: [{ provider: "mock", id: "mock-1", tags: ["writing-code", "tools"], context: 4096 }],
+      agent: { model: "mock/mock-1", maxSteps: 1, tools: ["write_file"] },
+      paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
+      ...over,
+    }));
+    const err = (await runTask({ approveTool: () => true, configPath, task: "x", cwd: dir, env: testEnv({ TEST_KEY: "test-key" }) })
+      .catch((e) => e as Error)) as Error;
+    return String(err.message);
+  } finally {
+    server.stop(true);
+  }
+}
+
+test("limite de passos atingido nomeia o limite, o valor e a setting (#473)", async () => {
+  const message = await limitMessage({});
+  expect(message).toMatch(/excedeu 1 passos/);
+  expect(message).toContain('limite "agent.maxSteps" = 1');
+  expect(message).toContain('ajuste "agent.maxSteps"');
+});
+
+test("limite de turnos (run.maxTurns < maxSteps) nomeia run.maxTurns (#473)", async () => {
+  const message = await limitMessage({ agent: { model: "mock/mock-1", maxSteps: 2, tools: ["write_file"] }, run: { maxTurns: 1 } });
+  expect(message).toMatch(/excedeu 1 passos/);
+  expect(message).toContain('limite de turnos "run.maxTurns" = 1');
+  expect(message).toContain('ajuste "run.maxTurns"');
+});

@@ -184,10 +184,13 @@ export const DEFAULT_SYSTEM_PROMPT =
 /** Erro lançado quando a sessão esgota `maxSteps` sem uma resposta final. */
 export class MaxStepsError extends Error {
   readonly maxSteps: number;
-  constructor(maxSteps: number, message?: string) {
+  /** Agent nomeado cujo teto disparou (multi-agent); ausente no agent principal. */
+  readonly agentName?: string;
+  constructor(maxSteps: number, message?: string, agentName?: string) {
     super(message ?? `sessão excedeu o limite de ${maxSteps} passos sem resposta final`);
     this.name = "MaxStepsError";
     this.maxSteps = maxSteps;
+    this.agentName = agentName;
   }
 }
 
@@ -1186,6 +1189,7 @@ export async function runMultiAgentSession(
         throw new MaxStepsError(
           currentMaxSteps,
           `agent "${redactSecrets(currentAgentName)}" excedeu o limite de ${currentMaxSteps} passos sem resposta final`,
+          currentAgentName,
         );
       }
 

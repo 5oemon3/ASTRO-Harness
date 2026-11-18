@@ -104,6 +104,14 @@ export interface AgentConfig {
   profile?: string;
 }
 
+/**
+ * Teto padrão de passos do modo simples (#473): alto o suficiente para uma
+ * tarefa representativa (~10 leituras, várias edições, uma sequência de
+ * comandos) não parar no meio. Também é o teto quando a camada global não
+ * declara `agent.maxSteps`: o projeto só pode reduzir, nunca elevar (ADR-0029).
+ */
+export const BASELINE_MAX_STEPS = 50;
+
 /** Configuração de agents nomeados (para multi-agent F3+). Campos opcionais herdam do agent principal. */
 export interface NamedAgentConfig {
   model: string;

@@ -392,3 +392,58 @@ test("noGlobalConfig também omite o store global", () => {
   expect(loadEffectiveConfig(configPath, { env }).config.providers.s).toBeDefined();
   expect(loadEffectiveConfig(configPath, { env, noGlobalConfig: true }).config.providers.s).toBeUndefined();
 });
+
+test("limites (#473): sem projeto, o teto padrão de passos é alto o suficiente (50)", () => {
+  expect(effective(undefined, undefined, store()).config.agent.maxSteps).toBe(50);
+});
+
+test("limites (#473): o projeto pode reduzir passos e turnos abaixo do teto global", () => {
+  const eff = effective(
+    { agent: { maxSteps: 20, tools: ["read_file"] }, run: { maxTurns: 10 } },
+    project({ agent: { model: "p/m", maxSteps: 8, tools: ["read_file"] }, run: { maxTurns: 5 } }),
+  );
+  expect(eff.config.agent.maxSteps).toBe(8);
+  expect(eff.config.run?.maxTurns).toBe(5);
+  // Agent nomeado também pode reduzir.
+  const named = effective(twoAccounts({ coder: { maxSteps: 5, tools: ["read_file"] } }),
+    twoAccounts({ coder: { maxSteps: 3 } }));
+  expect(named.config.agents?.coder?.maxSteps).toBe(3);
+});
+
+test("rejeita: projeto eleva agent.maxSteps acima do teto global ou do padrão (#473)", () => {
+  // Teto declarado na camada global (20): 30 é widening.
+  expect(() => effective({ agent: { maxSteps: 20, tools: ["read_file"] } },
+    project({ agent: { model: "p/m", maxSteps: 30, tools: ["read_file"] } })))
+    .toThrow(/amplia o teto global de passos \(agent\.maxSteps/);
+  // Sem teto na camada global, vale o padrão embutido (50): 60 é rejeitado.
+  expect(() => effective(undefined,
+    project({ agent: { model: "p/m", maxSteps: 60, tools: ["read_file"] } })))
+    .toThrow(/amplia o teto global de passos/);
+  // Agent nomeado respeita o teto do próprio agent global.
+  expect(() => effective(twoAccounts({ coder: { maxSteps: 5, tools: ["read_file"] } }),
+    twoAccounts({ coder: { maxSteps: 9 } }))).toThrow(/amplia o teto global de passos \(agents\.coder\.maxSteps/);
+});
+
+test("rejeita: agent nomeado declarado só no projeto também respeita o teto (#473)", () => {
+  // Sem "agents" na camada global, o teto do nomeado é o teto do agent principal
+  // (aqui o padrão embutido 50, pois o global não declara agent.maxSteps).
+  expect(() => effective(undefined, twoAccounts({ coder: { model: "p/m", maxSteps: 999 } })))
+    .toThrow(/amplia o teto global de passos \(agents\.coder\.maxSteps/);
+  // Com agent.maxSteps global declarado e sem agents globais, o teto do nomeado é esse valor.
+  expect(() => effective(
+    { providers: { p: provider("p"), q: provider("q") }, models: [model("p", "m"), model("q", "n")], agent: { model: "p/m", maxSteps: 20, tools: ["read_file", "write_file"] }, paths: PATHS },
+    { ...twoAccounts({ coder: { model: "p/m", maxSteps: 30 } }), agent: { model: "p/m", maxSteps: 4, tools: ["read_file"] } },
+  )).toThrow(/amplia o teto global de passos \(agents\.coder\.maxSteps: 30 acima do teto 20/);
+});
+
+test("rejeita: projeto eleva run.maxTurns acima do teto global de turnos (#473)", () => {
+  expect(() => effective({ run: { maxTurns: 10 } }, project({ run: { maxTurns: 20 } })))
+    .toThrow(/amplia o teto global de turnos \(run\.maxTurns/);
+  // "unlimited" também alarga quando a camada global declara teto numérico.
+  expect(() => effective({ run: { maxTurns: 10 } },
+    project({ budget: { scope: "use-as-you-go", limitUsd: null }, run: { maxTurns: "unlimited" } })))
+    .toThrow(/amplia o teto global de turnos/);
+  // Sem teto numérico na camada global, o projeto pode declarar qualquer valor
+  // (acima de agent.maxSteps o run.maxTurns é inerte: só capa, nunca eleva).
+  expect(effective(undefined, project({ run: { maxTurns: 500 } })).config.run?.maxTurns).toBe(500);
+});

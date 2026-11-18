@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { ConfigError, DEFAULT_ATTACHMENTS, isPlainObject, loadConfigRaw, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../core/config";
+import { BASELINE_MAX_STEPS, ConfigError, DEFAULT_ATTACHMENTS, isPlainObject, loadConfigRaw, validateConfig, type AstroConfig, type ModelConfig, type ProviderConfig } from "../core/config";
 import { globalConfigPath, statePath } from "../astro-home";
 import { loadHomeState, saveHomeState } from "../home-state";
 import { assertDeclaredProviders, assertLayerSchema, assertNarrowed, mergeConfigLayers, mergeModelLayers } from "../config-overlay";
@@ -483,7 +483,7 @@ const ENV_MODEL_CONTEXT = 128_000;
 
 /** Defaults de código: a camada mais baixa (defaults < global < projeto, ADR-0029). */
 const BASELINE_LAYER: Record<string, unknown> = {
-  agent: { maxSteps: 12, tools: [...BASELINE_TOOLS] },
+  agent: { maxSteps: BASELINE_MAX_STEPS, tools: [...BASELINE_TOOLS] },
   permissions: { mode: "ask" },
   attachments: DEFAULT_ATTACHMENTS,
   paths: { ...BASELINE_PATHS },

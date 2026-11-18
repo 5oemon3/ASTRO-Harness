@@ -89,6 +89,41 @@ describe("run que falha devolve a conta (A4, I-19)", () => {
     }
   });
 
+  test("MaxSteps de agent nomeado nomeia agents.<nome>.maxSteps, não agent.maxSteps (#473)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "astro-lock-named-"));
+    const server = Bun.serve({
+      port: 0,
+      async fetch() {
+        return Response.json({ choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function",
+          function: { name: "ghost", arguments: "{}" } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
+      },
+    });
+    try {
+      const configPath = join(cwd, "astro.config.json");
+      writeFileSync(configPath, JSON.stringify({
+        providers: {
+          mock: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "KEY" },
+          backup: { kind: "openai-compat", baseUrl: `http://127.0.0.1:${server.port}/v1`, credentialRef: "BACKUP_KEY" },
+        },
+        models: [{ provider: "mock", id: "m1", tags: ["writing-code"], context: 8192 }],
+        agent: { model: "mock/m1", maxSteps: 50, tools: [] },
+        agents: { planner: { model: "mock/m1", maxSteps: 1, tools: [] } },
+        paths: { ledger: ".astro/ledger.jsonl", audit: ".astro/audit.jsonl" },
+      }));
+      let message = "";
+      try {
+        await runTask({ configPath, task: "x", cwd, env: testEnv({ KEY: "k" }) });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toMatch(/excedeu 1 passos/);
+      expect(message).toContain('agents.planner.maxSteps" = 1');
+      expect(message).not.toContain('limite "agent.maxSteps" = 50');
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("crash duro (agent.created de PID morto) não cativa a conta no próximo run", async () => {
     const { cwd, configPath, server } = setup(1);
     try {

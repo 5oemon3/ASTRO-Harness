@@ -3,7 +3,7 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { ConfigError, isPlainObject } from "./core/config";
+import { BASELINE_MAX_STEPS, ConfigError, isPlainObject } from "./core/config";
 import { isVaultRef } from "./secrets";
 
 /** Ranque de permissão: `ask` é o mais restrito, `bypass` o mais largo. */
@@ -105,15 +105,37 @@ export function assertNarrowed(
   storeProviders: Record<string, unknown> = {},
   projectLayer?: Record<string, unknown>,
 ): void {
-  // Agent principal e agents nomeados: tools e perfil de permissão.
+  // Agent principal e agents nomeados: tools, perfil de permissão e teto de
+  // passos (#473). O teto de passos é o valor global quando declarado, senão o
+  // padrão embutido (BASELINE_MAX_STEPS): o projeto só reduz, nunca eleva.
   const main = isPlainObject(global.agent) ? global.agent : undefined;
   const mainAfter = isPlainObject(merged.agent) ? merged.agent : undefined;
+  const mainCeiling = typeof main?.maxSteps === "number" ? main.maxSteps : BASELINE_MAX_STEPS;
+  if (mainAfter !== undefined) assertStepsCeiling(mainAfter.maxSteps, "agent.maxSteps", mainCeiling);
   if (main !== undefined && mainAfter !== undefined) assertAgentNarrowed(main, mainAfter, "do agent principal");
   const named = isPlainObject(global.agents) ? global.agents : {};
   const namedAfter = isPlainObject(merged.agents) ? merged.agents : {};
   for (const [name, agent] of Object.entries(named)) {
     const after = namedAfter[name];
     if (isPlainObject(agent) && isPlainObject(after)) assertAgentNarrowed(agent, after, `do agent "${name}"`);
+  }
+  // Teto de passos dos nomeados cobre também os declarados só no projeto: sem
+  // valor global do nomeado, vale o teto do agent principal (mainCeiling).
+  for (const [name, after] of Object.entries(namedAfter)) {
+    if (!isPlainObject(after)) continue;
+    const globalAgent = isPlainObject(named[name]) ? named[name] : undefined;
+    const ceiling = globalAgent !== undefined && typeof globalAgent.maxSteps === "number" ? globalAgent.maxSteps : mainCeiling;
+    assertStepsCeiling(after.maxSteps, `agents.${name}.maxSteps`, ceiling);
+  }
+  // Teto de turnos (#473): `run.maxTurns` só capa `agent.maxSteps`, mas não pode
+  // passar de um teto numérico declarado na camada global ("unlimited" alarga).
+  const globalTurns = isPlainObject(global.run) ? global.run.maxTurns : undefined;
+  const mergedTurns = isPlainObject(merged.run) ? merged.run.maxTurns : undefined;
+  if (typeof globalTurns === "number"
+    && (mergedTurns === "unlimited" || (typeof mergedTurns === "number" && mergedTurns > globalTurns))) {
+    throw new ConfigError(
+      `config inválida: o projeto amplia o teto global de turnos (run.maxTurns acima do teto ${globalTurns})`,
+    );
   }
   // Modo de permissão do gate: o projeto só pode ser mais restrito.
   const globalMode = isPlainObject(global.permissions) ? global.permissions.mode : undefined;
@@ -219,6 +241,15 @@ function assertAgentNarrowed(globalAgent: Record<string, unknown>, mergedAgent: 
     if (extra.length > 0) throw new ConfigError(`config inválida: o projeto amplia a allowlist global ${label} (${extra.join(", ")})`);
   }
   assertNotWider(globalAgent.permission, mergedAgent.permission, PERMISSION_RANK, `a permissão global ${label}`);
+}
+
+/** Teto de passos (#473): o valor mesclado não pode passar do teto (global ou padrão embutido). */
+function assertStepsCeiling(steps: unknown, field: string, ceiling: number): void {
+  if (typeof steps === "number" && steps > ceiling) {
+    throw new ConfigError(
+      `config inválida: o projeto amplia o teto global de passos (${field}: ${steps} acima do teto ${ceiling})`,
+    );
+  }
 }
 
 /** Rejeita quando o projeto é mais permissivo que o global. */

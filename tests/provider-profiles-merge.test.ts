@@ -142,7 +142,7 @@ test("sem projeto, um perfil global basta e usa tools padrão com aprovação", 
   const result = resolveEffectiveConfig({ store: store(profile()), env: {} });
   expect(result.activeProvider).toBe("openai-work");
   expect(result.config.agent.model).toBe("openai-work/gpt-4o");
-  expect(result.config.agent.maxSteps).toBe(12);
+  expect(result.config.agent.maxSteps).toBe(50);
   expect(result.config.agent.tools).toEqual([
     "read_file",
     "write_file",
