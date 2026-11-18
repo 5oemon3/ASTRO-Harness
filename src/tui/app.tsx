@@ -2,7 +2,7 @@
 import { Box, Static, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { parseCommand, type ReplCommand } from "../chat/commands";
-import { statusLine, type ChatSession } from "../chat/repl";
+import type { ChatSession } from "../chat/repl";
 import { activeSessionRefusal, toSessionRecord } from "../chat/store";
 import type { SessionApi, SessionSummary } from "../chat/session-api";
 import type { SessionSnapshot } from "../chat/agent-session";
@@ -20,7 +20,8 @@ import type { ApprovalBridge, ApprovalQuestion } from "./approvals";
 import { DiffViewer } from "./diff-viewer";
 import type { ShellRunner } from "./shell";
 import { COMMANDS, applyCompletion, commandDescription, completionItems, suggestionWindow } from "./editor";
-import { Banner, modeColor } from "./banner";
+import { Header, budgetColor, footerBase, modeColor } from "./banner";
+import { errorLine } from "./error-hint";
 import { indexFiles } from "./files";
 import { Markdown } from "./markdown";
 import { ModelPicker } from "./model-picker";
@@ -79,10 +80,6 @@ function statusOf(snapshot: SessionSnapshot): Status {
   };
 }
 
-function money(value: number | null): string {
-  return value === null ? "n/d" : `US$ ${value.toFixed(6)}`;
-}
-
 function messageOf(error: unknown): string {
   return redactSecrets(error instanceof Error ? error.message : String(error));
 }
@@ -119,6 +116,14 @@ export function activateProvider(
 
 export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, manager, onExit, toastTtlMs = TOAST_TTL_MS, streamThrottleMs = STREAM_THROTTLE_MS, historyLimit = HISTORY_LIMIT, saveSecret, discardSecret }: TuiAppProps): ReactElement {
   const [entries, setEntries] = useState<Entry[]>([{ kind: "info", text: WELCOME }]);
+  /** Estado da sessão aparece uma vez por sessão (#480): só entradas marcadas. */
+  const appendEntries = (added: Entry[]): void => {
+    setEntries((current) => {
+      const seen = new Set(current.filter((entry) => entry.state === true).map((entry) => entry.text));
+      const fresh = added.filter((entry) => entry.state !== true || !seen.has(entry.text));
+      return fresh.length === 0 ? current : [...current, ...fresh];
+    });
+  };
   const [question, setQuestion] = useState<ApprovalQuestion | undefined>(() => approvals?.current());
   const [files, setFiles] = useState<string[]>([]);
   const [selected, setSelected] = useState(0);
@@ -175,7 +180,6 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
   const addToast = (toast: { kind: Toast["kind"]; text: string }): void => {
     setToasts((current) => pushToast(current, toast, Date.now()));
   };
-  const seenEntries = useRef(0);
   // Virtualização do histórico (#64): o <Static> do ink é append-only por
   // contagem (items.slice(index)), então o corte da janela acontece num update
   // separado (efeito abaixo), nunca atomicamente com o append — senão itens na
@@ -187,14 +191,8 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
     setEntries((current) => visibleWindow(current, historyLimit));
   }, [entries.length, historyLimit]);
 
-  // Toasts de erro (#64): qualquer entrada de erro nova vira toast transitório;
-  // o histórico em `<Static>` continua sendo a fonte permanente
-  useEffect(() => {
-    const fresh = entries.slice(seenEntries.current);
-    seenEntries.current = entries.length;
-    const errors = fresh.filter((entry) => entry.kind === "error");
-    if (errors.length > 0) addToast({ kind: "error", text: errors[errors.length - 1]!.text });
-  }, [entries]);
+  // Toasts ficam para confirmações transitórias (copiar/exportar). Erro é linha
+  // inline com próximo passo; nada de toast duplicando o histórico (#480).
 
   // Remove os toasts expirados; só roda o tick quando há algo na tela
   useEffect(() => {
@@ -228,7 +226,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
       sessionApi.save(toSessionRecord(session.snapshot()));
       return { path: sessionApi.databasePath, failed: false };
     } catch (error) {
-      if (report) setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+      if (report) setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
       return { failed: true };
     }
   };
@@ -309,7 +307,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
           { kind: "info", text: `anexo adicionado: ${command.path}\n${listPending()}` },
         ]);
       } catch (error) {
-        setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+        setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
       }
       return;
     }
@@ -327,7 +325,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
           { kind: "info", text: `anexo adicionado: clipboard\n${listPending()}` },
         ]);
       } catch (error) {
-        setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+        setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
       }
       return;
     }
@@ -422,7 +420,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
           setSessionList(sessionApi?.list() ?? []);
           setSessionPicker(true);
         } catch (error) {
-          setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+          setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
         }
         return;
       }
@@ -435,11 +433,14 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
         try {
           saveTuiConfig(cwd, { lastModel: session.snapshot().model });
         } catch (error) {
-          added.push({ kind: "error", text: `erro: ${messageOf(error)}` });
+          added.push({ kind: "error", text: errorLine(error, messageOf(error)) });
         }
         if (command.kind === "provider" && command.action === "use") void refreshHealth();
       }
-      setEntries((current) => [...current, ...added]);
+      // Só estado da sessão deduplica (#480): /help, /usage e /save repetem.
+      const stateful = command.kind === "model" || command.kind === "provider"
+        || command.kind === "resume" || command.kind === "theme" || command.kind === "mode";
+      appendEntries(stateful ? added.map((entry) => (entry.kind === "info" ? { ...entry, state: true } : entry)) : added);
       setStatus(statusOf(session.snapshot()));
       if (outcome.exit) finish();
       return;
@@ -469,14 +470,14 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
       pendingAttachments.current = [];
       sink.flush();
       setPartial(undefined);
-      setEntries((current) => [
-        ...current,
+      appendEntries([
         { kind: "assistant", text: result.final },
-        { kind: "info", text: statusLine(result) },
+        // Aviso que muda a resposta fica inline uma vez; repetição é estado (#480).
+        ...(result.warning ? [{ kind: "info" as const, state: true, text: `⚠ contexto ${Math.round(result.contextRatio * 100)}% (≥80%)` }] : []),
+        ...(result.trimmed ? [{ kind: "info" as const, state: true, text: "turno antigo descartado" }] : []),
       ]);
-      addToast({ kind: "success", text: `turno concluído · ${result.steps} step(s)` });
     } catch (error) {
-      setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+      appendEntries([{ kind: "error", text: errorLine(error, messageOf(error)) }]);
       if (isFatalSessionError(error)) exitRequested.current = true;
     } finally {
       sink.flush(); // invalida timer pendente: nenhum delta emite depois do turno
@@ -528,7 +529,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
         session,
         ...(sessionApi === undefined ? {} : { sessionApi }),
         theme,
-        addEntries: (added) => setEntries((current) => [...current, ...added]),
+        addEntries: (added) => appendEntries(added),
         setTheme: persistTheme,
         finish,
       });
@@ -657,14 +658,14 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
               try {
                 saveTuiConfig(cwd, { lastModel: session.snapshot().model });
               } catch (error) {
-                added.push({ kind: "error", text: `erro: ${messageOf(error)}` });
+                added.push({ kind: "error", text: errorLine(error, messageOf(error)) });
               }
             }
-            setEntries((current) => [...current, ...added]);
+            appendEntries(added);
             setStatus(statusOf(session.snapshot()));
             setSessionPicker(false);
           })().catch((error: unknown) => {
-            setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+            setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
             setSessionPicker(false);
           });
         }}
@@ -711,13 +712,13 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
             try {
               saveTuiConfig(cwd, { lastModel: model, recentModels: nextRecents });
             } catch (error) {
-              setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+              setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
             }
             setRecents(nextRecents);
             setStatus(statusOf(session.snapshot()));
             setEntries((current) => [...current, { kind: "info", text: `modelo: ${model}` }]);
           } catch (error) {
-            setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+            setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
           }
           setModelPicker(false);
         }}
@@ -726,7 +727,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
             saveTuiConfig(cwd, { favoriteModels: next });
             setFavorites(next);
           } catch (error) {
-            setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+            setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
           }
         }}
       />
@@ -789,7 +790,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
             setHealth(undefined);
             setStatus(statusOf(session.snapshot()));
           } catch (error) {
-            setEntries((current) => [...current, { kind: "error", text: `erro: ${messageOf(error)}` }]);
+            setEntries((current) => [...current, { kind: "error", text: errorLine(error, messageOf(error)) }]);
           }
         }}
         {...(session.probeProvider === undefined ? {} : { onTest: async (id: string) => {
@@ -815,14 +816,13 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
   const win = suggestionWindow(suggestions.length, selectedIndex);
   const visibleSuggestions = suggestions.slice(win.start, win.end);
   const providerId = session.providerName?.() ?? status.model.split("/")[0]!;
-  const endpoint = manager?.list().find((item) => item.id === providerId)?.baseUrl ?? "-";
   const healthState = health?.provider === providerId ? health.state : "n/d";
   const inputLines = input.split("\n");
   // Modo de permissão sempre visível (#270); bypass em cor de alerta
   const mode = session.permissionMode?.() ?? DEFAULT_PERMISSION_MODE;
   return (
     <Box flexDirection="column">
-      <Banner colors={colors} provider={providerId} model={status.model} endpoint={endpoint} state={healthState} mode={mode} />
+      <Header colors={colors} provider={providerId} model={status.model} health={healthState} />
       {hiddenEntries > 0 ? <Text dimColor>{`… ${hiddenEntries} mensagens anteriores`}</Text> : null}
       <Static items={entries}>
         {(entry, index) => <EntryLine key={index} entry={entry} colors={colors} />}
@@ -840,7 +840,7 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
           {toastLine(toast)}
         </Text>
       ))}
-      <Box marginTop={1} borderStyle="round" borderColor={colors.accent} paddingX={1} flexDirection="column">
+      <Box marginTop={1} borderStyle="round" borderColor={mode === "bypass" ? colors.error : colors.accent} paddingX={1} flexDirection="column">
         {inputLines.map((line, index) => (
           <Box key={index}>
             <Text color={colors.accent}>{index === 0 ? "> " : "  "}</Text>
@@ -864,19 +864,31 @@ export function TuiApp({ session, cwd, branch, sessionApi, approvals, shell, man
       })}
       {win.end < suggestions.length ? <Text dimColor>  …</Text> : null}
       <Text dimColor>
-        {place} · {status.model} · {status.turns} turno(s) · {status.tokensIn}/{status.tokensOut} tokens · {money(status.costUsd)} · {providerId} · saúde: {healthState}
-        {" · modo: "}
-        <Text color={modeColor(mode, colors)}>{mode}</Text>
+        {footerBase({
+          place,
+          turns: status.turns,
+          tokensIn: status.tokensIn,
+          tokensOut: status.tokensOut,
+          costUsd: status.costUsd,
+        })}
         {budget === undefined ? null : (
-          <Text {...(budget.exhausted || budget.ceilingHit
-            ? { color: colors.error }
-            : budget.warning
-              ? { color: colors.warning }
-              : { dimColor: true })}>
+          <Text
+            {...(budgetColor(budget, colors) === undefined
+              ? { dimColor: true }
+              : { color: budgetColor(budget, colors) })}
+          >
             {` · ${budgetSegment(budget)}`}
           </Text>
         )}
+        {" · modo: "}
+        <Text color={modeColor(mode, colors)}>{mode}</Text>
       </Text>
     </Box>
   );
 }
+
+
+
+
+
+

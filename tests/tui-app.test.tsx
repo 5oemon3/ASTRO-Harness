@@ -14,6 +14,7 @@ import type { QuotaStatus } from "../src/quota";
 import type { PermissionMode } from "../src/permissions";
 import { canonicalFolder, TrustedFolders } from "../src/trust";
 import { createApprovalBridge } from "../src/tui/approvals";
+import { ProviderError } from "../src/providers/types";
 
 class FakeSession implements ChatSession {
   model = "p/m1";
@@ -94,17 +95,18 @@ function frameHas(instance: ReturnType<typeof render>, text: string): boolean {
   return (instance.lastFrame() ?? "").replace(/\s+/g, " ").includes(text);
 }
 
-test("banner no topo mostra versão, provider, modelo, endpoint e estado (#274)", async () => {
+test("header no topo mostra versão, provider, modelo e saúde, sem endpoint (#480)", async () => {
   const session = new FakeSession();
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-banner-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
     await waitFor(() => frameHas(instance, "ASTRO v"));
     const frame = (instance.lastFrame() ?? "").replace(/\s+/g, " ");
-    expect(frame).toContain("ASTRO v");
     expect(frame).toMatch(/ASTRO v\d+\.\d+\.\d+/);
-    expect(frame).toContain("p · p/m1");
-    expect(frame).toContain("estado:");
+    expect(frame).toContain("p/m1");
+    expect(frame).toContain("· n/d");
+    expect(frame).not.toContain("estado:");
+    expect(frame).not.toContain("https://");
   } finally {
     instance.unmount();
   }
@@ -116,7 +118,7 @@ class BypassSession extends FakeSession {
   }
 }
 
-test("footer e banner mostram o modo de permissão ativo; bypass aparece (#270)", async () => {
+test("footer mostra o modo de permissão ativo; bypass aparece só no footer (#270, #480)", async () => {
   const session = new BypassSession();
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-mode-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
@@ -124,9 +126,9 @@ test("footer e banner mostram o modo de permissão ativo; bypass aparece (#270)"
     await waitFor(() => frameHas(instance, "modo: bypass"));
     const frame = (instance.lastFrame() ?? "").replace(/\s+/g, " ");
     expect(frame).toContain("modo: bypass");
-    // banner (topo) também traz o modo
+    // o header não repete o modo (#480)
     const topo = (instance.lastFrame() ?? "").split("\n").slice(0, 3).join(" ");
-    expect(topo).toContain("modo: bypass");
+    expect(topo).not.toContain("modo:");
   } finally {
     instance.unmount();
   }
@@ -155,7 +157,6 @@ test("mostra boas-vindas, status e responde um turno", async () => {
     instance.stdin.write("olá");
     instance.stdin.write("\r");
     await waitFor(() => instance.lastFrame()?.includes("eco:olá") === true);
-    expect(instance.lastFrame()).toContain("1 step(s)");
     expect(session.sent).toEqual(["olá"]);
     expect(instance.lastFrame()).toContain("1 turno(s)");
   } finally {
@@ -168,11 +169,11 @@ test("status bar mostra saúde n/d e atualiza após troca de provider", async ()
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-health-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "saúde: n/d"));
+    await waitFor(() => frameHas(instance, "· n/d"));
     expect(session.healthCalls).toBe(0);
     instance.stdin.write("/provider use p");
     instance.stdin.write("\r");
-    await waitFor(() => frameHas(instance, "saúde: ok"));
+    await waitFor(() => frameHas(instance, "· ok"));
     expect(session.healthCalls).toBe(1);
   } finally {
     instance.unmount();
@@ -186,10 +187,10 @@ test("saúde de um provider não é reaproveitada por outro após /model", async
   try {
     instance.stdin.write("/provider use p");
     instance.stdin.write("\r");
-    await waitFor(() => frameHas(instance, "saúde: ok"));
+    await waitFor(() => frameHas(instance, "· ok"));
     instance.stdin.write("/model p2/m2");
     instance.stdin.write("\r");
-    await waitFor(() => frameHas(instance, "saúde: n/d"));
+    await waitFor(() => frameHas(instance, "· n/d"));
     expect(session.healthCalls).toBe(1);
   } finally {
     instance.unmount();
@@ -303,7 +304,8 @@ test("ignora Enter durante o turno e atualiza o status após /model", async () =
     instance.stdin.write("/model p/m2");
     instance.stdin.write("\r");
     await waitFor(() => instance.lastFrame()?.includes("modelo: p/m2") === true);
-    expect(instance.lastFrame()).toMatch(/p\/m2 · 1 turno\(s\)/);
+    expect(instance.lastFrame()).toMatch(/1 turno\(s\)/);
+    expect(instance.lastFrame()).toContain("p/m2");
   } finally {
     instance.unmount();
   }
@@ -658,8 +660,8 @@ test("histórico longo é virtualizado com marcador de mensagens anteriores (#64
       instance.stdin.write("\r");
       await waitFor(() => instance.lastFrame()?.includes(`eco:${msg}`) === true);
     }
-    // 1 boas-vindas + 3 turnos × (user/assistant/info) = 10 entradas; janela = 3 → 7 ocultas
-    await waitFor(() => frameHas(instance, "… 7 mensagens anteriores"));
+    // 1 boas-vindas + 3 turnos · (user/assistant) = 7 entradas; janela = 3 → 4 ocultas
+    await waitFor(() => frameHas(instance, "4 mensagens anteriores"));
     expect(frameHas(instance, "eco:m3")).toBe(true);
   } finally {
     instance.unmount();
@@ -831,7 +833,7 @@ test("footer sem budgetStatus não mostra segmento de budget (#63)", async () =>
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-nobudget-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     expect(frameHas(instance, "budget:")).toBe(false);
   } finally {
     instance.unmount();
@@ -843,7 +845,7 @@ test("/usage na TUI imprime uso da sessão e budget no painel (#63)", async () =
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-usage-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/usage");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "uso da sessão:"));
@@ -859,7 +861,7 @@ test("editor multi-linha: linefeed (\n) quebra linha, enter (\r) envia o texto i
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd="/tmp/astro" />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     expect(frameHas(instance, "shift+enter")).toBe(true); // dica visível no editor
     instance.stdin.write("linha1");
     instance.stdin.write("\n"); // shift+enter em terminal legado
@@ -883,7 +885,7 @@ test("editor multi-linha: shift+enter via protocolo kitty (CSI 13;2u) quebra lin
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd="/tmp/astro" />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("a");
     instance.stdin.write("\u001b[13;2u"); // shift+enter (kitty)
     instance.stdin.write("b");
@@ -901,7 +903,7 @@ test("texto multi-linha que começa com / vai como prompt, não como comando (#6
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd="/tmp/astro" />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/usage");
     instance.stdin.write("\n");
     instance.stdin.write("pergunta");
@@ -915,38 +917,40 @@ test("texto multi-linha que começa com / vai como prompt, não como comando (#6
   }
 });
 
-test("toast de erro aparece, não bloqueia a entrada e expira (#64)", async () => {
+test("erro aparece uma vez no histórico, com próximo passo e sem toast (#480)", async () => {
   const session = new FakeSession();
   session.failNext = true;
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-"));
   const instance = render(<TuiApp session={session} cwd={cwd} toastTtlMs={50} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("oi");
     instance.stdin.write("\r");
-    await waitFor(() => frameHas(instance, "✖ erro: boom"));
-    // não bloqueia: a próxima entrada continua funcionando com o toast na tela
+    await waitFor(() => frameHas(instance, "erro: boom"));
+    // sem toast duplicando a linha de erro
+    expect(frameHas(instance, "✖ erro: boom")).toBe(false);
+    // não bloqueia: a próxima entrada continua funcionando
     instance.stdin.write("depois");
     instance.stdin.write("\r");
     await waitFor(() => session.sent.length === 2);
     expect(session.sent).toEqual(["oi", "depois"]);
-    // expira (TTL 50ms), mas a entrada de erro continua no histórico
-    await waitFor(() => frameHas(instance, "✖ erro: boom") === false);
     expect(frameHas(instance, "erro: boom")).toBe(true);
   } finally {
     instance.unmount();
   }
 });
 
-test("toast de conclusão aparece ao fim de um turno (#64)", async () => {
+test("turno concluído não gera toast: o footer já tem os números (#480)", async () => {
   const session = new FakeSession();
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-ok-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("oi");
     instance.stdin.write("\r");
-    await waitFor(() => frameHas(instance, "✔ turno concluído · 1 step(s)"));
+    await waitFor(() => frameHas(instance, "eco:oi"));
+    expect(frameHas(instance, "turno concluído")).toBe(false);
+    expect(frameHas(instance, "1 turno(s)")).toBe(true);
   } finally {
     instance.unmount();
   }
@@ -973,7 +977,7 @@ test("toast de custo alto aparece quando o budget entra em aviso (#64)", async (
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-cost-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     expect(frameHas(instance, "⚠ custo alto")).toBe(false);
     instance.stdin.write("oi");
     instance.stdin.write("\r");
@@ -1003,7 +1007,7 @@ test("toast de quota aparece quando o domínio entra em aviso (#64)", async () =
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-toast-quota-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     expect(frameHas(instance, "⚠ quota")).toBe(false);
     instance.stdin.write("oi");
     instance.stdin.write("\r");
@@ -1018,7 +1022,7 @@ test("/theme contrast troca o tema ao vivo e persiste em .astro/tui.json (#64)",
   const cwd = mkdtempSync(join(tmpdir(), "astro-tui-theme-cmd-"));
   const instance = render(<TuiApp session={session} cwd={cwd} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/theme contrast");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "tema: contrast"));
@@ -1044,7 +1048,7 @@ test("/sessions abre o picker: r renomeia e enter retoma a sessão (#64)", async
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "Sessões"));
@@ -1082,7 +1086,7 @@ test("/sessions renomeia a sessão atual e o auto-save preserva o nome (#428)", 
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("oi");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "eco:oi"));
@@ -1124,7 +1128,7 @@ test("/sessions: d exclui a sessão selecionada e recusa a atual (#366)", async 
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("oi");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "eco:oi"));
@@ -1174,7 +1178,7 @@ test("/sessions: recusa excluir a sessão retomada que segue viva (#366)", async
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "Sessões"));
@@ -1213,7 +1217,7 @@ test("80x24 e resize encolhem o picker sem quebrar o input (#64)", async () => {
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "Sessões"));
@@ -1246,7 +1250,7 @@ test("picker: enter retoma a sessão selecionada pelo id (#64)", async () => {
   const session = new FakeSession();
   const instance = render(<TuiApp session={session} cwd={cwd} sessionApi={sessionApi} />);
   try {
-    await waitFor(() => frameHas(instance, "turno(s)"));
+    await waitFor(() => frameHas(instance, "enter envia"));
     instance.stdin.write("/sessions");
     instance.stdin.write("\r");
     await waitFor(() => frameHas(instance, "Sessões"));
@@ -1259,4 +1263,100 @@ test("picker: enter retoma a sessão selecionada pelo id (#64)", async () => {
     expect(JSON.parse(readFileSync(join(cwd, ".astro", "tui.json"), "utf8")).lastModel).toBe("p/m1");
     expect(frameHas(instance, "Sessões")).toBe(false);
   } finally { instance.unmount(); sessionApi.close(); }
+});
+
+
+
+
+test("footer não mostra zero nem custo n/d antes do primeiro turno (#480)", async () => {
+  const instance = render(<TuiApp session={new FakeSession()} cwd="/tmp/astro" branch="main" />);
+  try {
+    await waitFor(() => frameHas(instance, "enter envia"));
+    const frame = instance.lastFrame() ?? "";
+    const footer = frame.trimEnd().split("\n").at(-1) ?? "";
+    expect(frame).toContain("/tmp/astro (main)");
+    expect(frame).toContain("modo: ask");
+    expect(footer).not.toContain("turno(s)");
+    expect(footer).not.toContain("tokens");
+    expect(footer).not.toContain("n/d");
+  } finally {
+    instance.unmount();
+  }
+});
+
+class AuthFailSession extends FakeSession {
+  async send(): Promise<TurnResult> {
+    throw new ProviderError("auth", "HTTP 401 do provider");
+  }
+}
+
+test("erro de provider mostra o próximo passo na mesma linha (#480)", async () => {
+  const instance = render(<TuiApp session={new AuthFailSession()} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "enter envia"));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "revise a credencial com /provider"));
+    expect(frameHas(instance, "erro: HTTP 401 do provider · revise a credencial com /provider")).toBe(true);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("estado repetido aparece uma vez só na sessão (#480)", async () => {
+  const instance = render(<TuiApp session={new FakeSession()} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "enter envia"));
+    instance.stdin.write("/model p/m2");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "modelo: p/m2"));
+    // volta para m1 e depois para m2: a terceira mensagem é idêntica à primeira
+    instance.stdin.write("/model p/m1");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "modelo: p/m1"));
+    instance.stdin.write("/model p/m2");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "p/m2 · n/d"));
+    const frame = instance.lastFrame() ?? "";
+    expect(frame.split("modelo: p/m2").length - 1).toBe(1);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("comando comum repete a saída: só estado deduplica (#480)", async () => {
+  const instance = render(<TuiApp session={new FakeSession()} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "enter envia"));
+    for (let index = 0; index < 2; index++) {
+      instance.stdin.write("/clear");
+      instance.stdin.write("\r");
+      await waitFor(() => (instance.lastFrame() ?? "").split("contexto limpo").length - 1 >= index + 1);
+    }
+    const frame = instance.lastFrame() ?? "";
+    expect(frame.split("contexto limpo").length - 1).toBe(2);
+  } finally {
+    instance.unmount();
+  }
+});
+
+
+class ContextWarnSession extends FakeSession {
+  async send(prompt: string): Promise<TurnResult> {
+    const result = await super.send(prompt);
+    return { ...result, warning: true, contextRatio: 0.85 };
+  }
+}
+
+test("aviso de contexto inline traz o percentual real e aparece uma vez (#480)", async () => {
+  const instance = render(<TuiApp session={new ContextWarnSession()} cwd="/tmp/astro" />);
+  try {
+    await waitFor(() => frameHas(instance, "enter envia"));
+    instance.stdin.write("oi");
+    instance.stdin.write("\r");
+    await waitFor(() => frameHas(instance, "contexto 85%"));
+    expect(frameHas(instance, "≥80%")).toBe(true);
+  } finally {
+    instance.unmount();
+  }
 });

@@ -15,6 +15,8 @@ export type EntryKind = "user" | "assistant" | "info" | "error";
 export interface Entry {
   kind: EntryKind;
   text: string;
+  /** Estado da sessão (#480): cinza e uma vez por sessão; comando comum não deduplica. */
+  state?: boolean;
 }
 
 export interface CommandState {
