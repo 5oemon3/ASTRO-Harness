@@ -64,8 +64,8 @@ describe("byAgent com profile (F-30)", () => {
     expect(byAgent.planner).toMatchObject({ agent: "planner", model: "gpt-4o-mini", tokensIn: 10, tokensOut: 5 }); // sem profile soma separado
     expect("profile" in byAgent.planner && byAgent.planner.profile !== undefined).toBe(false);
     expect(byAgent.coder).toMatchObject({ agent: "coder", tokensIn: 200, tokensOut: 100 }); // entrada antiga continua somando
-    const totalCost = Object.values(byAgent).reduce((acc, a) => acc + a.costUsd, 0);
-    expect(totalCost).toBeCloseTo(l.total().costUsd, 12); // custo por agente bate com o ledger
+    const totalCost = Object.values(byAgent).reduce((acc, a) => acc + (a.costUsd ?? 0), 0);
+    expect(totalCost).toBeCloseTo(l.total().costUsd!, 12); // custo por agente bate com o ledger
   });
 });
 
@@ -99,11 +99,11 @@ describe("byAgent (F3-3)", () => {
     expect(byAgent.coder.costUsd).toBeCloseTo(0.002, 10);
   });
 
-  test("byAgent com costUsd null trata como 0", () => {
-    const l = new Ledger(join(dir(), "ledger.jsonl"));
+  test("byAgent com costUsd null devolve null (exibe n/d, #476)", () => {
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: () => {} });
     l.record({ ...entry, agent: "planner" }, undefined);
     const byAgent = l.byAgent();
-    expect(byAgent.planner.costUsd).toBe(0);
+    expect(byAgent.planner.costUsd).toBeNull();
   });
 
   test("um run com 3 agents mostra 3 entradas com agent diferentes", () => {
@@ -512,5 +512,85 @@ describe("novos kinds e campos de usage (S-05, #122)", () => {
       expect(content).not.toContain(secret);
       expect(content).toContain("[REDACTED]");
     });
+  });
+});
+
+describe("#476 preço ausente: n/d no status e aviso uma vez por modelo por sessão", () => {
+  const price = { inputPerM: 1, outputPerM: 2, fonte: "t", verificado: false };
+
+  test("chamadas repetidas do mesmo modelo sem preço avisam uma única vez", () => {
+    const warns: string[] = [];
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: (m) => warns.push(m) });
+    l.record(structuredClone(entry), undefined);
+    l.record(structuredClone(entry), undefined);
+    l.record(structuredClone(entry), undefined);
+    expect(warns.filter((m) => m.includes("sem preço curado")).length).toBe(1);
+  });
+
+  test("modelos distintos sem preço avisam um cada, repetições não", () => {
+    const warns: string[] = [];
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: (m) => warns.push(m) });
+    l.record({ ...entry, model: "modelo-a" }, undefined);
+    l.record({ ...entry, model: "modelo-b" }, undefined);
+    l.record({ ...entry, model: "modelo-a" }, undefined);
+    l.record({ ...entry, model: "modelo-b" }, undefined);
+    expect(warns.filter((m) => m.includes("sem preço curado")).length).toBe(2);
+  });
+
+  test("modelo FREE (slug :free) sem preço curado não avisa e grava custo 0", () => {
+    const warns: string[] = [];
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: (m) => warns.push(m) });
+    const e = l.record({ ...entry, model: "llama3:free" }, undefined);
+    l.record({ ...entry, model: "llama3:free" }, undefined);
+    expect(e.costUsd).toBe(0);
+    expect(warns.length).toBe(0);
+  });
+
+  test("preço curado 0/0 (FREE) grava custo 0 sem aviso", () => {
+    const warns: string[] = [];
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: (m) => warns.push(m) });
+    const e = l.record(structuredClone(entry), { inputPerM: 0, outputPerM: 0, fonte: "t", verificado: true });
+    expect(e.costUsd).toBe(0);
+    expect(warns.length).toBe(0);
+  });
+
+  test("total com qualquer preço desconhecido devolve costUsd null (n/d), nunca 0 ou soma parcial", () => {
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: () => {} });
+    l.record(structuredClone(entry), price);
+    l.record({ ...entry, model: "sem-preco" }, undefined);
+    expect(l.total().costUsd).toBeNull();
+  });
+
+  test("total só com preços conhecidos continua numérico", () => {
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: () => {} });
+    l.record(structuredClone(entry), price);
+    l.record(structuredClone(entry), price);
+    expect(l.total().costUsd).toBeCloseTo(0.004, 10);
+  });
+
+  test("byAgent com preço desconhecido no bucket devolve costUsd null", () => {
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: () => {} });
+    l.record(structuredClone(entry), price);
+    l.record(structuredClone(entry), undefined);
+    expect(l.byAgent().default.costUsd).toBeNull();
+  });
+
+  test("byAgent com todos os preços conhecidos continua numérico", () => {
+    const l = new Ledger(join(dir(), "ledger.jsonl"), { warn: () => {} });
+    l.record(structuredClone(entry), price);
+    expect(l.byAgent().default.costUsd).toBeCloseTo(0.002, 10);
+  });
+
+  test("entrada legada sem campo costUsd conta como preço desconhecido (n/d), não como 0 nem NaN", () => {
+    const path = join(dir(), "ledger.jsonl");
+    // linha pré-custo: sem costUsd, sem kind, sem seq
+    const old = { run: "r0", agent: "default", provider: "openai", model: "antigo", quotaDomain: "d", tokensIn: 5, tokensOut: 5, ts: "2026-01-01T00:00:00Z" };
+    writeFileSync(path, `${JSON.stringify(old)}\n`, "utf8");
+    const l = new Ledger(path, { warn: () => {} });
+    l.record(structuredClone(entry), price);
+    const t = l.total();
+    expect(Number.isNaN(t.costUsd)).toBe(false);
+    expect(t.costUsd).toBeNull();
+    expect(l.byAgent().default.costUsd).toBeNull();
   });
 });

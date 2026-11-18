@@ -89,19 +89,20 @@ export function assertAgentQuota(
   }
 }
 
-/** Custo acumulado por agente (F-30): agent + profile quando presente. D-10: sempre leitura do ledger. */
-export function costByAgent(ledger: Ledger): Array<{ agent: string; profile?: string; costUsd: number }> {
+/** Custo acumulado por agente (F-30): agent + profile quando presente. D-10: sempre leitura do ledger. `costUsd` null quando o bucket tem preço desconhecido (#476). */
+export function costByAgent(ledger: Ledger): Array<{ agent: string; profile?: string; costUsd: number | null }> {
   return Object.values(ledger.byAgent()).map(({ agent, profile, costUsd }) => ({
     agent, ...(profile === undefined ? {} : { profile }), costUsd,
   }));
 }
 
-/** Tabela de custo por agente do `astro cost --by-agent` (F-30). */
+/** Tabela de custo por agente do `astro cost --by-agent` (F-30); preço desconhecido exibe `n/d`, nunca zero (#476). */
 export function formatCostByAgent(ledger: Ledger): string {
   const rows = Object.values(ledger.byAgent());
   if (rows.length === 0) return "sem entradas de uso no ledger";
+  const money = (value: number | null): string => (value === null ? "n/d" : `US$ ${value.toFixed(6)}`);
   const lines = rows.map((r) =>
-    `${r.agent}${r.profile === undefined ? "" : ` (${r.profile})`} · ${r.provider}/${r.model} · ${r.tokensIn}/${r.tokensOut} tokens · US$ ${r.costUsd.toFixed(6)}`);
+    `${r.agent}${r.profile === undefined ? "" : ` (${r.profile})`} · ${r.provider}/${r.model} · ${r.tokensIn}/${r.tokensOut} tokens · ${money(r.costUsd)}`);
   return ["agente · modelo · tokens in/out · custo", ...lines].join("\n");
 }
 

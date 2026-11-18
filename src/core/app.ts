@@ -1298,7 +1298,10 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   const total = ledger.total();
   const tokensIn = total.tokensIn - baseline.tokensIn;
   const tokensOut = total.tokensOut - baseline.tokensOut;
-  const costUsd = baseModel.price === undefined ? null : total.costUsd - baseline.costUsd;
+  // #476: total com preço desconhecido é n/d, nunca diferença parcial como número completo
+  const costUsd = baseModel.price === undefined || total.costUsd === null || baseline.costUsd === null
+    ? null
+    : total.costUsd - baseline.costUsd;
 
   if (opts.suppressRunEvents !== true) audit.append({
     run,

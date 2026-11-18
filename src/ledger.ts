@@ -211,6 +211,12 @@ export function estimateCost(
   return (tokensIn / 1_000_000) * price.inputPerM + (tokensOut / 1_000_000) * price.outputPerM;
 }
 
+/** Modelo marcado como gratuito (ADR-0025): slug `:free` no id ou preço curado 0/0. */
+export function isFreeModel(model: string, price?: PriceConfig): boolean {
+  return model.endsWith(":free")
+    || (price !== undefined && price.inputPerM === 0 && price.outputPerM === 0);
+}
+
 function isMissingFile(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -230,6 +236,8 @@ export class Ledger {
   private nextSeq: number | undefined;
   /** Aviso de cauda parcial já emitido nesta instância. */
   private warnedPartialTail = false;
+  /** Modelos sem preço curado já avisados nesta instância (uma vez por modelo por sessão, #476). */
+  private warnedNoPrice = new Set<string>();
   /** Profundidade do lock desta instância (reentrância do append na seção crítica). */
   private lockDepth = 0;
 
@@ -268,14 +276,17 @@ export class Ledger {
   }
 
   record(e: Omit<LedgerEntry, "ts" | "costUsd" | "schemaVersion" | "kind">, price?: PriceConfig): LedgerEntry {
-    const costUsd = estimateCost(e.tokensIn, e.tokensOut, price);
+    // Modelo FREE (ADR-0025) tem custo conhecido zero, mesmo sem preço curado (#476).
+    const costUsd = estimateCost(e.tokensIn, e.tokensOut, price) ?? (isFreeModel(e.model, price) ? 0 : null);
     if (e.lvl !== undefined && (!Number.isInteger(e.lvl) || e.lvl < 0 || e.lvl > 4)) {
       throw new Error(`nível de esforço inválido no ledger: ${String(e.lvl)} (esperado inteiro 0..4)`);
     }
     if (costUsd === null) {
-      this.warn(
-        `sem preço curado para o modelo "${e.provider}/${e.model}"; custo não calculado`,
-      );
+      const key = `${e.provider}/${e.model}`;
+      if (!this.warnedNoPrice.has(key)) {
+        this.warnedNoPrice.add(key);
+        this.warn(`sem preço curado para o modelo "${key}"; custo não calculado`);
+      }
     }
     const stripped = e["param.stripped"] === undefined
       ? undefined
@@ -473,27 +484,32 @@ export class Ledger {
       e.kind === "effort" && e.run === targetRun && e.agent === targetAgent).at(-1);
   }
 
-  total(): { tokensIn: number; tokensOut: number; costUsd: number } {
+  /** Total de uso; `costUsd` é null quando alguma entrada não tem preço (B6/#476: exibe n/d, nunca 0). */
+  total(): { tokensIn: number; tokensOut: number; costUsd: number | null } {
     let tokensIn = 0;
     let tokensOut = 0;
-    let costUsd = 0;
+    let costUsd: number | null = 0;
     for (const entry of this.readAll()) {
       tokensIn += entry.tokensIn;
       tokensOut += entry.tokensOut;
-      costUsd += entry.costUsd ?? 0;
+      // entrada legada sem o campo costUsd é preço desconhecido (n/d), nunca 0 nem NaN
+      if (typeof entry.costUsd !== "number") costUsd = null;
+      else if (costUsd !== null) costUsd += entry.costUsd;
     }
     return { tokensIn, tokensOut, costUsd };
   }
 
-  /** Agregação por agent (F-30): tokens e custo por agent (+profile quando presente); provider/model do primeiro uso do bucket. */
-  byAgent(): Record<string, { agent: string; profile?: string; provider: string; model: string; tokensIn: number; tokensOut: number; costUsd: number }> {
-    const result: Record<string, { agent: string; profile?: string; provider: string; model: string; tokensIn: number; tokensOut: number; costUsd: number }> = Object.create(null);
+  /** Agregação por agent (F-30): tokens e custo por agent (+profile quando presente); provider/model do primeiro uso do bucket. `costUsd` null quando o bucket tem preço desconhecido (#476). */
+  byAgent(): Record<string, { agent: string; profile?: string; provider: string; model: string; tokensIn: number; tokensOut: number; costUsd: number | null }> {
+    const result: Record<string, { agent: string; profile?: string; provider: string; model: string; tokensIn: number; tokensOut: number; costUsd: number | null }> = Object.create(null);
     for (const entry of this.readAll()) {
       const key = entry.profile === undefined ? entry.agent : `${entry.agent}|${entry.profile}`;
       const agg = (result[key] ??= { agent: entry.agent, ...(entry.profile === undefined ? {} : { profile: entry.profile }), provider: entry.provider, model: entry.model, tokensIn: 0, tokensOut: 0, costUsd: 0 });
       agg.tokensIn += entry.tokensIn;
       agg.tokensOut += entry.tokensOut;
-      agg.costUsd += entry.costUsd ?? 0;
+      // entrada legada sem o campo costUsd é preço desconhecido (n/d), nunca 0 nem NaN
+      if (typeof entry.costUsd !== "number") agg.costUsd = null;
+      else if (agg.costUsd !== null) agg.costUsd += entry.costUsd;
     }
     return result;
   }

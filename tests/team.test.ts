@@ -115,8 +115,8 @@ describe("custo por agente com profile (F-30)", () => {
     expect(costs).toHaveLength(3);
     expect(costs.find((c) => c.profile === "premium")).toMatchObject({ agent: "planner", profile: "premium", costUsd: 0.0015 });
     expect(costs.find((c) => c.agent === "planner" && c.profile === undefined)!.costUsd).toBeCloseTo(0.00015, 12);
-    const sum = costs.reduce((acc, c) => acc + c.costUsd, 0);
-    expect(sum).toBeCloseTo(ledger.total().costUsd, 12); // D-10: leitura do ledger, sem segundo contador
+    const sum = costs.reduce((acc, c) => acc + (c.costUsd ?? 0), 0);
+    expect(sum).toBeCloseTo(ledger.total().costUsd!, 12); // D-10: leitura do ledger, sem segundo contador
 
     const table = formatCostByAgent(ledger);
     expect(table).toContain("planner");
@@ -125,6 +125,20 @@ describe("custo por agente com profile (F-30)", () => {
     expect(table).toContain("US$");
     const empty = formatCostByAgent(new Ledger(join(mkdtempSync(join(tmpdir(), "astro-f30-")), "vazio.jsonl")));
     expect(empty).toContain("sem entradas"); // ledger vazio: mensagem clara
+  });
+
+  test("#476 status por modelo com preço desconhecido mostra n/d, nunca US$ 0", () => {
+    const ledger = new Ledger(join(mkdtempSync(join(tmpdir(), "astro-476-")), "ledger.jsonl"), { warn: () => {} });
+    const price = { inputPerM: 1, outputPerM: 1, fonte: "t", verificado: false };
+    ledger.record({ run: "r1", agent: "coder", provider: "openai", model: "gpt-4o", credentialRef: "K", quotaDomain: "d", tokensIn: 100, tokensOut: 50 }, price);
+    ledger.record({ run: "r1", agent: "coder", provider: "openai", model: "sem-preco", credentialRef: "K", quotaDomain: "d", tokensIn: 10, tokensOut: 5 }, undefined);
+
+    const costs = costByAgent(ledger);
+    expect(costs.find((c) => c.agent === "coder")!.costUsd).toBeNull();
+
+    const table = formatCostByAgent(ledger);
+    expect(table).toContain("n/d");
+    expect(table).not.toContain("US$ 0.000000");
   });
 });
 
