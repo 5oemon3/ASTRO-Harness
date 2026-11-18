@@ -22,6 +22,8 @@ interface CodexOAuthProviderOptions {
   fetchFn?: FetchLike;
   /** Timeout de rede por tentativa; default `DEFAULT_PROVIDER_TIMEOUT_MS`. */
   timeoutMs?: number;
+  /** Nome do provider na config, usado só na mensagem do timeout (#475). */
+  providerName?: string;
   /** Relógio em milissegundos desde a epoch (default: `Date.now`). */
   now?: () => number;
   /** Call profile do modelo (E1–E8). */
@@ -319,6 +321,7 @@ export class CodexOAuthProvider implements Provider {
   private tokens: CodexTokens | undefined;
   private readonly call: CallConfig | undefined;
   private readonly timeoutMs: number;
+  private readonly providerName: string | undefined;
 
   constructor(opts: CodexOAuthProviderOptions) {
     this.credentialsPath = opts.credentialsPath;
@@ -328,6 +331,7 @@ export class CodexOAuthProvider implements Provider {
     this.now = opts.now ?? (() => Date.now());
     this.call = opts.call;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    this.providerName = opts.providerName;
   }
 
   async complete(req: CompletionRequest, signal?: AbortSignal): Promise<CompletionResponse> {
@@ -346,14 +350,21 @@ export class CodexOAuthProvider implements Provider {
           signal: net.signal,
         });
       } catch (error) {
-        throw this.networkError(error, signal, net, "falha de rede ao chamar o provider Codex");
+        throw this.networkError(error, signal, net, "falha de rede ao chamar o provider Codex", "total");
       }
 
       let text: string;
       try {
-        text = await response.text();
+        text = await this.readBody(response, net);
       } catch (error) {
-        throw this.networkError(error, signal, net, "falha ao ler a resposta do provider Codex", response.status);
+        throw this.networkError(
+          error,
+          signal,
+          net,
+          "falha ao ler a resposta do provider Codex",
+          "idle",
+          response.status,
+        );
       }
 
       if (!response.ok) {
@@ -366,12 +377,31 @@ export class CodexOAuthProvider implements Provider {
     }
   }
 
+  /**
+   * Lê o corpo SSE do Codex contando atividade: cada chunk reinicia o prazo, então
+   * o timeout mede inatividade e uma geração longa e saudável não morre no limite (#475).
+   */
+  private async readBody(response: Response, net: NetworkCall): Promise<string> {
+    if (response.body === null) return "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      net.reset();
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  }
+
   /** Classifica falha de rede: cancelamento do run, timeout próprio ou outage (I-09). */
   private networkError(
     error: unknown,
     caller: AbortSignal | undefined,
     net: NetworkCall,
     label: string,
+    timeout: "idle" | "total",
     status?: number,
   ): unknown {
     if (isAbortError(error, caller)) return error;
@@ -383,7 +413,11 @@ export class CodexOAuthProvider implements Provider {
       );
     }
     if (net.timedOut()) {
-      return new ProviderError("network_timeout", `${label}: sem resposta em ${this.timeoutMs}ms`, status);
+      const limit = timeout === "idle"
+        ? `parado por ${this.timeoutMs}ms (timeout de inatividade)`
+        : `sem resposta em ${this.timeoutMs}ms (timeout total da chamada)`;
+      const hint = `aumente providers.${this.providerName ?? "<name>"}.timeoutMs ou reduza o request`;
+      return new ProviderError("network_timeout", `${label}: ${limit}; ${hint}`, status);
     }
     return new ProviderError("outage", label, status);
   }
