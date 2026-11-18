@@ -74,6 +74,16 @@ describe("health check (F6-6)", () => {
     }
   });
 
+  test("#510 sem credencial no env → detail com var, provider e próximo passo", async () => {
+    const config = validateConfig(structuredClone(baseConfig));
+    const report = await runHealthCheck(config, {});
+    const providerCheck = report.checks.find((c) => c.name === "provider:mock")!;
+    expect(providerCheck.status).toBe("down");
+    expect(providerCheck.detail).toContain("defina TEST_KEY no ambiente");
+    expect(providerCheck.detail).toContain('provider "mock"');
+    expect(providerCheck.detail).toContain("astro providers vault-import");
+  });
+
   test("dois providers, um fora → degraded; falha não derruba o outro", async () => {
     const ok = modelsServer(() => Response.json({ data: [] }));
     const bad = modelsServer(() => new Response("boom", { status: 500 }));
@@ -178,6 +188,16 @@ describe("health e providers test leem o cofre (#311 B.2/B.3)", () => {
     const check = report.checks.find((c) => c.name === "provider:mock")!;
     expect(check.status).toBe("down");
     expect(check.detail).toContain(VAULT_REF);
+    expect(check.detail).not.toContain("defina");
+    expect(JSON.stringify(report)).not.toContain(VAULT_SECRET);
+  });
+
+  test("#510 entrada ausente no cofre → detail com próximo passo /provider", async () => {
+    const report = await runHealthCheck(vaultConfig(VAULT_REF), {}, { vault: readerWith({}) });
+    const check = report.checks.find((c) => c.name === "provider:mock")!;
+    expect(check.status).toBe("down");
+    expect(check.detail).toContain(VAULT_REF);
+    expect(check.detail).toContain("/provider");
     expect(check.detail).not.toContain("defina");
     expect(JSON.stringify(report)).not.toContain(VAULT_SECRET);
   });

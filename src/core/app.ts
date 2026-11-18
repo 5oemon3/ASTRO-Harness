@@ -23,9 +23,8 @@ import { CompletionCache, cachedProvider } from "../cache";
 import { loadPlugins, pluginAllowlistFromEnv, type PluginProviderFactory } from "../plugins";
 import { sendAuditWebhook } from "../team";
 import { resolveTaskSkill } from "../skills/executor";
-import { resolveCredentialValue } from "../credential-ref";
+import { CredentialMissingError, resolveCredentialValue } from "../credential-ref";
 import { Vault, vaultPath } from "../vault";
-import { isVaultRef } from "../secrets";
 import type { AuditEvent } from "../audit";
 import { budgetStatus, effectiveBudget, raiseDeniedLabel, restrictBudget, BudgetExceededError, type BudgetDecider, type BudgetStatus } from "../budget";
 import { MaxStepsError, runSession, runMultiAgentSession, type EffectiveIdentity, type IdentityResolver, type MultiAgentSessionOptions } from "./session";
@@ -275,9 +274,8 @@ export function createProvider(
       ? undefined
       : resolveCredentialValue(credentialRef, env, vault);
     if (credentialRef !== undefined && (apiKey === undefined || apiKey.length === 0)) {
-      throw new Error(isVaultRef(credentialRef)
-        ? `credencial de vault "${credentialRef}" vazia`
-        : `defina ${credentialRef} no ambiente`);
+      // #510: erro tipado com code + próximo passo; nomeia só o ref, nunca o valor (I-03)
+      throw new CredentialMissingError(credentialRef, model.provider);
     }
 
     return {

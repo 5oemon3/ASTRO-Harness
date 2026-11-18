@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_ATTACHMENTS, loadConfig, loadConfigRaw, type AstroConfig, type MCPServerConfig } from "./core/config";
+import { credentialMissingMessage } from "./credential-ref";
 import { loadEffectiveConfig, NoProviderError } from "./providers/profiles";
 import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "./attachments/store";
 import type { HealthCheck } from "./health";
@@ -209,7 +210,8 @@ function credentialChecks(
     const present = (env[provider.credentialRef] ?? "").length > 0;
     return present
       ? { name, level: "ok", label, detail: `${provider.credentialRef} presente` } satisfies Check
-      : { name, level: "warn", label, detail: `${provider.credentialRef} ausente no ambiente` } satisfies Check;
+      // #510: detail com próximo passo, não só "ausente no ambiente" (nunca o valor, I-03)
+      : { name, level: "warn", label, detail: credentialMissingMessage(provider.credentialRef, provider.id) } satisfies Check;
   });
 }
 

@@ -13,6 +13,9 @@ const config = validateConfig({
 test("classifica o check de health na taxonomia de erro do provider", () => {
   expect(classifyProviderCheck({ name: "provider:p", status: "ok", latencyMs: 5 })).toBeUndefined();
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "defina OPENAI_API_KEY no ambiente" })).toBe("auth");
+  // #510: formato novo com provider e próximo passo continua auth
+  expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: 'defina OPENAI_API_KEY no ambiente (provider "openai") · exporte a variável no shell ou salve a credencial no cofre (astro providers vault-import; /provider na TUI)' })).toBe("auth");
+  expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: 'credencial de vault "vault:cred-12345678-abcd" ausente ou vazia · salve a credencial no cofre (/provider na TUI)' })).toBe("auth");
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "HTTP 401 em GET /models" })).toBe("auth");
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "HTTP 403 em GET /models" })).toBe("auth");
   expect(classifyProviderCheck({ name: "provider:p", status: "down", detail: "HTTP 402 em GET /models" })).toBe("hard_quota");

@@ -32,7 +32,7 @@ import { applyFixes, doctorJson, exitCode as doctorExitCode, renderReport, runDo
 import { GitHubConfigRegistry, prepareConfigForPush, preparePulledConfig } from "./config-share";
 import { runSkillsCommand } from "./skills/cli";
 import { runMcpCommand } from "./mcp/cli";
-import { redactSecrets } from "./sanitize-external";
+import { cliErrorLine } from "./cli-error";
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -1082,7 +1082,7 @@ async function main(argv: string[]): Promise<number> {
         allowlists = validateAllowlistFlags(flags, base);
       } catch (error) {
         if (!(error instanceof AllowlistInvalidError)) throw error;
-        console.error(`erro: ${error.code}: ${redactSecrets(error.message)}`);
+        console.error(cliErrorLine(error));
         return 1;
       }
       for (const ev of allowlists.events) {
@@ -1200,8 +1200,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(result.identical ? "  ✓ idêntico ao original" : "  ✗ divergente do original");
       return result.identical ? 0 : 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1229,8 +1228,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatSummary(report));
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${redactSecrets(message)}`);
+      console.error(cliErrorLine(error));
       return 1;
     } finally {
       cancellation.dispose();
@@ -1260,8 +1258,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatSummary(report));
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     } finally {
       cancellation.dispose();
@@ -1310,8 +1307,7 @@ async function main(argv: string[]): Promise<number> {
       await runRepl(session, io, { sessionApi, signal: io.signal, style: interactive, cwd: base, manager, interactive });
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${redactSecrets(message)}`);
+      console.error(cliErrorLine(error));
       return 1;
     } finally {
       sessionApi?.close();
@@ -1335,8 +1331,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatHandoffShow(ledger, o.handoffId));
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1383,8 +1378,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(`config "${o.name}" validada e gravada em ${o.configPath}`);
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1415,8 +1409,7 @@ async function main(argv: string[]): Promise<number> {
       }
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1427,8 +1420,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatAgentsList(config));
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1444,8 +1436,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatPoolList(config));
       return 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1457,8 +1448,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(JSON.stringify(report, null, 2));
       return report.status === "ok" ? 0 : 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1493,8 +1483,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(JSON.stringify(report, null, 2));
       return report.status === "ok" ? 0 : 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`erro: ${message}`);
+      console.error(cliErrorLine(error));
       return 1;
     }
   }
@@ -1516,8 +1505,7 @@ async function main(argv: string[]): Promise<number> {
     console.log(formatSummary(report));
     return 0;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`erro: ${message}`);
+    console.error(cliErrorLine(error));
     return 1;
   } finally {
     cancellation.dispose();

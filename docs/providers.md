@@ -204,4 +204,4 @@ Os testes automatizados nunca chamam providers reais. Para validar credenciais d
 | OpenRouter | exportar `OPENROUTER_API_KEY` | idem | `openrouter/openai/gpt-4o-mini` |
 | Codex OAuth | sessão autenticada em `~/.codex/auth.json` | idem (sem exportar chave) | `codex/gpt-5.5` |
 
-Variável ausente: falha antes de qualquer chamada, com `erro: defina <NOME_DA_VARIAVEL> no ambiente` — a mensagem cita o nome, nunca o valor. Id de vault ausente segue a mesma regra: a mensagem cita só `vault:<credentialId>`.
+Variável ausente: falha antes de qualquer chamada, com erro tipado `credential_missing` (#510) — `erro: credential_missing: defina <NOME_DA_VARIAVEL> no ambiente (provider "<id>") · exporte a variável no shell ou salve a credencial no cofre (astro providers vault-import; /provider na TUI)`. A mensagem cita o nome, nunca o valor. Id de vault ausente segue a mesma regra: a mensagem cita só `vault:<credentialId>` e o próximo passo é salvar no cofre.

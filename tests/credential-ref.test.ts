@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProvider } from "../src/core/app";
 import { validateConfig } from "../src/core/config";
-import { resolveCredentialValue } from "../src/credential-ref";
+import { CredentialMissingError, credentialMissingMessage, resolveCredentialValue } from "../src/credential-ref";
 import type { ModelEntry } from "../src/core/registry";
 import { Vault, type VaultBackend } from "../src/vault";
 
@@ -72,13 +72,73 @@ describe("createProvider lê do vault (#311 B.2)", () => {
     expect(JSON.stringify(configWith(ref))).not.toContain(SENTINEL);
   });
 
-  test("id ausente no provider real vira ConfigError sem vazar o segredo", () => {
+  test("id ausente no provider real vira erro tipado sem vazar o segredo", () => {
     const vault = new Vault(tmpVault(), plain);
     vault.create({ providerId: "p", label: "api", secret: SENTINEL });
     const ref = "vault:cred-missing-0000";
-    let message = "";
-    try { createProvider(configWith(ref), model, {}, new Map(), vault); } catch (error) { message = String(error); }
-    expect(message).toContain(ref);
-    expect(message).not.toContain(SENTINEL);
+    let caught: unknown;
+    try { createProvider(configWith(ref), model, {}, new Map(), vault); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CredentialMissingError);
+    expect((caught as Error).message).toContain(ref);
+    expect((caught as Error).message).not.toContain(SENTINEL);
+  });
+});
+
+describe("#510 credencial ausente: code + próximo passo, nunca o valor (I-03)", () => {
+  test("CredentialMissingError tem code credential_missing e mensagem com var, provider e próximo passo", () => {
+    const err = new CredentialMissingError("MY_API_KEY", "openai");
+    expect(err.code).toBe("credential_missing");
+    expect(err.name).toBe("CredentialMissingError");
+    expect(err.credentialRef).toBe("MY_API_KEY");
+    expect(err.message).toContain("defina MY_API_KEY no ambiente");
+    expect(err.message).toContain('provider "openai"');
+    expect(err.message).toContain("astro providers vault-import");
+    expect(err.message).toContain("/provider");
+  });
+
+  test("mensagem de vault cita só vault:<id> + próximo passo, sem 'defina'", () => {
+    const msg = credentialMissingMessage("vault:cred-12345678-abcd");
+    expect(msg).toContain("vault:cred-12345678-abcd");
+    expect(msg).toContain("ausente ou vazia");
+    expect(msg).toContain("/provider");
+    expect(msg).not.toContain("defina");
+  });
+
+  test("ref com cara de segredo é suprimida no nome, mas traz próximo passo (I-03)", () => {
+    const secretLike = ["s", "k", "-"].join("") + "abcdefgh12345678";
+    const msg = credentialMissingMessage(secretLike);
+    expect(msg).not.toContain(secretLike);
+    expect(msg).toContain("nome suprimido");
+    expect(msg).toContain("astro providers vault-import");
+  });
+
+  test("createProvider sem a variável no ambiente lança CredentialMissingError", () => {
+    let caught: unknown;
+    try { createProvider(configWith("MY_KEY"), model, {}); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CredentialMissingError);
+    expect((caught as CredentialMissingError).code).toBe("credential_missing");
+    expect((caught as Error).message).toMatch(/defina MY_KEY no ambiente/);
+    expect((caught as Error).message).toContain('provider "p"');
+    expect((caught as Error).message).toContain("astro providers vault-import");
+  });
+
+  test("createProvider com vault:<id> ausente lança CredentialMissingError sem vazar o valor", () => {
+    const vault = new Vault(tmpVault(), plain);
+    vault.create({ providerId: "p", label: "api", secret: SENTINEL });
+    let caught: unknown;
+    try { createProvider(configWith("vault:cred-missing-0000"), model, {}, new Map(), vault); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CredentialMissingError);
+    expect((caught as CredentialMissingError).code).toBe("credential_missing");
+    expect((caught as Error).message).toContain("vault:cred-missing-0000");
+    expect((caught as Error).message).not.toContain(SENTINEL);
+  });
+
+  test("resolveCredentialValue com id de vault ausente lança CredentialMissingError", () => {
+    const vault = new Vault(tmpVault(), plain);
+    let caught: unknown;
+    try { resolveCredentialValue("vault:cred-missing-0000", {}, vault); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(CredentialMissingError);
+    expect((caught as CredentialMissingError).code).toBe("credential_missing");
+    expect((caught as Error).message).toContain("vault:cred-missing-0000");
   });
 });

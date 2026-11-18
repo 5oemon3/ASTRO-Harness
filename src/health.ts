@@ -10,8 +10,8 @@ import { ConfigError, type AstroConfig, type CodexOAuthProviderConfig, type Open
 import { DEFAULT_PRIORITY } from "./providers/fallback-provider";
 import { Registry } from "./core/registry";
 import { isRedirectRefusal } from "./url-safety";
-import { resolveCredentialValue, type VaultReader } from "./credential-ref";
-import { isVaultCredentialRef, isVaultRef, looksLikeSecret } from "./secrets";
+import { CredentialMissingError, credentialMissingMessage, resolveCredentialValue, type VaultReader } from "./credential-ref";
+import { isVaultCredentialRef, isVaultRef } from "./secrets";
 import { Vault, vaultMeta, vaultPath, vaultPlainWarning } from "./vault";
 
 // Predicates: PluginProviderConfig (kind: string) sobrepõe os literais dos
@@ -64,20 +64,17 @@ function readCredential(
   ref: string,
   env: Record<string, string | undefined>,
   vault: VaultReader,
+  provider?: string,
 ): ResolvedCredential {
   try {
     const value = resolveCredentialValue(ref, env, vault);
     if (value === undefined || value.length === 0) {
-      if (isVaultRef(ref)) return { failure: `credencial de vault "${ref}" vazia` };
-      // Ref colada com forma de segredo não é ecoada (I-03); o load já a recusa.
-      return {
-        failure: looksLikeSecret(ref)
-          ? "defina a variável de ambiente do provider (nome suprimido: parece um segredo)"
-          : `defina ${ref} no ambiente`,
-      };
+      // #510: mensagem única com próximo passo; ref com cara de segredo tem o nome suprimido (I-03)
+      return { failure: credentialMissingMessage(ref, provider) };
     }
     return { value, source: isVaultRef(ref) ? "vault" : "env" };
   } catch (error) {
+    if (error instanceof CredentialMissingError) return { failure: error.message };
     const message = error instanceof Error ? error.message : String(error);
     // Falha de leitura/decifra pode não citar o ref: nomeia o provider a corrigir.
     // Ref malformada fica fora do prefixo: o conteúdo colado não é ecoado (I-03).
@@ -195,7 +192,7 @@ export async function runHealthCheck(
       let apiKey: string | undefined;
       let sourceDetail: string | undefined;
       if (credentialRef !== undefined) {
-        const resolved = readCredential(credentialRef, env, vault);
+        const resolved = readCredential(credentialRef, env, vault, name);
         if (resolved.failure !== undefined) {
           localFailureNames.add(`provider:${name}`);
           checks.push({
@@ -296,7 +293,7 @@ export async function testProvider(
     let apiKey: string | undefined;
     let sourceDetail: string | undefined;
     if (credentialRef !== undefined) {
-      const resolved = readCredential(credentialRef, env, opts.vault ?? new Vault(vaultPath(env)));
+      const resolved = readCredential(credentialRef, env, opts.vault ?? new Vault(vaultPath(env)), name);
       if (resolved.failure !== undefined) {
         return { name: `provider:${name}`, status: "down", priority: provider.priority ?? DEFAULT_PRIORITY, detail: resolved.failure };
       }

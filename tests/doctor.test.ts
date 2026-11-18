@@ -136,6 +136,8 @@ test("credencial ausente no ambiente é warn", () => {
   const check = report.checks.find((item) => item.label.startsWith("credencial"));
   expect(check?.level).toBe("warn");
   expect(check?.detail).toContain("NVIDIA_API_KEY");
+  // #510: detail traz o próximo passo, não só "ausente no ambiente"
+  expect(check?.detail).toContain("astro providers vault-import");
   expect(exitCode(report)).toBe(0);
 });
 
