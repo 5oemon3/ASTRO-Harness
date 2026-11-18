@@ -467,7 +467,7 @@ describe("AgentSession configSummary / savePermissionMode (#273)", () => {
       const chat = session();
       const summary = chat.configSummary();
       expect(summary.configPath).toBe(configPath);
-      expect(summary.maxTurns).toBe("unlimited"); // setup não define run
+      expect(summary.maxTurns).toBe("500 (default)"); // setup não define run
       expect(summary.permissionMode).toBe("ask");
       // p/m1 e p/m2 têm price no setup; q/m2 não tem e fica de fora
       expect(summary.costs).toEqual([

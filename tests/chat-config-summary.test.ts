@@ -37,9 +37,9 @@ describe("configSummaryOf / configLines (#273)", () => {
     expect(summary.budget).toBe("day · limite US$ 5.00 · aviso em 80% · ao exceder: ask");
   });
 
-  test("sem run.maxTurns exibe unlimited; sem budget exibe 'sem budget'", () => {
+  test("sem run.maxTurns exibe 500 (default); sem budget exibe 'sem budget'", () => {
     const summary = configSummaryOf(validateConfig(base), "/cfg/astro.config.json", "bypass");
-    expect(summary.maxTurns).toBe("unlimited");
+    expect(summary.maxTurns).toBe("500 (default)");
     expect(summary.budget).toBe("sem budget");
     expect(summary.costs).toEqual([{ ref: "p/m1", inputPerM: 1, outputPerM: 2 }]);
     expect(summary.permissionMode).toBe("bypass");

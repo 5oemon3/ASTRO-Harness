@@ -106,12 +106,83 @@ export interface AgentConfig {
 }
 
 /**
- * Teto padrão de passos do modo simples (#473): alto o suficiente para uma
- * tarefa representativa (~10 leituras, várias edições, uma sequência de
- * comandos) não parar no meio. Também é o teto quando a camada global não
- * declara `agent.maxSteps`: o projeto só pode reduzir, nunca elevar (ADR-0029).
+ * Teto padrão de passos (#515): 500 é o default do preset `simple` e o default
+ * quando a config não declara `agent.maxSteps` no preset `control`.
  */
-export const BASELINE_MAX_STEPS = 50;
+export const BASELINE_MAX_STEPS = 500;
+
+/**
+ * Preset de configuração (#515): `simple` fixa passos e turnos em 500 e não
+ * aceita esses knobs; `control` expõe `agent.maxSteps` e `run.maxTurns`.
+ */
+export type Preset = "simple" | "control";
+
+export const PRESETS: readonly Preset[] = ["simple", "control"];
+
+/** Preset quando a config não declara nada: compatível com configs anteriores. */
+export const DEFAULT_PRESET: Preset = "control";
+
+/** Limites do preset `simple` e default de `run.maxTurns` (#515). */
+export const SIMPLE_MAX_STEPS = 500;
+export const DEFAULT_MAX_TURNS = 500;
+
+/**
+ * Teto efetivo de turnos (#515): `run.maxTurns` declarado vence; ausente vale
+ * 500. Não injeta a seção `run`, porque a presença dela liga as guardas do loop
+ * (checkpoint e não-progresso) para toda config.
+ */
+export function effectiveMaxTurns(config: Pick<AstroConfig, "run">): number | "unlimited" {
+  return config.run?.maxTurns ?? DEFAULT_MAX_TURNS;
+}
+
+/** Valida `preset`; desconhecido falha em vez de cair no default. */
+function validatePreset(value: unknown): Preset {
+  if (value === undefined) return DEFAULT_PRESET;
+  if (value === "simple" || value === "control") return value;
+  return fail('config inválida: "preset" deve ser "simple" ou "control"');
+}
+
+/**
+ * Preset `simple`: teto de 500. Uma camada mais restritiva (global/projeto com
+ * 30, por exemplo) continua valendo; acima de 500 é erro com o próximo passo.
+ */
+function applySimplePreset(root: Record<string, unknown>): Record<string, unknown> {
+  const check = (field: string, value: unknown): void => {
+    if (value === undefined) return;
+    if (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= SIMPLE_MAX_STEPS) return;
+    fail(
+      `config inválida: "${field}" só pode ser alterado com "preset": "control" ` +
+        `(no simple o teto é ${SIMPLE_MAX_STEPS})`,
+    );
+  };
+
+  const agent = root.agent !== null && typeof root.agent === "object"
+    ? (root.agent as Record<string, unknown>)
+    : undefined;
+  check("agent.maxSteps", agent?.maxSteps);
+
+  const agents = root.agents !== null && typeof root.agents === "object"
+    ? (root.agents as Record<string, unknown>)
+    : undefined;
+  for (const [name, entry] of Object.entries(agents ?? {})) {
+    if (entry === null || typeof entry !== "object") continue;
+    check(`agents.${name}.maxSteps`, (entry as Record<string, unknown>).maxSteps);
+  }
+
+  const run = root.run !== null && typeof root.run === "object"
+    ? (root.run as Record<string, unknown>)
+    : undefined;
+  check("run.maxTurns", run?.maxTurns);
+
+  // Só injeta quando `agent` é objeto: entrada de tipo errado segue para o
+  // validador normal, que reporta a causa certa (nunca mascara o erro).
+  if (agent === undefined) return root;
+  const declared = typeof agent.maxSteps === "number" ? agent.maxSteps : SIMPLE_MAX_STEPS;
+  return {
+    ...root,
+    agent: { ...agent, maxSteps: Math.min(declared, SIMPLE_MAX_STEPS) },
+  };
+}
 
 /** Configuração de agents nomeados (para multi-agent F3+). Campos opcionais herdam do agent principal. */
 export interface NamedAgentConfig {
@@ -298,6 +369,8 @@ export interface PathsConfig {
 }
 
 export interface AstroConfig {
+  /** Preset (#515): `simple` fixa 500 passos/turnos; `control` expõe os knobs. */
+  preset: Preset;
   providers: Record<string, ProviderConfig>;
   models: ModelConfig[];
   /** Model pool (F-27, ADR-0007): profiles resolvem para modelos de `models[]`. */
@@ -859,7 +932,7 @@ function validateAgent(value: unknown, modelPool?: Record<string, ProfileConfig>
     return {
       model,
       profile,
-      maxSteps: expectPositiveInteger(raw.maxSteps, "agent.maxSteps"),
+      maxSteps: raw.maxSteps === undefined ? BASELINE_MAX_STEPS : expectPositiveInteger(raw.maxSteps, "agent.maxSteps"),
       tools: expectStringArray(raw.tools, "agent.tools"),
       entryAgent,
       ...(systemPrompt === undefined ? {} : { systemPrompt }),
@@ -868,7 +941,7 @@ function validateAgent(value: unknown, modelPool?: Record<string, ProfileConfig>
 
   return {
     model: expectString(raw.model, "agent.model"),
-    maxSteps: expectPositiveInteger(raw.maxSteps, "agent.maxSteps"),
+    maxSteps: raw.maxSteps === undefined ? BASELINE_MAX_STEPS : expectPositiveInteger(raw.maxSteps, "agent.maxSteps"),
     tools: expectStringArray(raw.tools, "agent.tools"),
     entryAgent,
     ...(systemPrompt === undefined ? {} : { systemPrompt }),
@@ -1470,7 +1543,11 @@ function validateWebSearch(value: unknown): WebSearchConfig {
  * `status: "active"` por modelo e `quotaDomain: "default"` por provider.
  */
 export function validateConfig(raw: unknown): AstroConfig {
-  const root = expectObject(raw, "config");
+  const input = expectObject(raw, "config");
+  const preset = validatePreset(input.preset);
+  // #515: simple fixa os limites antes da validação normal; control ganha 500
+  // turnos quando não declara nenhum.
+  const root = preset === "simple" ? applySimplePreset(input) : input;
 
   const providersRaw = expectObject(root.providers, "providers");
   const providers: Record<string, ProviderConfig> = Object.create(null);
@@ -1621,7 +1698,7 @@ export function validateConfig(raw: unknown): AstroConfig {
   const security = root.security === undefined ? undefined : validateSecurity(root.security);
   const effort = root.effort === undefined ? undefined : validateEffort(root.effort);
 
-  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), ...(security === undefined ? {} : { security }), ...(effort === undefined ? {} : { effort }), attachments: validateAttachments(root.attachments), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(spawn === undefined ? {} : { spawn }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
+  return { preset, providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), ...(security === undefined ? {} : { security }), ...(effort === undefined ? {} : { effort }), attachments: validateAttachments(root.attachments), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(spawn === undefined ? {} : { spawn }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
 }
 
 /** Lê o JSON cru de um config, sem validar (o merge por camadas vem antes). */

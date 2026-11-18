@@ -393,8 +393,8 @@ test("noGlobalConfig também omite o store global", () => {
   expect(loadEffectiveConfig(configPath, { env, noGlobalConfig: true }).config.providers.s).toBeUndefined();
 });
 
-test("limites (#473): sem projeto, o teto padrão de passos é alto o suficiente (50)", () => {
-  expect(effective(undefined, undefined, store()).config.agent.maxSteps).toBe(50);
+test("limites (#473): sem projeto, o teto padrão de passos é alto o suficiente (500)", () => {
+  expect(effective(undefined, undefined, store()).config.agent.maxSteps).toBe(500);
 });
 
 test("limites (#473): o projeto pode reduzir passos e turnos abaixo do teto global", () => {
@@ -415,9 +415,9 @@ test("rejeita: projeto eleva agent.maxSteps acima do teto global ou do padrão (
   expect(() => effective({ agent: { maxSteps: 20, tools: ["read_file"] } },
     project({ agent: { model: "p/m", maxSteps: 30, tools: ["read_file"] } })))
     .toThrow(/amplia o teto global de passos \(agent\.maxSteps/);
-  // Sem teto na camada global, vale o padrão embutido (50): 60 é rejeitado.
+  // Sem teto na camada global, vale o padrão embutido (500): 600 é rejeitado.
   expect(() => effective(undefined,
-    project({ agent: { model: "p/m", maxSteps: 60, tools: ["read_file"] } })))
+    project({ agent: { model: "p/m", maxSteps: 600, tools: ["read_file"] } })))
     .toThrow(/amplia o teto global de passos/);
   // Agent nomeado respeita o teto do próprio agent global.
   expect(() => effective(twoAccounts({ coder: { maxSteps: 5, tools: ["read_file"] } }),

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runTask } from "../src/core/app";
+import { maxStepsMessage, runTask } from "../src/core/app";
 import { testEnv } from "./setup";
 
 async function withMockProvider(handler: (call: number) => unknown, fn: (baseUrl: string) => Promise<void>) {
@@ -144,4 +144,24 @@ test("limite de turnos (run.maxTurns < maxSteps) nomeia run.maxTurns (#473)", as
   expect(message).toMatch(/excedeu 1 passos/);
   expect(message).toContain('limite de turnos "run.maxTurns" = 1');
   expect(message).toContain('ajuste "run.maxTurns"');
+});
+
+test("#515 limite de turnos default (500) nomeia run.maxTurns, não o agent.maxSteps declarado", () => {
+  const config = {
+    preset: "control" as const,
+    agent: { model: "p/m", maxSteps: 1000, tools: [] as string[] },
+  };
+  const message = maxStepsMessage(config, { maxSteps: 500 });
+  expect(message).toContain("limite de turnos padrão \"run.maxTurns\" = 500");
+  expect(message).toContain('declare "run.maxTurns"');
+  expect(message).not.toContain('limite "agent.maxSteps" = 1000');
+});
+
+test("#515 run.maxTurns declarado continua nomeado com o valor efetivo", () => {
+  const config = {
+    preset: "control" as const,
+    agent: { model: "p/m", maxSteps: 10, tools: [] as string[] },
+    run: { maxTurns: 4, checkpointAt: 0.8, noProgressSegments: 3, judge: "off" as const },
+  };
+  expect(maxStepsMessage(config, { maxSteps: 4 })).toContain('limite de turnos "run.maxTurns" = 4');
 });
