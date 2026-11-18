@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { render } from "ink-testing-library";
 import { ConfigScreen } from "../src/tui/config-screen";
 import type { ConfigSummary } from "../src/chat/config-summary";
+import { updateConfigPermissionsMode } from "../src/core/config";
 import type { PermissionMode } from "../src/permissions";
 import { getThemeColors } from "../src/tui/theme";
 
@@ -147,6 +151,48 @@ test("esc no main fecha; esc no seletor volta; ctrl+c fecha; falha de save mostr
     expect(instance.lastFrame()).toContain("permissions.mode: ask"); // não mudou
     instance.stdin.write("\u0003"); // ctrl+c -> fecha
     await waitFor(() => closed === 1);
+  } finally {
+    instance.unmount();
+  }
+});
+
+test("falha de save mostra a mensagem específica uma única vez, sem linha genérica (#470)", async () => {
+  // A mensagem vem do core (arquivo ausente), não de um stub: o teste só passa se
+  // updateConfigPermissionsMode produzir o erro específico e a tela mostrar uma vez.
+  const missing = join(mkdtempSync(join(tmpdir(), "astro-tui-470-")), "astro.config.json");
+  let shown = "";
+  const instance = render(
+    <ConfigScreen
+      colors={colors}
+      summary={summary}
+      trustedFolders={[]}
+      onClose={() => undefined}
+      onSaveMode={(mode) => {
+        try {
+          updateConfigPermissionsMode(missing, mode);
+        } catch (error) {
+          shown = error instanceof Error ? error.message : String(error);
+          throw error;
+        }
+      }}
+    />,
+  );
+  try {
+    await waitFor(() => instance.lastFrame()?.includes("Configuração") === true);
+    instance.stdin.write("m");
+    await waitFor(() => instance.lastFrame()?.includes("↑/↓") === true);
+    instance.stdin.write("\u001b[A"); // ask -> allow-edits
+    await waitFor(() => instance.lastFrame()?.includes("→ allow-edits") === true);
+    instance.stdin.write("\r"); // falha de save
+    await waitFor(() => instance.lastFrame()?.includes("configuração não encontrada") === true);
+    const frame = instance.lastFrame() ?? "";
+    expect(shown).toContain("configuração não encontrada");
+    expect(shown).toContain("--config"); // próximo passo no erro do core
+    // mensagem específica aparece exatamente uma vez, sem a linha genérica antiga
+    expect(frame.split("configuração não encontrada").length - 1).toBe(1);
+    expect(frame).not.toContain("não foi possível atualizar");
+    expect(frame).toContain("--config");
+    expect(frame).toContain("permissions.mode: ask"); // modo não mudou
   } finally {
     instance.unmount();
   }

@@ -346,10 +346,26 @@ export interface AstroConfig {
   paths: PathsConfig;
 }
 
+/** Códigos estáveis das falhas de save da config (#470); sem código = erro legado. */
+export type ConfigErrorCode =
+  | "config_not_found"
+  | "config_read_denied"
+  | "config_read_failed"
+  | "config_write_denied"
+  | "config_write_failed"
+  | "config_invalid_json"
+  | "config_invalid_schema";
+
 export class ConfigError extends Error {
-  constructor(message: string) {
+  /**
+   * Código estável da falha; a propriedade só existe quando há código, porque
+   * consumidores gateiam por shape (`"code" in error`).
+   */
+  declare readonly code?: ConfigErrorCode;
+  constructor(message: string, code?: ConfigErrorCode) {
     super(message);
     this.name = "ConfigError";
+    if (code !== undefined) this.code = code;
   }
 }
 
@@ -1635,28 +1651,124 @@ export function loadConfig(path: string): AstroConfig {
   return validateConfig(loadConfigRaw(path));
 }
 
+/** Código de erro de sistema de arquivos (ENOENT, EACCES...), quando presente. */
+function fsCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+/**
+ * Falha de leitura classificada por `code` (#470): ENOENT e EACCES/EPERM têm
+ * mensagem e próximo passo próprios. Nunca ecoa conteúdo do arquivo (I-03).
+ */
+function readConfigFailure(path: string, error: unknown): ConfigError {
+  const code = fsCode(error);
+  if (code === "ENOENT") {
+    return new ConfigError(
+      `configuração não encontrada: "${path}" — crie o arquivo explicitamente ou passe --config com outro caminho`,
+      "config_not_found",
+    );
+  }
+  if (code === "EACCES" || code === "EPERM") {
+    return new ConfigError(
+      `sem permissão para ler "${path}" (${code}) — corrija as permissões do arquivo ou escolha outro caminho`,
+      "config_read_denied",
+    );
+  }
+  return new ConfigError(
+    `não foi possível ler "${path}"${code === undefined ? "" : ` (${code})`} — verifique o caminho; nada foi gravado`,
+    "config_read_failed",
+  );
+}
+
+/**
+ * Posição do erro de JSON, derivada **só da mensagem** do parser: V8 (Node) põe
+ * `position N` e, em versões novas, `(line N column M)`; JSC (Bun) não põe
+ * posição na mensagem. `error.line`/`error.column` são ignorados: no Bun eles
+ * são o frame da pilha de quem chamou `JSON.parse` (ex.: config.ts), então um
+ * token ruim na linha 9 apareceria como linha 1714. As duas fontes passam pela
+ * mesma régua: a linha precisa existir e a coluna precisa caber nela (mais uma
+ * posição depois do fim, onde o parser aponta erro de fim de entrada). Offset
+ * fora do arquivo é descartado, não realocado para o EOF. Nunca usamos o trecho
+ * do arquivo que o parser cita (I-03).
+ */
+function jsonErrorPosition(text: string, error: unknown): { line: number; column: number } | undefined {
+  const message = error instanceof Error ? error.message : "";
+  const lines = text.split("\n");
+  const accept = (line: number, column: number): { line: number; column: number } | undefined => {
+    if (!Number.isSafeInteger(line) || !Number.isSafeInteger(column)) return undefined;
+    if (line < 1 || line > lines.length || column < 1) return undefined;
+    const target = lines[line - 1] ?? "";
+    return column <= target.length + 1 ? { line, column } : undefined;
+  };
+
+  const inMessage = /\(line (\d+) column (\d+)\)/.exec(message);
+  if (inMessage !== null) return accept(Number(inMessage[1]), Number(inMessage[2]));
+
+  const offset = /position (\d+)/.exec(message)?.[1];
+  if (offset === undefined) return undefined;
+  const index = Number(offset);
+  if (!Number.isSafeInteger(index) || index < 0 || index > text.length) return undefined;
+  const before = text.slice(0, index);
+  return accept(before.split("\n").length, index - before.lastIndexOf("\n"));
+}
+
+/** Mensagem de JSON inválido com linha/coluna quando disponível; nunca o conteúdo (I-03). */
+function invalidJsonMessage(path: string, text: string, error: unknown): string {
+  const at = jsonErrorPosition(text, error);
+  const where = at === undefined ? "" : ` na linha ${at.line}, coluna ${at.column}`;
+  return `JSON inválido em "${path}"${where} — corrija a sintaxe; o arquivo não foi alterado`;
+}
+
+/** Falha de escrita classificada por `code` (#470); o original fica intacto. */
+function writeConfigFailure(path: string, error: unknown): ConfigError {
+  const code = fsCode(error);
+  if (code === "EACCES" || code === "EPERM") {
+    return new ConfigError(
+      `sem permissão para gravar "${path}" (${code}) — corrija as permissões ou escolha outro caminho; o arquivo original não foi alterado`,
+      "config_write_denied",
+    );
+  }
+  return new ConfigError(
+    `não foi possível gravar "${path}"${code === undefined ? "" : ` (${code})`} — verifique permissões e espaço em disco; o arquivo original não foi alterado`,
+    "config_write_failed",
+  );
+}
+
 /**
  * Lê o JSON cru, aplica `mutate`, valida o resultado com `validateConfig` e
- * grava de forma atômica (tmp + rename, modo 0600). Qualquer falha joga
- * `ConfigError` e deixa o arquivo original intacto (sem tmp órfão).
+ * grava de forma atômica (tmp + rename, modo 0600). As quatro falhas de
+ * leitura/parse/schema são `ConfigError` distintos, cada um com o próximo
+ * passo (#470); qualquer falha deixa o arquivo original intacto (sem tmp
+ * órfão) e nenhuma mensagem contém conteúdo do arquivo, segredo ou stack (I-03).
  */
 function updateConfigFile(path: string, mutate: (raw: Record<string, unknown>) => void): void {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw readConfigFailure(path, error);
+  }
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    // I-03: o detalhe do parser de JSON pode citar conteúdo do arquivo — não ecoar.
-    throw new ConfigError(`não foi possível atualizar "${path}": leitura/JSON falhou`);
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new ConfigError(invalidJsonMessage(path, text, error), "config_invalid_json");
   }
   if (!isPlainObject(raw)) {
-    throw new ConfigError(`não foi possível atualizar "${path}": raiz não é um objeto`);
+    throw new ConfigError(
+      `config inválida em "${path}": a raiz deve ser um objeto — corrija o arquivo; nada foi gravado`,
+      "config_invalid_schema",
+    );
   }
   try {
     mutate(raw);
     validateConfig(raw); // garante que a config resultante continua válida antes de gravar
   } catch (error) {
+    // O detalhe já é a mensagem classificada (campo + valor esperado), sem conteúdo do arquivo.
     const detail = error instanceof Error ? error.message : String(error);
-    throw new ConfigError(`não foi possível atualizar "${path}": ${detail}`);
+    throw new ConfigError(`${detail} — corrija o campo indicado em "${path}"; o arquivo não foi alterado`, "config_invalid_schema");
   }
   const tmp = `${path}.${randomUUID()}.tmp`;
   try {
@@ -1664,8 +1776,7 @@ function updateConfigFile(path: string, mutate: (raw: Record<string, unknown>) =
     renameSync(tmp, path);
   } catch (error) {
     try { unlinkSync(tmp); } catch { /* tmp já não existe */ }
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new ConfigError(`não foi possível gravar "${path}": ${detail}`);
+    throw writeConfigFailure(path, error);
   }
 }
 

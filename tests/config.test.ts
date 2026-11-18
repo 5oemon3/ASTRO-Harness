@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigError, loadConfig, providerAccountRefFor, providerCredentialRefFor, updateConfigPermissionsMode, validateConfig } from "../src/core/config";
@@ -279,5 +279,213 @@ describe("updateConfigPermissionsMode (#273)", () => {
     expect(() => updateConfigPermissionsMode(path, "ask")).toThrow(ConfigError);
     expect(readFileSync(path, "utf8")).toBe("{ não é json");
     expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+});
+
+describe("erros distintos ao salvar a config via /config (#470)", () => {
+  const minimal = {
+    providers: { openai: { kind: "openai-compat", baseUrl: "https://api.openai.com/v1", credentialRef: "OPENAI_API_KEY" } },
+    models: [{ provider: "openai", id: "gpt-4o-mini", tags: ["writing-code"], context: 128000 }],
+    agent: { model: "openai/gpt-4o-mini", maxSteps: 12, tools: [] },
+    paths: { ledger: "l", audit: "a" },
+  };
+  const noTmp = (dir: string): void => {
+    expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  };
+  const capture = (fn: () => void): ConfigError & { code?: string } => {
+    try {
+      fn();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      return error as ConfigError & { code?: string };
+    }
+    throw new Error("esperava ConfigError");
+  };
+
+  test("ENOENT: nomeia o caminho ausente e o próximo passo (--config), sem mensagem genérica", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json"); // não existe
+    const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+    expect(err.code).toBe("config_not_found");
+    expect(err.message).toContain(path);
+    expect(err.message).toContain("--config");
+    expect(err.message).not.toContain("leitura/JSON falhou");
+    expect(err.message).not.toContain("não foi possível atualizar"); // mensagem genérica sumiu
+    noTmp(dir);
+  });
+
+  test("EISDIR (caminho de diretório): leitura falhou, não é 'não encontrado'", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    // `dir` é um diretório: readFileSync falha com EISDIR
+    const err = capture(() => updateConfigPermissionsMode(dir, "ask"));
+    expect(err.code).toBe("config_read_failed");
+    expect(err.message).toContain("não foi possível ler");
+    expect(err.message).toContain(dir);
+    expect(err.message).toContain("EISDIR");
+    expect(err.message).not.toContain("não foi possível atualizar");
+    noTmp(dir);
+  });
+
+  test("JSON inválido: a posição reportada fica dentro do arquivo, nunca no frame da pilha", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json");
+    const content = '{\n  "providers": {},\n  "models": [], "agent": {"model": "x", tokenAqui }\n}';
+    writeFileSync(path, content);
+    const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+    expect(err.code).toBe("config_invalid_json");
+    expect(err.message).toMatch(/JSON inválido/);
+    expect(err.message).toContain(path);
+    expect(err.message).not.toContain("tokenAqui"); // conteúdo do arquivo nunca ecoa
+    expect(err.message).toContain("não foi alterado");
+    // Bun põe no erro o line/column do frame que chamou JSON.parse (config.ts), não o do
+    // JSON; posição fora do arquivo nunca é reportada. Parser sem posição na mensagem
+    // (Bun) => nenhuma linha/coluna é afirmada.
+    const reported = /linha (\d+), coluna (\d+)/.exec(err.message);
+    if (reported !== null) {
+      const line = Number(reported[1]);
+      expect(line).toBeGreaterThanOrEqual(1);
+      expect(line).toBeLessThanOrEqual(content.split("\n").length);
+      expect(Number(reported[2])).toBeGreaterThanOrEqual(1);
+    }
+    expect(readFileSync(path, "utf8")).toBe(content);
+    noTmp(dir);
+  });
+
+  test("posição do JSON vem só da mensagem do parser (V8), com limites do arquivo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json");
+    const content = '{\n  "a": 1,\n  "b": foo\n}\n';
+    writeFileSync(path, content);
+    const index = content.indexOf("foo"); // linha 3, coluna 8
+    /** Joga o erro que o parser jogaria; Bun não põe posição na mensagem, V8 põe. */
+    const withParseError = (error: unknown, run: () => void): void => {
+      const original = JSON.parse;
+      JSON.parse = () => { throw error; };
+      try {
+        run();
+      } finally {
+        JSON.parse = original;
+      }
+    };
+
+    withParseError(new SyntaxError(`Unexpected token 'o', "..." is not valid JSON at position ${index}`), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).toContain("na linha 3, coluna 8"); // position -> linha/coluna
+    });
+    withParseError(new SyntaxError(`Expected property name or '}' in JSON at position ${index} (line 3 column 8)`), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).toContain("na linha 3, coluna 8"); // (line N column M) vence position
+    });
+    withParseError(new SyntaxError("Bad JSON at position 4 (line 99 column 2)"), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).not.toMatch(/linha \d+/); // fora do arquivo (4 linhas): descarta
+    });
+    // Offset bruto além do fim do arquivo: descartado, não realocado para o EOF
+    // (realocar daria uma linha plausível e falsa).
+    withParseError(new SyntaxError("Unexpected end of JSON input at position 9999"), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).not.toMatch(/linha \d+/);
+    });
+    // Offset com dígitos demais (Number -> Infinity) e offset não inteiro seguro (2^53).
+    withParseError(new SyntaxError(`Bad JSON at position ${"9".repeat(400)}`), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).not.toMatch(/linha \d+/);
+    });
+    withParseError(new SyntaxError("Bad JSON at position 9007199254740992"), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).not.toMatch(/linha \d+/);
+    });
+    // Fim da entrada: continua válido, uma coluna depois do último caractere.
+    withParseError(new SyntaxError(`Unexpected end of JSON input at position ${content.length}`), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).toContain("na linha 5, coluna 1");
+    });
+    // Coluna além do fim da linha citada: mesma régua do offset.
+    withParseError(new SyntaxError("Bad JSON at position 4 (line 1 column 999)"), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).not.toMatch(/linha \d+/);
+    });
+    // Bun: line/column do frame da pilha (config.ts:1714), sem posição na mensagem.
+    withParseError(Object.assign(new SyntaxError("JSON Parse error: Property name must be a string literal"), { line: 1714, column: 5 }), () => {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.message).not.toMatch(/linha \d+/);
+    });
+    expect(readFileSync(path, "utf8")).toBe(content);
+    noTmp(dir);
+  });
+
+  test("ConfigError.code é opcional de verdade: sem código a propriedade não existe", () => {
+    const legacy = new ConfigError("mensagem antiga");
+    expect("code" in legacy).toBe(false); // consumidores gateiam por shape ("code" in error)
+    expect(legacy.code).toBeUndefined();
+    const coded = new ConfigError("falhou", "config_write_failed");
+    expect("code" in coded).toBe(true);
+    expect(coded.code).toBe("config_write_failed");
+  });
+
+  test("raiz que não é objeto: erro de schema nomeando o problema; arquivo intacto", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json");
+    writeFileSync(path, "[1, 2]");
+    const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+    expect(err.code).toBe("config_invalid_schema");
+    expect(err.message).toMatch(/raiz deve ser um objeto/);
+    expect(err.message).toContain(path);
+    expect(readFileSync(path, "utf8")).toBe("[1, 2]");
+    noTmp(dir);
+  });
+
+  test("schema inválido (validateConfig): nomeia o campo e o esperado; arquivo intacto", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json");
+    const original = JSON.stringify({ ...minimal, agent: { model: "openai/gpt-4o-mini", maxSteps: -1, tools: [] } });
+    writeFileSync(path, original);
+    const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+    expect(err.code).toBe("config_invalid_schema");
+    expect(err.message).toContain("agent.maxSteps");
+    expect(err.message).toContain("inteiro positivo");
+    expect(err.message).toContain("não foi alterado");
+    expect(err.message).not.toContain("não foi possível atualizar");
+    expect(readFileSync(path, "utf8")).toBe(original);
+    noTmp(dir);
+  });
+
+  // Permissão só dá para expressar fora do Windows (ACL não mapeia para EACCES).
+  const itPosix = process.platform === "win32" ? test.skip : test;
+
+  itPosix("EACCES na leitura: nomeia caminho e operação negada", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json");
+    writeFileSync(path, JSON.stringify(minimal));
+    chmodSync(path, 0o000);
+    try {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.code).toBe("config_read_denied");
+      expect(err.message).toContain(path);
+      expect(err.message).toMatch(/permissão/i);
+      expect(err.message).toContain("EACCES");
+    } finally {
+      chmodSync(path, 0o600);
+    }
+    noTmp(dir);
+  });
+
+  itPosix("EACCES na escrita: nomeia caminho e 'gravar'; original intacto e sem tmp", () => {
+    const dir = mkdtempSync(join(tmpdir(), "astro-config-470-"));
+    const path = join(dir, "astro.config.json");
+    const original = JSON.stringify(minimal);
+    writeFileSync(path, original);
+    chmodSync(dir, 0o555); // diretório sem escrita: o tmp+rename falha
+    try {
+      const err = capture(() => updateConfigPermissionsMode(path, "ask"));
+      expect(err.code).toBe("config_write_denied");
+      expect(err.message).toContain(path);
+      expect(err.message).toMatch(/gravar/);
+      expect(err.message).toContain("original não foi alterado");
+      expect(readFileSync(path, "utf8")).toBe(original);
+      noTmp(dir);
+    } finally {
+      chmodSync(dir, 0o755);
+    }
   });
 });
