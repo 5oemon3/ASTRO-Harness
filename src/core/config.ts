@@ -212,6 +212,11 @@ export interface HandoffConfig {
 /** Default do timeout de ack (F-24, D-15). */
 export const DEFAULT_ACK_TIMEOUT_MS = 30_000;
 
+/** Seção `spawn` (A11, ADR-0008): paralelismo é opt-in; serial é o default. */
+export interface SpawnConfig {
+  parallel?: boolean;
+}
+
 /** Permissões por chamada de tool (PERM-01): modo global do harness. */
 export interface PermissionsConfig {
   mode: PermissionMode;
@@ -319,6 +324,8 @@ export interface AstroConfig {
   team?: TeamSectionConfig;
   /** Handoff (F-24): timeout do ack; default 30000ms (D-15). */
   handoff?: HandoffConfig;
+  /** Fan-out de subagentes (A11): paralelo só com `parallel: true`. */
+  spawn?: SpawnConfig;
   /** Permissões por chamada (PERM-01); default `ask`. */
   permissions: PermissionsConfig;
   /** Segurança (ADR-0027): limiar de entropia para o tier `sensitive`. */
@@ -411,19 +418,8 @@ function expectBoolean(value: unknown, field: string): boolean {
  * `kind` para provider de plugin. Sem chave, o próprio provider é a conta.
  */
 export function providerAccountRefFor(name: string, provider: ProviderConfig): string {
-  const raw = provider as { kind: string; credentialRef?: unknown; credentialsPath?: unknown };
-  if (raw.kind === "openai-compat") {
-    return typeof raw.credentialRef === "string" && raw.credentialRef.length > 0
-      ? raw.credentialRef
-      : `provider:${name}`;
-  }
-  if (raw.kind === "codex-oauth") {
-    return typeof raw.credentialsPath === "string"
-      ? expandHome(raw.credentialsPath)
-      : `provider:${name}`;
-  }
-  if (typeof raw.credentialRef === "string") return raw.credentialRef;
-  return raw.kind;
+  const credentialRef = providerCredentialRefFor(provider);
+  return credentialRef !== undefined && credentialRef.length > 0 ? credentialRef : `provider:${name}`;
 }
 
 /**
@@ -1210,6 +1206,14 @@ function validateHandoff(value: unknown): HandoffConfig {
   };
 }
 
+/** Valida a seção `spawn` (A11): só `parallel`, booleano; ausente = serial. */
+function validateSpawn(value: unknown): SpawnConfig {
+  const raw = expectObject(value, "spawn");
+  return {
+    ...(raw.parallel === undefined ? {} : { parallel: expectBoolean(raw.parallel, "spawn.parallel") }),
+  };
+}
+
 /** Valida `permissions` (PERM-01); ausente vira `{ mode: "ask" }`. */
 function validatePermissions(value: unknown): PermissionsConfig {
   const raw = value === undefined ? {} : expectObject(value, "permissions");
@@ -1542,6 +1546,8 @@ export function validateConfig(raw: unknown): AstroConfig {
     }
   }
 
+  const spawn = root.spawn === undefined ? undefined : validateSpawn(root.spawn);
+
   // Validar seção tools (F4-6)
   const tools = root.tools === undefined ? undefined : validateTools(root.tools);
 
@@ -1598,7 +1604,7 @@ export function validateConfig(raw: unknown): AstroConfig {
   const security = root.security === undefined ? undefined : validateSecurity(root.security);
   const effort = root.effort === undefined ? undefined : validateEffort(root.effort);
 
-  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), ...(security === undefined ? {} : { security }), ...(effort === undefined ? {} : { effort }), attachments: validateAttachments(root.attachments), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
+  return { providers, models, modelPool, agent, agents, ...(maxActive === undefined ? {} : { maxActive }), tools, telemetry, quota, cache, plugins, version, team, handoff, permissions: validatePermissions(root.permissions), ...(security === undefined ? {} : { security }), ...(effort === undefined ? {} : { effort }), attachments: validateAttachments(root.attachments), outputLimit: validateOutputLimit(root.outputLimit), compaction: validateCompaction(root.compaction), ...(webSearch === undefined ? {} : { webSearch }), ...(budget === undefined ? {} : { budget }), ...(run === undefined ? {} : { run }), ...(spawn === undefined ? {} : { spawn }), ...(pricing === undefined ? {} : { pricing }), ...(mcpServers === undefined ? {} : { mcpServers }), paths };
 }
 
 /** Lê o JSON cru de um config, sem validar (o merge por camadas vem antes). */

@@ -180,7 +180,7 @@ ASTRO is in **alpha**. Interfaces may still change before a stable release.
 | Layer 0: durable handoffs, model pools and profiles, per-agent cost, provider fallback | In progress |
 | C1 skills and C2 MCP client | Done |
 | C3 `web_search` and `web_fetch` | Done |
-| C4 agent profiles and isolated subagents | In progress: cheap/strong routing and the `task` tool shipped; the blackboard is pending |
+| C4 agent profiles and isolated subagents | In progress: cheap/strong routing and the `task` tool shipped; v2 parallel fan-out (A11) is opt-in via `spawn.parallel`; the blackboard is pending |
 | C5 deterministic completion gate | In progress: 65-case golden dataset, bench success rate/summary, six integration flows and the 80% coverage gate shipped; the deterministic completion gate remains pending |
 | C7 `astro doctor` diagnostics | Done |
 | C7 modular `src/core` and `src/providers` split | Done; the wider event-bus/runtime-boundary split is still unimplemented |

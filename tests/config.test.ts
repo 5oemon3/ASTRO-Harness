@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfigError, loadConfig, updateConfigPermissionsMode, validateConfig } from "../src/core/config";
+import { ConfigError, loadConfig, providerAccountRefFor, providerCredentialRefFor, updateConfigPermissionsMode, validateConfig } from "../src/core/config";
+import { accountRefOf } from "../src/agent-lock";
 import type { ModelConfig, ModelStatus } from "../src/core/config";
 import type { PermissionMode } from "../src/permissions";
 import { isKnownTag } from "../src/tags";
@@ -132,6 +133,28 @@ describe("agents (F3-1)", () => {
     (noTools.agents!.planner as any).tools = undefined;
     const cfg = validateConfig(noTools);
     expect(cfg.agents!.planner.tools).toEqual(valid.agent.tools);
+  });
+});
+
+describe("spawn (A11)", () => {
+  test("paralelo é opt-in e o valor precisa ser booleano", () => {
+    expect(validateConfig(structuredClone(valid)).spawn).toBeUndefined();
+    const raw = structuredClone(valid) as typeof valid & { spawn?: { parallel?: unknown } };
+    raw.spawn = { parallel: true };
+    expect(validateConfig(raw).spawn?.parallel).toBe(true);
+    raw.spawn = { parallel: "yes" };
+    expect(() => validateConfig(raw)).toThrow(/spawn\.parallel/);
+  });
+
+  test("conta do provider casa com a chave do lock em plugin sem credencial", () => {
+    const accountOfLock = (provider: Parameters<typeof providerAccountRefFor>[1]) =>
+      accountRefOf({ credentialRef: providerCredentialRefFor(provider), provider: "plug" });
+    for (const provider of [
+      { kind: "custom", baseUrl: "http://x" },
+      { kind: "custom", baseUrl: "http://x", credentialRef: "" },
+    ]) {
+      expect(providerAccountRefFor("plug", provider as never)).toBe(accountOfLock(provider as never));
+    }
   });
 });
 

@@ -230,6 +230,14 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
     ...(reserveUsd === 0 ? {} : { reserved: reserveUsd }),
     ...(opts.budget.hardCeilingUsd === undefined ? {} : { hardCeilingUsd: opts.budget.hardCeilingUsd }),
   };
+  // B9/A11: a reserva entra na mesma seção síncrona do orçamento lido; dois
+  // filhos paralelos não podem passar com o mesmo saldo. A liberação continua
+  // no caller, depois da chamada.
+  const reserve = (): void => {
+    if (reserveUsd > 0) {
+      opts.ledger.recordBudgetReserved({ run: opts.run, agent: opts.agent, reserved: reserveUsd, detail: "call" });
+    }
+  };
   if (ceilingHit) {
     opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "budget.ceiling_hit", payload });
     opts.ledger.recordCeilingHit({ run: opts.run, agent: opts.agent, ceiling_hit: true });
@@ -242,7 +250,10 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
     opts.ledger.recordBudgetExceeded({ run: opts.run, agent: opts.agent, exceeded_choice: "stop" });
     throw new BudgetExceededError("unknown_price", status);
   }
-  if (!exhausted) return "continue_same";
+  if (!exhausted) {
+    reserve();
+    return "continue_same";
+  }
 
   if (opts.budget.onExceed === "stop" || opts.decide === undefined) {
     const nonInteractive = opts.budget.onExceed !== "stop";
@@ -292,11 +303,13 @@ export async function enforceBudget(opts: EnforceBudgetOptions): Promise<BudgetC
       ...(oldCeiling === undefined ? {} : { old_ceiling_usd: oldCeiling }),
       ...(result.hardCeilingUsd === undefined ? {} : { new_ceiling_usd: result.hardCeilingUsd, confirmed_ceiling: true }),
     });
+    reserve();
     return choice;
   }
   opts.audit.append({ run: opts.run, agent: opts.agent, tipo: "budget.exceeded", payload: { ...payload, choice } });
   opts.ledger.recordBudgetExceeded({ run: opts.run, agent: opts.agent, exceeded_choice: choice });
   if (choice === "stop") throw new BudgetExceededError("limit", status);
+  reserve();
   return choice;
 }
 

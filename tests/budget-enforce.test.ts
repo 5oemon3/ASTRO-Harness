@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Auditor } from "../src/audit";
 import { runTask } from "../src/core/app";
-import { BudgetExceededError, effectiveBudget, enforceBudget } from "../src/budget";
+import { BudgetExceededError, budgetStatus, effectiveBudget, enforceBudget } from "../src/budget";
 import type { BudgetConfig } from "../src/core/config";
 import { Ledger } from "../src/ledger";
 
@@ -63,6 +63,24 @@ describe("enforcement de budget (F-05, #132 parte 3)", () => {
     expect((error as BudgetExceededError).reason).toBe("ceiling");
     expect(ledger.readAllEntries().some((e) => e.kind === "budget" && e.event === "ceiling_hit")).toBe(true);
     expect(opts.audit.readAll().some((e) => e.tipo === "budget.ceiling_hit")).toBe(true);
+  });
+
+  test("duas reservas concorrentes não furam o teto (A11)", async () => {
+    const ledger = ledgerWith(0.985);
+    const opts = base(ledger, {
+      budget: budget({ limitUsd: 1, hardCeilingUsd: 1 }),
+      reserveUsd: 0.01,
+    });
+    const results = await Promise.allSettled([enforceBudget(opts), enforceBudget(opts)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect((rejected as PromiseRejectedResult | undefined)?.reason).toBeInstanceOf(BudgetExceededError);
+    expect(((rejected as PromiseRejectedResult).reason as BudgetExceededError).reason).toBe("ceiling");
+    const reserved = ledger.readAllEntries().filter(
+      (entry) => entry.kind === "budget" && entry.event === "reserved",
+    );
+    expect(reserved).toHaveLength(1);
+    expect(budgetStatus(opts.budget, ledger).spentUsd!).toBeLessThanOrEqual(1);
   });
 });
 

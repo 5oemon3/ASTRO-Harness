@@ -432,6 +432,14 @@ export async function runSession(
       maybeWarnBudget(opts.agent);
       // Budget (B4/B9): reserva a cadeia e checa o teto antes da chamada
       const reserveUsd = opts.budget === undefined ? 0 : (opts.budgetReserve?.(opts.model, opts.agentProfile) ?? 0);
+      // Team (F7-5): budget do projeto e quota do agent, somando o ledger inteiro
+      // (antes da reserva para não deixar reserva órfã em erro de time).
+      if (opts.teamLimits?.projectBudgetUsd !== undefined) {
+        assertProjectBudget(opts.ledger, opts.teamLimits.projectBudgetUsd);
+      }
+      if (opts.teamLimits?.agentQuotas !== undefined) {
+        assertAgentQuota(opts.ledger, opts.teamLimits.agentQuotas, opts.agent);
+      }
       if (opts.budget !== undefined) {
         const choice = await enforceBudget({
           budget: runBudget ?? opts.budget, ledger: opts.ledger, run: opts.run, agent: opts.agent, audit: opts.audit,
@@ -443,16 +451,11 @@ export async function runSession(
           effectiveMaxSteps = Math.min(effectiveMaxSteps, step + Math.max(1, Math.floor((effectiveMaxSteps - step) / 2)));
         }
       }
-      // Team (F7-5): budget do projeto e quota do agent, somando o ledger inteiro
-      if (opts.teamLimits?.projectBudgetUsd !== undefined) {
-        assertProjectBudget(opts.ledger, opts.teamLimits.projectBudgetUsd);
-      }
-      if (opts.teamLimits?.agentQuotas !== undefined) {
-        assertAgentQuota(opts.ledger, opts.teamLimits.agentQuotas, opts.agent);
-      }
-      if (opts.budget !== undefined && reserveUsd > 0) {
-        opts.ledger.recordBudgetReserved({ run: opts.run, agent: opts.agent, reserved: reserveUsd, detail: "call" });
-      }
+      const releaseReserve = (): void => {
+        if (opts.budget !== undefined && reserveUsd > 0) {
+          opts.ledger.recordBudgetReleased({ run: opts.run, agent: opts.agent, released: reserveUsd });
+        }
+      };
       const stepSpan = tracer?.start("step", { step, agent: redactSecrets(opts.agent) }, rootSpan);
       const providerSpan = tracer?.start(
         "provider.complete",
@@ -488,6 +491,9 @@ export async function runSession(
           recordAuxUsage(summary, opts.model, opts.agent);
           return summary.content;
         }),
+      }).catch((error) => {
+        releaseReserve();
+        throw error;
       });
       tracer?.end(providerSpan, {
         "tokens.in": response.usage.inputTokens,
@@ -1207,6 +1213,14 @@ export async function runMultiAgentSession(
       maybeWarnBudget(currentAgentName);
       // Budget (B4/B9): reserva a cadeia e checa o teto antes da chamada
       const reserveUsd = opts.budget === undefined ? 0 : (opts.budgetReserve?.(currentModel, currentAgent.profile) ?? 0);
+      // Team (F7-5): budget do projeto e quota do agent corrente (antes da
+      // reserva para não deixar reserva órfã em erro de time).
+      if (opts.teamLimits?.projectBudgetUsd !== undefined) {
+        assertProjectBudget(opts.ledger, opts.teamLimits.projectBudgetUsd);
+      }
+      if (opts.teamLimits?.agentQuotas !== undefined) {
+        assertAgentQuota(opts.ledger, opts.teamLimits.agentQuotas, currentAgentName);
+      }
       if (opts.budget !== undefined) {
         const choice = await enforceBudget({
           budget: runBudget ?? opts.budget, ledger: opts.ledger, run: opts.run, agent: currentAgentName, audit: opts.audit,
@@ -1217,16 +1231,11 @@ export async function runMultiAgentSession(
           effectiveBaseMaxSteps = Math.min(effectiveBaseMaxSteps, step + Math.max(1, Math.floor((effectiveBaseMaxSteps - step) / 2)));
         }
       }
-      // Team (F7-5): budget do projeto e quota do agent corrente
-      if (opts.teamLimits?.projectBudgetUsd !== undefined) {
-        assertProjectBudget(opts.ledger, opts.teamLimits.projectBudgetUsd);
-      }
-      if (opts.teamLimits?.agentQuotas !== undefined) {
-        assertAgentQuota(opts.ledger, opts.teamLimits.agentQuotas, currentAgentName);
-      }
-      if (opts.budget !== undefined && reserveUsd > 0) {
-        opts.ledger.recordBudgetReserved({ run: opts.run, agent: currentAgentName, reserved: reserveUsd, detail: "call" });
-      }
+      const releaseReserve = (): void => {
+        if (opts.budget !== undefined && reserveUsd > 0) {
+          opts.ledger.recordBudgetReleased({ run: opts.run, agent: currentAgentName, released: reserveUsd });
+        }
+      };
 
       // Atualizar executor com tools do agent atual
       const executor = new ToolExecutor({
@@ -1285,6 +1294,9 @@ export async function runMultiAgentSession(
           return summary.content;
         }),
         onCompacted: () => saveAgentState(currentAgentName),
+      }).catch((error) => {
+        releaseReserve();
+        throw error;
       });
       tracer?.end(providerSpan, {
         "tokens.in": response.usage.inputTokens,

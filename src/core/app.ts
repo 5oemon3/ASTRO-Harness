@@ -206,7 +206,9 @@ function providerIdentity(
   }
   const rawCredentialRef = providerConfig.credentialRef;
   return {
-    credentialRef: typeof rawCredentialRef === "string" ? rawCredentialRef : providerConfig.kind,
+    credentialRef: typeof rawCredentialRef === "string" && rawCredentialRef.length > 0
+      ? rawCredentialRef
+      : providerConfig.kind,
     quotaDomain,
   };
 }
@@ -805,7 +807,11 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       return cacheScope(model);
     }
   };
-  const withCache = (provider: Provider, scope: string | ((req: CompletionRequest) => string)): Provider => {
+  const withCache = (
+    provider: Provider,
+    scope: string | ((req: CompletionRequest) => string),
+    attribution?: { run: string; agent: string },
+  ): Provider => {
     const c = cache;
     if (c === undefined) return provider;
     return cachedProvider(provider, {
@@ -814,7 +820,12 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       ttlHours: config.cache!.ttlHours,
       maxEntries: config.cache!.maxEntries,
       onHit: (key) => {
-        audit.append({ run, agent: activeAgent.name, tipo: "cache.hit", payload: { key: key.slice(0, 16) } });
+        audit.append({
+          run: attribution?.run ?? run,
+          agent: attribution?.agent ?? activeAgent.name,
+          tipo: "cache.hit",
+          payload: { key: key.slice(0, 16) },
+        });
       },
     });
   };
@@ -852,6 +863,39 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       fallback: m,
       resolve: (key) => registry.require(key),
       providerFor: (target) => providerForModel(target),
+    });
+  };
+  /**
+   * Provider escopado ao run do filho (A11): locks, fallback e move usam o
+   * childRun/agent do filho, nunca as closures do run pai. Sem cache
+   * compartilhado entre filhos: cada delegação monta a própria cadeia.
+   */
+  const providerForChild = (
+    m: ModelEntry,
+    profile: string | undefined,
+    routing: ModelRouting | undefined,
+    childRun: string,
+    childAgent: string,
+  ): Provider => {
+    const build = (target: ModelEntry, targetProfile: string | undefined): Provider => {
+      const built = (config.providers[target.provider]?.fallback ?? []).length > 0
+        ? providerChain(
+            config, target, env, loaded.providerFactories, audit, childRun, ledger,
+            quotaLimits, targetProfile, approveSwap, () => childAgent, priceOf,
+          )
+        : createGuardedProvider(
+            config, target, env, loaded.providerFactories, audit, childRun, ledger,
+            quotaLimits, targetProfile, () => childAgent,
+          );
+      return withCache(built, cacheScope(target), { run: childRun, agent: childAgent });
+    };
+    const base = build(m, profile);
+    if (routing === undefined || profile !== undefined) return base;
+    return createRoutedProvider({
+      routing,
+      fallback: m,
+      resolve: (key) => registry.require(key),
+      providerFor: (target) => build(target, undefined),
     });
   };
 
@@ -921,22 +965,37 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
   toolsByName.set("task", createTaskTool({
     audit,
     knownAgents: () => registry.listAgentNames(),
+    parallel: config.spawn?.parallel === true,
+    maxActive: config.maxActive ?? 2,
+    activeCount: () => activeLocks(ledger).filter((lock) => lock.run === redactSecrets(run)).length,
+    accountOf: (agent) => {
+      const target = registry.requireAgent(agent);
+      const targetModel = registry.resolveModel(target);
+      const provider = config.providers[targetModel.provider];
+      return provider === undefined
+        ? `provider:${targetModel.provider}`
+        : providerAccountRefFor(targetModel.provider, provider);
+    },
     delegate: async ({ agent, prompt, maxSteps, signal, callerAllow, callerPermission }) => {
       const target = registry.requireAgent(agent);
       const targetModel = registry.resolveModel(target);
-      // v1: o filho compartilha a conta já travada pelo chamador; trocar de conta é recusado.
+      // A11: sem spawn.parallel o filho compartilha a conta já travada pelo
+      // chamador; com a flag, o filho de outra conta adquire a sua (A4).
       const parentAccount = currentAccount() ?? providerAccountRefFor(model.provider, config.providers[model.provider]!);
       const targetProvider = config.providers[targetModel.provider];
+      const parallel = config.spawn?.parallel === true;
       if (targetProvider === undefined) {
         throw new Error(`task: provider "${targetModel.provider}" do agent "${agent}" não está configurado`);
       }
-      if (providerAccountRefFor(targetModel.provider, targetProvider) !== parentAccount) {
-        throw new Error(`task: agent "${agent}" usa outra conta; delegação entre contas não é suportada em v1`);
+      const sameAccount = providerAccountRefFor(targetModel.provider, targetProvider) === parentAccount;
+      if (!sameAccount && !parallel) {
+        throw new Error(`task: agent "${agent}" usa outra conta; delegação entre contas exige spawn.parallel`);
       }
       const parentAllow = new Set(callerAllow ?? config.agent.tools);
-      // Teto = allowlist efetiva do chamador, sem recursão de task em v1.
+      // Teto = allowlist efetiva do chamador, sem recursão de task nem neto via
+      // spawn_agent em filho de task (ADR-0008 A5/A11).
       const allow = (target.tools ?? config.agent.tools)
-        .filter((name) => parentAllow.has(name) && name !== "task");
+        .filter((name) => parentAllow.has(name) && name !== "task" && name !== "spawn_agent");
       const executor = new ToolExecutor({
         tools: childTools,
         allow,
@@ -948,13 +1007,17 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
       });
       // Run própria para o filho: não sobrescreve o estado do run pai no ledger.
       const childRun = `${run}.task.${randomUUID()}`;
+      const targetIdentity = providerIdentity(config, targetModel.provider);
+      const childProvider = sameAccount
+        ? providerFor(targetModel, target.profile, target.modelRouting)
+        : providerForChild(targetModel, target.profile, target.modelRouting, childRun, agent);
       const result = await runSession({
         run: childRun,
         agent,
-        credentialRef,
-        quotaDomain,
+        ...(targetIdentity.credentialRef === undefined ? {} : { credentialRef: targetIdentity.credentialRef }),
+        quotaDomain: targetIdentity.quotaDomain,
         cwd,
-        provider: providerFor(targetModel, target.profile, target.modelRouting),
+        provider: childProvider,
         model: targetModel,
         executor,
         ledger,
@@ -966,7 +1029,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         env,
         protectedPaths: [ledgerPath, auditPath],
         secretEnvNames,
-        inheritAgentLock: true,
+        inheritAgentLock: sameAccount,
         taskHash: shortTaskHash(prompt),
         // L5/L6 (#135): o filho da task segue config.run e o decider do pai; o run do filho é codificado no path.
         ...(config.run === undefined
@@ -978,6 +1041,7 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         ...(signal === undefined ? {} : { signal }),
         ...(quotaLimits === undefined ? {} : { quotaLimits }),
         ...(budget === undefined ? {} : { budget }),
+        ...(budget === undefined ? {} : { budgetReserve: (m: ModelEntry, profile?: string) => reserveForCall(config, registry, m, profile) }),
         ...(resolveIdentity === undefined ? {} : { resolveIdentity }),
         ...(target.profile === undefined ? {} : { agentProfile: target.profile }),
       }, prompt);
