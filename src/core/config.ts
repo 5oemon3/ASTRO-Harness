@@ -13,6 +13,7 @@ import { isAuthHeader, isEnvName, isVaultCredentialRef, looksLikeSecret } from "
 import { headerEnvName, isValidHeaderName } from "../mcp/headers";
 import { outboundUrlProblem, urlProblem } from "../url-safety";
 import { CAPACITY_TAGS, ROLE_TAGS, isKnownTag } from "../tags";
+import { isJudgeMode, type JudgeMode } from "../judge";
 import { checkpointIdProblem } from "../loop-guard";
 
 /** Configuração comum a todos os providers. */
@@ -183,8 +184,8 @@ export interface RunConfig {
   checkpointAt: number;
   /** Segmentos consecutivos sem mudança que disparam a pausa (L6); default 3. */
   noProgressSegments: number;
-  /** Judge do loop (L4): só "off" nesta versão; "on"/"auto" ficam para a v2 (#138). */
-  judge: "off";
+  /** Judge do loop (L4, #450): `off` (default), `on` a cada conclusão ou `auto` por sinal. */
+  judge: JudgeMode;
 }
 
 /** Seção `attachments` (ADR-0026, #392): imagem, diretório e artifact store. */
@@ -1130,8 +1131,8 @@ function validateRun(value: unknown): RunConfig {
   const noProgressSegments =
     raw.noProgressSegments === undefined ? 3 : expectPositiveInteger(raw.noProgressSegments, "run.noProgressSegments");
   const judge = raw.judge === undefined ? "off" : raw.judge;
-  if (judge !== "off") {
-    fail('config inválida: "run.judge" aceita só "off" nesta versão; "on"/"auto" chegam na v2 (#138)');
+  if (!isJudgeMode(judge)) {
+    fail('config inválida: "run.judge" deve ser "off", "on" ou "auto"');
   }
   return {
     ...(raw.maxTurns === undefined

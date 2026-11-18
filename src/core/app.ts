@@ -1034,7 +1034,11 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         // L5/L6 (#135): o filho da task segue config.run e o decider do pai; o run do filho é codificado no path.
         ...(config.run === undefined
           ? {}
-          : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
+          : {
+              checkpointAt: config.run.checkpointAt,
+              noProgressSegments: config.run.noProgressSegments,
+              ...(config.run.judge === "off" ? {} : { judge: config.run.judge }),
+            }),
         ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
         ...(config.effort === undefined ? {} : { effort: config.effort }),
         ...(opts.allowCritical === undefined && opts.allowSensitive === undefined ? {} : { allowCritical: opts.allowCritical, allowSensitive: opts.allowSensitive }),
@@ -1160,6 +1164,11 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
         ...(config.compaction === undefined ? {} : { compaction: config.compaction }),
         spawns,
       };
+      // L4 (#450): o juiz é estágio do runSession single-agent; no multi-agent não há
+      // completion única para julgar — audita a lacuna em vez de ignorar em silêncio.
+      if (config.run !== undefined && config.run.judge !== "off") {
+        audit.append({ run, agent: activeAgent.name, tipo: "judge.skipped", payload: { reason: "unsupported" } });
+      }
       result = await runMultiAgentSession(multiOpts, task);
     } else {
       result = await runSession(
@@ -1178,7 +1187,11 @@ export async function runTask(opts: RunOptions): Promise<RunReport> {
           taskHash: shortTaskHash(opts.task),
           ...(config.run === undefined
             ? {}
-            : { checkpointAt: config.run.checkpointAt, noProgressSegments: config.run.noProgressSegments }),
+            : {
+                checkpointAt: config.run.checkpointAt,
+                noProgressSegments: config.run.noProgressSegments,
+                ...(config.run.judge === "off" ? {} : { judge: config.run.judge }),
+              }),
           ...(opts.onNoProgress === undefined ? {} : { onNoProgress: opts.onNoProgress }),
           ...(config.effort === undefined ? {} : { effort: config.effort }),
           ...(opts.history === undefined ? {} : { history: opts.history }),

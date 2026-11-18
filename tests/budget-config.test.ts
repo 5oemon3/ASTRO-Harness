@@ -95,11 +95,13 @@ describe("budget config (F-05, #132 parte 1)", () => {
     expect(withBudget(undefined, { run: { noProgressSegments: 5 } }).run?.noProgressSegments).toBe(5);
   });
 
-  test('run.judge aceita só "off"; "on"/"auto" → ConfigError citando #138 (L4, #135)', () => {
-    expect(withBudget(undefined, { run: { judge: "off" } }).run?.judge).toBe("off");
-    for (const bad of ["on", "auto"]) {
+  test('run.judge aceita "off", "on" e "auto"; valor fora do vocabulário → ConfigError (L4, #450)', () => {
+    for (const ok of ["off", "on", "auto"] as const) {
+      expect(withBudget(undefined, { run: { judge: ok } }).run?.judge).toBe(ok);
+    }
+    for (const bad of ["ligado", "ON", true, 1]) {
       expect(() => withBudget(undefined, { run: { judge: bad } })).toThrow(/run\.judge/);
-      expect(() => withBudget(undefined, { run: { judge: bad } })).toThrow(/#138/);
+      expect(() => withBudget(undefined, { run: { judge: bad } })).toThrow(/off.*on.*auto/);
     }
   });
 });
