@@ -25,6 +25,7 @@ Objetivo: apontar o documento certo para cada tarefa.
 | `docs/roadmap-complementar.md` | Itens planejados das camadas 0–3 (F-xx, T, C, P) | ~120 |
 | `docs/providers.md` | Ao construir provider, validar credencial ou usar os SDKs | ~90 |
 | `docs/doctor.md` | Ao usar ou alterar `astro doctor`: checks, `--online` e formato `doctor/v1` (#61) | ~90 |
+| `docs/tui-layout.md` | Ao mudar header, footer, erro, aviso ou progresso da TUI (#480) | ~116 |
 | `docs/skills.md` | Ao criar, instalar, revisar ou invocar uma skill (`/<nome>`) | ~100 |
 | `docs/ci.md` | Ao mexer em workflow, investigar falha de CI ou decidir merge | ~35 |
 | `docs/eval.md` | Ao rodar `eval`/`bench`, ler success rate, filtro de provider/modelo ou agendamento de CI (`#59`) | ~70 |
