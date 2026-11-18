@@ -146,7 +146,7 @@ All commands run as `astro <command>`. From a clone, `bun src/cli.ts <command>` 
 | `eval` | Runs the golden dataset in mock mode as a regression gate. |
 | `bench` | Reports latency, tokens per second and cost per model. |
 | `health` | Validates configuration, credentials and provider connectivity. |
-| `doctor [--json] [--fix] [--online]` | Local diagnostics without network (versions, dependencies, dist, config, credentials by name, skills, MCP, disk permissions). `--online` adds the F6-6 provider health checks (5s timeout per provider). `--json` emits a stable `doctor/v1` payload with `name/status/message` (`error` on failure); `--fix` creates only `$ASTRO_HOME`, refusing relative, `..` or symlink values. Details: [`docs/doctor.md`](docs/doctor.md). |
+| `doctor [--json] [--fix] [--online]` | Local diagnostics without network (versions, dependencies, dist, config, credentials by name, skills, MCP, disk permissions). `--online` adds the F6-6 provider health checks (5s timeout per provider) and one MCP connection probe per enabled server (`mcp:<name>`, 5s budget capped by the server's own `timeoutMs`); `--json` emits a stable `doctor/v1` payload with `name/status/message` (`error` on failure); `--fix` creates only `$ASTRO_HOME`, refusing relative, `..` or symlink values. Details: [`docs/doctor.md`](docs/doctor.md). |
 | `cost --by-agent` | Shows cost per agent and profile, read from the ledger. |
 | `handoff show <handoff_id>` | Inspects a durable handoff and its compaction audit. |
 | `serve` | Exposes `/metrics` in Prometheus format. |
@@ -201,7 +201,7 @@ bun run doctor               # local environment diagnostics, no network
 bun src/cli.ts doctor        # same checks through the CLI
 bun src/cli.ts doctor --json # stable doctor/v1 payload for scripts and CI
 bun src/cli.ts doctor --fix  # create $ASTRO_HOME; never the artifact root
-bun src/cli.ts doctor --online # add provider health checks (network)
+bun src/cli.ts doctor --online # add provider health and MCP connection probes (network)
 bun link                     # after a build, make the global `astro` command point to this checkout
 ```
 

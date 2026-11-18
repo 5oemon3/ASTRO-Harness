@@ -1260,7 +1260,7 @@ function validateSecurity(value: unknown): SecurityConfig {
   return { entropyThreshold: raw.entropyThreshold };
 }
 
-const MCP_TRANSPORTS: readonly MCPServerConfig["transport"][] = ["stdio", "sse", "http"];
+export const MCP_TRANSPORTS: readonly MCPServerConfig["transport"][] = ["stdio", "sse", "http"];
 
 /** Valida um registro de strings (env/headers de mcpServers). */
 function stringRecord(raw: Record<string, unknown>, field: string): Record<string, string> {

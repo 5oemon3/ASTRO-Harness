@@ -13,6 +13,7 @@ import { readGcMarker, resolveArtifactRoot, validateArtifactRoot } from "./attac
 import type { HealthCheck } from "./health";
 import { ARTIFACT_KEY_PATTERN, SHA256_HEX } from "./internal-ids";
 import { headerEnvNames } from "./mcp/headers";
+import type { McpConnector } from "./mcp/probe";
 import { resolveAstroHome } from "./permissions";
 import { redactSecrets } from "./sanitize-external";
 import { isVaultCredentialRef, isVaultRef } from "./secrets";
@@ -794,8 +795,11 @@ export function collectFacts(
 /** Opções do `--online`: `onlineCwd` só vale aqui; offline usa o cwd do processo. */
 export interface OnlineOptions {
   onlineCwd?: string;
+  /** Teto por verificação (provider e servidor MCP); default é o de cada sonda. */
   timeoutMs?: number;
   fetchLike?: typeof fetch;
+  /** Conector MCP injetável; default `MCPClient.connect`. Teste não abre socket. */
+  mcpConnect?: McpConnector;
 }
 
 function healthCheck(check: HealthCheck): Check {
@@ -807,7 +811,44 @@ function healthCheck(check: HealthCheck): Check {
   };
 }
 
-/** `--online` (F6-6): health vira check, nunca exceção; timeout é o do health. */
+/** Um check por servidor habilitado; falha vira check, nunca exceção (C2). */
+async function collectMcpChecks(
+  servers: Record<string, MCPServerConfig> | undefined,
+  env: Record<string, string | undefined>,
+  options: Pick<OnlineOptions, "timeoutMs" | "mcpConnect">,
+): Promise<Check[]> {
+  const enabled = Object.entries(servers ?? {}).filter(([, server]) => server.enabled);
+  if (enabled.length === 0) return [];
+  const probeOptions = {
+    env,
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.mcpConnect === undefined ? {} : { connect: options.mcpConnect }),
+  };
+  try {
+    const { probeMcpServer } = await import("./mcp/probe");
+    // `allSettled`: uma sonda problemática não colapsa os checks dos outros.
+    const settled = await Promise.allSettled(enabled.map(([name, server]) => probeMcpServer(name, server, probeOptions)));
+    const checks: Check[] = [];
+    for (const [index, item] of settled.entries()) {
+      const name = enabled[index]![0];
+      if (item.status === "rejected") {
+        const detail = item.reason instanceof Error ? item.reason.message : String(item.reason);
+        checks.push({ name: `mcp:${name}`, level: "fail", label: `mcp ${name}`, detail: redactSecrets(`sonda falhou: ${detail}`) });
+      } else if (item.value !== undefined) {
+        checks.push({ name: item.value.name, level: item.value.level === "error" ? "fail" : "ok", label: `mcp ${name}`, detail: item.value.message });
+      }
+    }
+    return checks;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    // Slug próprio: `mcp` já é o agregado offline, e `name` tem de ser único.
+    return [{ name: "mcp:probe", level: "fail", label: "mcp probe", detail: redactSecrets(`sonda MCP falhou: ${detail}`) }];
+  }
+}
+
+const NO_PROVIDER_DETAIL = "nenhum provider configurado; nada para verificar (sem rede)";
+
+/** `--online` (F6-6 + C2): health por provider e uma sonda por servidor MCP. */
 export async function collectOnlineChecks(
   env: Record<string, string | undefined>,
   options: OnlineOptions = {},
@@ -819,12 +860,12 @@ export async function collectOnlineChecks(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     if (error instanceof NoProviderError) {
-      return [{ name: "online", level: "ok", label: "online", detail: "nenhum provider configurado; nada para verificar (sem rede)" }];
+      // Config ausente: sem lista validada de servidores, então a sonda MCP não roda
+      // (mesma regra da config inválida). Ver docs/doctor.md.
+      return [{ name: "online", level: "ok", label: "online", detail: NO_PROVIDER_DETAIL }];
     }
+    // Config inválida: sem sonda MCP, porque não há lista confiável de servidores.
     return [{ name: "online", level: "warn", label: "online", detail: redactSecrets(`config inválida; health online não executado: ${detail}`) }];
-  }
-  if (Object.keys(config.providers).length === 0) {
-    return [{ name: "online", level: "ok", label: "online", detail: "nenhum provider configurado; nada para verificar (sem rede)" }];
   }
   try {
     // Import tardio: offline não carrega o registry nem o caminho de rede.
@@ -843,14 +884,16 @@ export async function collectOnlineChecks(
       label: "online",
       detail: `health F6-6: ${report.status}`,
     });
+    checks.push(...await collectMcpChecks(config.mcpServers, env, options));
     return checks.map(sanitizeCheck);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return [{ name: "online", level: "fail", label: "online", detail: redactSecrets(`health online falhou: ${detail}`) }];
+    const failed: Check = { name: "online", level: "fail", label: "online", detail: redactSecrets(`health online falhou: ${detail}`) };
+    return [failed, ...await collectMcpChecks(config.mcpServers, env, options)].map(sanitizeCheck);
   }
 }
 
-/** Relatório do CLI: checks offline e, só com `online: true`, o health F6-6. */
+/** Relatório do CLI: checks offline e, só com `online: true`, health e sonda MCP. */
 export async function runDoctor(
   root: string,
   options: { online?: boolean; env?: NodeJS.ProcessEnv; artifactRoot?: string } & OnlineOptions = {},
